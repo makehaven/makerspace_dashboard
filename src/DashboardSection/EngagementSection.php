@@ -89,6 +89,11 @@ class EngagementSection extends DashboardSectionBase {
       '#type' => 'chart_xaxis',
       '#labels' => $labels,
     ];
+    $build['badge_funnel_info'] = $this->buildChartInfo([
+      $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
+      $this->t('Processing: Orientation completion is keyed off configured orientation badge term IDs; first/tool-enabled badges use the earliest qualifying badge within the activation window (default 90 days).'),
+      $this->t('Definitions: Members without any qualifying badge remain at the "Joined" stage; tool-enabled requires the taxonomy flag field_badge_access_control.'),
+    ]);
 
     $velocity = $snapshot['velocity'];
     $velocityLabels = array_map(fn($label) => $this->t($label), $velocity['labels']);
@@ -109,6 +114,36 @@ class EngagementSection extends DashboardSectionBase {
       '#type' => 'chart_xaxis',
       '#labels' => $velocityLabels,
     ];
+    $build['engagement_velocity_info'] = $this->buildChartInfo([
+      $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),
+      $this->t('Processing: Calculates elapsed days between join date and first badge award, then buckets into ranges (0-3, 4-7, 8-14, 15-30, 31-60, 60+, no badge).'),
+      $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
+    ]);
+
+    $badgeVolume = $snapshot['badge_volume'];
+    if (!empty($badgeVolume['counts']) && array_sum($badgeVolume['counts']) > 0) {
+      $build['badge_volume'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Badge awards by time since join'),
+        '#description' => $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.'),
+      ];
+      $build['badge_volume']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Badges awarded'),
+        '#data' => $badgeVolume['counts'],
+      ];
+      $build['badge_volume']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map(fn($label) => (string) $this->t($label), $badgeVolume['labels']),
+      ];
+      $build['badge_volume_info'] = $this->buildChartInfo([
+        $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
+        $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
+        $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
+      ]);
+    }
 
     $joined = (int) $funnel['totals']['joined'];
     $firstBadge = (int) $funnel['totals']['first_badge'];

@@ -80,6 +80,59 @@ class MembershipMetricsService {
   }
 
   /**
+   * Returns membership end reasons grouped by period.
+   */
+  public function getEndReasonsByPeriod(\DateTimeImmutable $start, \DateTimeImmutable $end, string $granularity = 'month'): array {
+    $granularity = $this->normalizeGranularity($granularity);
+    $startKey = $start->format('Y-m-d');
+    $endKey = $end->format('Y-m-d');
+    $cacheId = sprintf('makerspace_dashboard:membership:end_reasons:%s:%s:%s', $startKey, $endKey, $granularity);
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('profile__field_member_end_reason')) {
+      return [];
+    }
+
+    $periodExpression = $this->buildPeriodExpression('end_date.field_member_end_date_value', $granularity);
+
+    $query = $this->database->select('profile', 'p');
+    $query->innerJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
+    $query->leftJoin('profile__field_member_end_reason', 'end_reason', 'end_reason.entity_id = p.profile_id AND end_reason.deleted = 0');
+
+    $query->addExpression($periodExpression, 'period_key');
+    $query->addExpression("COALESCE(NULLIF(end_reason.field_member_end_reason_value, ''), 'Unknown')", 'reason');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'total_members');
+
+    $query->where("STR_TO_DATE(end_date.field_member_end_date_value, '%Y-%m-%d') BETWEEN STR_TO_DATE(:start_date, '%Y-%m-%d') AND STR_TO_DATE(:end_date, '%Y-%m-%d')", [
+      ':start_date' => $startKey,
+      ':end_date' => $endKey,
+    ]);
+
+    $query->groupBy('period_key');
+    $query->groupBy('reason');
+    $query->orderBy('period_key', 'ASC');
+    $query->orderBy('reason', 'ASC');
+
+    $rows = $query->execute()->fetchAll();
+
+    $result = [];
+    foreach ($rows as $row) {
+      $result[] = [
+        'period' => $row->period_key,
+        'reason' => $row->reason,
+        'count' => (int) $row->total_members,
+      ];
+    }
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $result, $expire, ['profile_list', 'user_list']);
+
+    return $result;
+  }
+
+  /**
    * Returns annual cohort retention metrics between the given years.
    */
   public function getAnnualCohorts(int $startYear, int $endYear): array {

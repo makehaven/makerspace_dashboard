@@ -134,4 +134,193 @@ class EventsMembershipDataService {
     return $data;
   }
 
+  /**
+   * Returns monthly registration counts grouped by event type.
+   */
+  public function getMonthlyRegistrationsByType(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cid = 'makerspace_dashboard:registrations_by_type:' . $start_date->getTimestamp() . ':' . $end_date->getTimestamp();
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->fields('p', []);
+    $query->addExpression("DATE_FORMAT(e.start_date, '%Y-%m-01')", 'month_key');
+    $query->addExpression("COALESCE(ov.label, 'Unknown')", 'event_type');
+    $query->addExpression('COUNT(DISTINCT p.id)', 'registrations');
+    $query->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+    if ($eventTypeGroupId) {
+      $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [':event_type_group' => $eventTypeGroupId]);
+    }
+    else {
+      $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->leftJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->condition('pst.is_counted', 1);
+    $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->groupBy('month_key');
+    $query->groupBy('event_type');
+    $query->orderBy('month_key', 'ASC');
+    $query->orderBy('event_type', 'ASC');
+
+    $results = $query->execute();
+
+    $months = $this->buildMonthRange($start_date, $end_date);
+    $types = [];
+    foreach ($months as $monthKey => $label) {
+      $types[$monthKey] = [];
+    }
+
+    $typeNames = [];
+    foreach ($results as $record) {
+      $monthKey = $record->month_key;
+      $type = $record->event_type;
+      $registrations = (int) $record->registrations;
+      $typeNames[$type] = TRUE;
+      if (!isset($types[$monthKey][$type])) {
+        $types[$monthKey][$type] = 0;
+      }
+      $types[$monthKey][$type] += $registrations;
+    }
+
+    $typeList = array_keys($typeNames);
+    sort($typeList);
+
+    $dataset = [];
+    foreach ($typeList as $eventType) {
+      $dataset[$eventType] = [];
+      foreach (array_keys($months) as $monthKey) {
+        $dataset[$eventType][] = $types[$monthKey][$eventType] ?? 0;
+      }
+    }
+
+    $data = [
+      'months' => array_values($months),
+      'types' => $dataset,
+    ];
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['civicrm_participant_list']);
+
+    return $data;
+  }
+
+  /**
+   * Returns average paid amount per registration grouped by event type and month.
+   */
+  public function getAverageRevenuePerRegistration(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cid = 'makerspace_dashboard:avg_revenue_by_type:' . $start_date->getTimestamp() . ':' . $end_date->getTimestamp();
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->addExpression("DATE_FORMAT(e.start_date, '%Y-%m-01')", 'month_key');
+    $query->addExpression("COALESCE(ov.label, 'Unknown')", 'event_type');
+    $query->addExpression('SUM(c.total_amount)', 'total_amount');
+    $query->addExpression('COUNT(DISTINCT p.id)', 'registration_count');
+    $query->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+    if ($eventTypeGroupId) {
+      $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [':event_type_group' => $eventTypeGroupId]);
+    }
+    else {
+      $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->leftJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->condition('pst.is_counted', 1);
+    $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
+    $query->leftJoin('civicrm_contribution', 'c', 'c.id = pp.contribution_id');
+    $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->groupBy('month_key');
+    $query->groupBy('event_type');
+    $query->orderBy('month_key', 'ASC');
+    $query->orderBy('event_type', 'ASC');
+
+    $results = $query->execute();
+
+    $months = $this->buildMonthRange($start_date, $end_date);
+    $typeNames = [];
+    $averages = [];
+    foreach ($results as $record) {
+      $monthKey = $record->month_key;
+      $type = $record->event_type;
+      $total = (float) $record->total_amount;
+      $count = max(1, (int) $record->registration_count);
+      $typeNames[$type] = TRUE;
+      if (!isset($averages[$type])) {
+        $averages[$type] = [];
+      }
+      $averages[$type][$monthKey] = $total > 0 ? round($total / $count, 2) : 0;
+    }
+
+    $typeList = array_keys($typeNames);
+    sort($typeList);
+
+    $dataset = [];
+    foreach ($typeList as $eventType) {
+      $series = [];
+      foreach (array_keys($months) as $monthKey) {
+        $series[] = $averages[$eventType][$monthKey] ?? 0;
+      }
+      $dataset[$eventType] = $series;
+    }
+
+    $data = [
+      'months' => array_values($months),
+      'types' => $dataset,
+    ];
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['civicrm_participant_list']);
+
+    return $data;
+  }
+
+  /**
+   * Helper to produce a placeholder chart dataset for future capacity metrics.
+   */
+  public function getSampleCapacitySeries(): array {
+    return [
+      'months' => ['Jan', 'Feb', 'Mar', 'Apr'],
+      'data' => [65, 72, 68, 75],
+      'note' => 'Sample data – replace with actual workshop capacity utilization.',
+    ];
+  }
+
+  /**
+   * Builds an array of Y-m keyed months within range.
+   */
+  protected function buildMonthRange(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $startMonth = $start->modify('first day of this month');
+    $endMonth = $end->modify('first day of next month');
+    $period = new \DatePeriod($startMonth, new \DateInterval('P1M'), $endMonth);
+    $months = [];
+    foreach ($period as $month) {
+      $months[$month->format('Y-m-01')] = $month->format('M Y');
+    }
+    return $months;
+  }
+
+  /**
+   * Resolves the option group ID for event types.
+   */
+  protected function getEventTypeGroupId(): ?int {
+    static $cache;
+    if ($cache !== NULL) {
+      return $cache;
+    }
+    $query = $this->database->select('civicrm_option_group', 'og');
+    $query->fields('og', ['id']);
+    $query->condition('og.name', 'event_type');
+    $groupId = $query->execute()->fetchField();
+    $cache = $groupId ? (int) $groupId : NULL;
+    return $cache;
+  }
+
 }

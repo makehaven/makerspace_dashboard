@@ -118,4 +118,98 @@ class FinancialDataService {
     return $mix;
   }
 
+  /**
+   * Computes average recorded monthly payment amount by membership type.
+   */
+  public function getAverageMonthlyPaymentByType(): array {
+    $cid = 'makerspace_dashboard:avg_payment_by_type';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      return ['types' => [], 'overall' => 0.0];
+    }
+
+    $query = $this->database->select('profile__field_member_payment_monthly', 'payment');
+    $query->innerJoin('profile', 'p', 'p.profile_id = payment.entity_id');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->condition('u.status', 1);
+    $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
+    $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
+
+    $query->addExpression("COALESCE(term.name, 'Unknown')", 'membership_type');
+    $query->addExpression('AVG(payment.field_member_payment_monthly_value)', 'avg_payment');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
+
+    $query->groupBy('membership_type');
+    $query->orderBy('membership_type', 'ASC');
+
+    $results = $query->execute();
+
+    $typeStats = [];
+    $totalAmount = 0;
+    $totalMembers = 0;
+
+    foreach ($results as $record) {
+      $avg = (float) $record->avg_payment;
+      $count = (int) $record->member_count;
+      $total = $avg * $count;
+      $typeStats[$record->membership_type] = [
+        'average' => round($avg, 2),
+        'members' => $count,
+        'total' => round($total, 2),
+      ];
+      $totalAmount += $total;
+      $totalMembers += $count;
+    }
+
+    $overallAverage = $totalMembers > 0 ? round($totalAmount / $totalMembers, 2) : 0.0;
+
+    $data = [
+      'types' => $typeStats,
+      'overall_average' => $overallAverage,
+      'total_revenue' => round($totalAmount, 2),
+      'total_members' => $totalMembers,
+    ];
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['profile_list']);
+
+    return $data;
+  }
+
+  /**
+   * Returns Chargebee plan distribution for active users.
+   */
+  public function getChargebeePlanDistribution(): array {
+    $cid = 'makerspace_dashboard:chargebee_plan_distribution';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('user__field_user_chargebee_plan')) {
+      return [];
+    }
+
+    $query = $this->database->select('user__field_user_chargebee_plan', 'plan');
+    $query->addExpression("COALESCE(NULLIF(plan.field_user_chargebee_plan_value, ''), 'Unassigned')", 'plan_label');
+    $query->addExpression('COUNT(DISTINCT plan.entity_id)', 'member_count');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = plan.entity_id');
+    $query->condition('u.status', 1);
+    $query->groupBy('plan_label');
+    $query->orderBy('member_count', 'DESC');
+
+    $data = [];
+    foreach ($query->execute() as $record) {
+      $data[$record->plan_label] = (int) $record->member_count;
+    }
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['user_list']);
+
+    return $data;
+  }
+
 }

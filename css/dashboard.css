@@ -1,0 +1,67 @@
+.makerspace-dashboard-wrapper {
+  padding: 1.5rem 1rem 2rem;
+}
+
+.makerspace-dashboard-section {
+  margin-bottom: 2.5rem;
+}
+
+.makerspace-dashboard-section .chart,
+.makerspace-dashboard-section .charts-chartjs {
+  display: block;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 100%;
+}
+
+.makerspace-dashboard-section .chart {
+  background-color: #f8fafc;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.makerspace-dashboard-section canvas {
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+}
+
+.makerspace-dashboard-info {
+  margin-bottom: 2rem;
+  border: 1px solid #d0d7de;
+  border-radius: 6px;
+  background-color: #ffffff;
+}
+
+.makerspace-dashboard-info > summary {
+  font-weight: 600;
+}
+
+.makerspace-dashboard-info .item-list {
+  padding: 0.75rem 1.25rem 1rem;
+}
+
+.makerspace-dashboard-info .item-list ul {
+  margin: 0;
+}
+
+.makerspace-dashboard-info .item-list li {
+  margin-bottom: 0.35rem;
+}
+
+.makerspace-dashboard-summary {
+  margin-bottom: 1.5rem;
+}
+
+.makerspace-dashboard-definition {
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.makerspace-dashboard-section .makerspace-dashboard-info + .chart,
+.makerspace-dashboard-section .chart + .makerspace-dashboard-info {
+  margin-top: 1rem;
+}

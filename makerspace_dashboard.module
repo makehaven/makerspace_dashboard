@@ -18,3 +18,23 @@ function makerspace_dashboard_library_info_alter(array &$libraries, $extension) 
     }
   }
 }
+
+use Drupal\Core\Form\FormStateInterface;
+
+/**
+ * Move Chart.js pie/doughnut legends to TOP (workaround for 4.4.x bug).
+ */
+function makerspace_dashboard_charts_process_alter(array &$build, FormStateInterface $form_state): void {
+  if (empty($build['#chart'])) {
+    return;
+  }
+  $lib  = $build['#chart']['library'] ?? '';
+  $type = $build['#chart']['type'] ?? '';
+  if ($lib === 'chartjs' && in_array($type, ['pie', 'doughnut'], true)) {
+    $build['#chart']['options']['plugins']['legend']['position'] = 'top';
+  }
+
+  if (!empty($build['#chart']['data']['labels']) && is_array($build['#chart']['data']['labels'])) {
+    $build['#chart']['data']['labels'] = array_map('strval', $build['#chart']['data']['labels']);
+  }
+}
