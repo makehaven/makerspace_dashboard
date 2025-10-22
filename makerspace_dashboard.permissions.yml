@@ -1,0 +1,3 @@
+view makerspace dashboard:
+  title: 'View Makerspace dashboards'
+  description: 'Access aggregated Makerspace dashboard insights without exposing personally identifiable data.'

@@ -1,0 +1,79 @@
+services:
+  makerspace_dashboard.utilization_data:
+    class: Drupal\makerspace_dashboard\Service\UtilizationDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+
+  makerspace_dashboard.demographics_data:
+    class: Drupal\makerspace_dashboard\Service\DemographicsDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+
+  makerspace_dashboard.membership_metrics:
+    class: Drupal\makerspace_dashboard\Service\MembershipMetricsService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+
+  makerspace_dashboard.section_manager:
+    class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
+    arguments:
+      - !tagged_iterator makerspace_dashboard.section
+    public: true
+
+  makerspace_dashboard.section.utilization:
+    class: Drupal\makerspace_dashboard\DashboardSection\UtilizationSection
+    arguments:
+      - '@date.formatter'
+      - '@datetime.time'
+      - '@makerspace_dashboard.utilization_data'
+      - '@config.factory'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.demographics:
+    class: Drupal\makerspace_dashboard\DashboardSection\DemographicsSection
+    arguments:
+      - '@makerspace_dashboard.demographics_data'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.engagement:
+    class: Drupal\makerspace_dashboard\DashboardSection\EngagementSection
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.events_membership:
+    class: Drupal\makerspace_dashboard\DashboardSection\EventsMembershipSection
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.retention:
+    class: Drupal\makerspace_dashboard\DashboardSection\RetentionSection
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@date.formatter'
+      - '@datetime.time'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.financial:
+    class: Drupal\makerspace_dashboard\DashboardSection\FinancialSection
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]

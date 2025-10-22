@@ -1,0 +1,14 @@
+makerspace_dashboard.dashboard:
+  path: '/makerspace-dashboard'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
+    _title: 'Makerspace Dashboard'
+  requirements:
+    _permission: 'view makerspace dashboard'
+makerspace_dashboard.settings:
+  path: '/admin/config/makerspace/dashboard'
+  defaults:
+    _form: '\Drupal\makerspace_dashboard\Form\DashboardSettingsForm'
+    _title: 'Makerspace dashboard settings'
+  requirements:
+    _permission: 'administer site configuration'

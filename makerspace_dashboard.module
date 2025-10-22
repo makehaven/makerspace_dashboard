@@ -1,0 +1,20 @@
+<?php
+
+/**
+ * Implements hook_library_info_alter().
+ */
+function makerspace_dashboard_library_info_alter(array &$libraries, $extension) {
+  if ($extension === 'views_slideshow_cycle' && isset($libraries['views_slideshow_cycle'])) {
+    $json_key = '/libraries/json2/json2.js';
+    if (isset($libraries['views_slideshow_cycle']['js'][$json_key])) {
+      $json_path = DRUPAL_ROOT . $json_key;
+      if (!file_exists($json_path)) {
+        // Swap in a CDN-backed JSON2 variant when the local library is absent.
+        unset($libraries['views_slideshow_cycle']['js'][$json_key]);
+        $libraries['views_slideshow_cycle']['js']['https://cdnjs.cloudflare.com/ajax/libs/json2/20160501/json2.min.js'] = [
+          'type' => 'external',
+        ];
+      }
+    }
+  }
+}
