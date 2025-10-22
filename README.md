@@ -10,6 +10,7 @@ Aggregated dashboards that summarize makerspace health across utilization, engag
 - **Extensibility** – Each tab is a tagged service implementing `DashboardSectionInterface`. Add new insights by registering additional section services or extending existing ones with configurable filters.
 - **Membership metrics** – `MembershipMetricsService` aggregates join/end events and yearly cohorts from profile metadata so retention charts stay fast even as history grows.
 - **Configuration** – Adjust chart windows and tab-level notes at `/admin/config/makerspace/dashboard`; notes render above the corresponding tab for added context.
+- **Engagement settings** – Configure cohort/activation windows and orientation badge term IDs to drive the New Member Engagement charts.
 
 ## Key Profile Fields (Drupal)
 

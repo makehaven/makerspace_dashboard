@@ -2,12 +2,28 @@
 
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
+use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\makerspace_dashboard\Service\EngagementDataService;
 
 /**
  * Shows early member engagement signals like badges earned and trainings.
  */
 class EngagementSection extends DashboardSectionBase {
+
+  protected EngagementDataService $dataService;
+
+  protected DateFormatterInterface $dateFormatter;
+
+  protected TimeInterface $time;
+
+  public function __construct(EngagementDataService $data_service, DateFormatterInterface $date_formatter, TimeInterface $time) {
+    parent::__construct();
+    $this->dataService = $data_service;
+    $this->dateFormatter = $date_formatter;
+    $this->time = $time;
+  }
 
   /**
    * {@inheritdoc}
@@ -27,61 +43,87 @@ class EngagementSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): array {
-    $build = [];
+    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+    $range = $this->dataService->getDefaultRange($now);
+    $snapshot = $this->dataService->getEngagementSnapshot($range['start'], $range['end']);
 
+    $activationDays = $this->dataService->getActivationWindowDays();
+    $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
+    $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
+
+    $build = [];
     $build['intro'] = [
       '#type' => 'markup',
-      '#markup' => $this->t('Track how quickly new members earn key badges and complete onboarding milestones within their first 90 days.'),
+      '#markup' => $this->t('Tracking new members who joined between @start and @end. Activation window: @days days from join date.', [
+        '@start' => $cohortStart,
+        '@end' => $cohortEnd,
+        '@days' => $activationDays,
+      ]),
     ];
+
+    $funnel = $snapshot['funnel'];
+    $labels = array_map(fn($label) => $this->t($label), $funnel['labels']);
 
     $build['badge_funnel'] = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('Badge activation funnel (sample)'),
-      '#description' => $this->t('Replace with badge status changes pulled from profile revisions to show cohort progress.'),
+      '#title' => $this->t('Badge activation funnel'),
+      '#description' => $this->t('Progression of new members through orientation, first badge, and tool-enabled badges.'),
     ];
-
     $build['badge_funnel']['series'] = [
       '#type' => 'chart_data',
       '#title' => $this->t('Members'),
-      '#data' => [130, 92, 71, 38],
+      '#data' => array_map('intval', $funnel['counts']),
     ];
-
     $build['badge_funnel']['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => [
-        $this->t('Joined'),
-        $this->t('Attended orientation'),
-        $this->t('Earned first badge'),
-        $this->t('Reached active tool status'),
-      ],
+      '#labels' => $labels,
     ];
+
+    $velocity = $snapshot['velocity'];
+    $velocityLabels = array_map(fn($label) => $this->t($label), $velocity['labels']);
 
     $build['engagement_velocity'] = [
       '#type' => 'chart',
-      '#chart_type' => 'line',
+      '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('Days to first badge (sample distribution)'),
-      '#description' => $this->t('Plot histogram buckets of days-to-first-badge to see how onboarding adjustments impact adoption.'),
+      '#title' => $this->t('Days to first badge'),
+      '#description' => $this->t('Distribution of days elapsed from join date to first non-orientation badge.'),
     ];
-
     $build['engagement_velocity']['series'] = [
       '#type' => 'chart_data',
       '#title' => $this->t('Members'),
-      '#data' => [5, 22, 47, 31, 12, 4],
+      '#data' => array_map('intval', $velocity['counts']),
     ];
-
     $build['engagement_velocity']['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => [
-        $this->t('0-3 days'),
-        $this->t('4-7 days'),
-        $this->t('8-14 days'),
-        $this->t('15-30 days'),
-        $this->t('31-60 days'),
-        $this->t('60+ days'),
-      ],
+      '#labels' => $velocityLabels,
+    ];
+
+    $joined = (int) $funnel['totals']['joined'];
+    $firstBadge = (int) $funnel['totals']['first_badge'];
+    $toolEnabled = (int) $funnel['totals']['tool_enabled'];
+
+    $build['summary'] = [
+      '#theme' => 'item_list',
+      '#items' => array_filter([
+        $this->t('Cohort size: @count members', ['@count' => $joined]),
+        $joined ? $this->t('@percent% reach their first badge within @days days', [
+          '@percent' => $velocity['cohort_percent'],
+          '@days' => $activationDays,
+        ]) : NULL,
+        $firstBadge ? $this->t('Median days to first badge: @median', ['@median' => $velocity['median']]) : NULL,
+        $toolEnabled ? $this->t('@count members earn a tool-enabled badge', ['@count' => $toolEnabled]) : NULL,
+      ]),
+      '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+    ];
+
+    $build['#cache'] = [
+      'max-age' => 3600,
+      'contexts' => ['timezone'],
+      'tags' => ['user_list', 'config:makerspace_dashboard.settings'],
     ];
 
     return $build;

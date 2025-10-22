@@ -19,6 +19,13 @@ services:
       - '@cache.default'
       - '@datetime.time'
 
+  makerspace_dashboard.engagement_data:
+    class: Drupal\makerspace_dashboard\Service\EngagementDataService
+    arguments:
+      - '@database'
+      - '@config.factory'
+      - '@datetime.time'
+
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
     arguments:
@@ -48,6 +55,10 @@ services:
 
   makerspace_dashboard.section.engagement:
     class: Drupal\makerspace_dashboard\DashboardSection\EngagementSection
+    arguments:
+      - '@makerspace_dashboard.engagement_data'
+      - '@date.formatter'
+      - '@datetime.time'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

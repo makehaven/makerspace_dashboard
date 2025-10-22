@@ -5,7 +5,9 @@ namespace Drupal\makerspace_dashboard\Form;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Link;
 use Drupal\Core\Render\RendererInterface;
+use Drupal\Core\Url;
 use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -76,14 +78,19 @@ class DashboardForm extends FormBase {
         '#attributes' => ['class' => ['makerspace-dashboard-section']],
       ];
       $note_raw = $tab_notes[$section_id] ?? '';
-      $note_value = trim((string) $this->renderer->renderPlain($note_raw));
+      $note_value = trim((string) $note_raw);
       if ($note_value !== '') {
+        $edit_link = Link::fromTextAndUrl(
+          $this->t('Edit notes'),
+          Url::fromRoute('makerspace_dashboard.settings', [], ['fragment' => 'edit-notes'])
+        )->toRenderable();
         $form[$section_id]['note'] = [
           '#type' => 'container',
           '#attributes' => ['class' => ['makerspace-dashboard-tab-note']],
           'text' => [
             '#markup' => nl2br(Html::escape($note_value)),
           ],
+          'edit' => $edit_link,
         ];
       }
       $form[$section_id]['content'] = $section->build($filters);

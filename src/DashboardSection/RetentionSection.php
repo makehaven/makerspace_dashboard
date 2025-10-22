@@ -74,14 +74,20 @@ class RetentionSection extends DashboardSectionBase {
     }
     $incomingTotals = [];
     $endingTotals = [];
+    $incomingByType = [];
+    $endingByType = [];
     foreach ($flowData['incoming'] as $row) {
       $incomingTotals[$row['period']] = ($incomingTotals[$row['period']] ?? 0) + $row['count'];
+      $incomingByType[$row['membership_type']][$row['period']] = $row['count'];
     }
     foreach ($flowData['ending'] as $row) {
       $endingTotals[$row['period']] = ($endingTotals[$row['period']] ?? 0) + $row['count'];
+      $endingByType[$row['membership_type']][$row['period']] = $row['count'];
     }
     $periodKeys = array_unique(array_merge(array_keys($incomingTotals), array_keys($endingTotals)));
     sort($periodKeys);
+
+    $totals = $flowData['totals'] ?? [];
 
     if ($periodKeys) {
       $monthLabels = [];
@@ -136,6 +142,43 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $monthLabels,
       ];
+
+      if ($totals) {
+        $recent = array_slice($totals, -6);
+        $increase = 0;
+        $decrease = 0;
+        $net = 0;
+        foreach ($recent as $row) {
+          $increase += $row['incoming'];
+          $decrease += $row['ending'];
+          $net += $row['incoming'] - $row['ending'];
+        }
+        $build['summary_recent'] = [
+          '#theme' => 'item_list',
+          '#items' => [
+            $this->t('Last 6 months recruitment: @in', ['@in' => $increase]),
+            $this->t('Last 6 months churn: @out', ['@out' => $decrease]),
+            $this->t('Net change: @net', ['@net' => $net]),
+          ],
+          '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+        ];
+      }
+
+      // Membership type breakdown (incoming).
+      $build['type_incoming'] = $this->buildTypeChart(
+        $this->t('Recruitment by membership type'),
+        $monthLabels,
+        $incomingByType,
+        $periodKeys
+      );
+
+      $build['type_ending'] = $this->buildTypeChart(
+        $this->t('Ending memberships by type'),
+        $monthLabels,
+        $endingByType,
+        $periodKeys,
+        'line'
+      );
     }
     else {
       $build['net_membership_empty'] = [
@@ -205,6 +248,53 @@ class RetentionSection extends DashboardSectionBase {
     $build['#cache'] = [
       'max-age' => 3600,
       'tags' => ['profile_list', 'user_list'],
+    ];
+
+    return $build;
+  }
+
+  /**
+   * Builds a chart showing membership type distribution per period.
+   */
+  protected function buildTypeChart(string $title, array $labels, array $seriesMap, array $periodKeys, string $chartType = 'bar'): array {
+    if (empty($seriesMap)) {
+      return [
+        '#markup' => $this->t('No membership type data available for this window.'),
+      ];
+    }
+
+    $datasets = [];
+    $seriesIndex = 0;
+    foreach ($seriesMap as $membershipType => $dataPerPeriod) {
+      $series = [];
+      foreach ($periodKeys as $period) {
+        $series[] = (int) ($dataPerPeriod[$period] ?? 0);
+      }
+      $datasets['series_' . $seriesIndex] = [
+        '#type' => 'chart_data',
+        '#title' => $membershipType ?: $this->t('Unclassified'),
+        '#data' => $series,
+      ];
+      $seriesIndex++;
+    }
+
+    $build = [
+      '#type' => 'chart',
+      '#chart_type' => $chartType,
+      '#chart_library' => 'chartjs',
+      '#title' => $title,
+      '#description' => $this->t('Breakdown by membership type across the selected periods.'),
+      '#cache' => [
+        'max-age' => 3600,
+        'tags' => ['profile_list', 'user_list'],
+      ],
+    ];
+
+    $build += $datasets;
+
+    $build['xaxis'] = [
+      '#type' => 'chart_xaxis',
+      '#labels' => $labels,
     ];
 
     return $build;

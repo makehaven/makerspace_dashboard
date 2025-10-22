@@ -65,9 +65,12 @@ class MembershipMetricsService {
     $incoming = $this->aggregateMembershipEvents('join', $startKey, $endKey, $granularity);
     $ending = $this->aggregateMembershipEvents('end', $startKey, $endKey, $granularity);
 
+    $totals = $this->buildTotals($incoming, $ending, $granularity);
+
     $result = [
       'incoming' => $incoming,
       'ending' => $ending,
+      'totals' => $totals,
     ];
 
     $expire = $this->time->getRequestTime() + $this->ttl;
@@ -202,6 +205,29 @@ class MembershipMetricsService {
     }
 
     return $results;
+  }
+
+  /**
+   * Builds per-period totals across all membership types.
+   */
+  protected function buildTotals(array $incoming, array $ending, string $granularity): array {
+    $totals = [];
+    foreach ($incoming as $row) {
+      $key = $row['period'];
+      if (!isset($totals[$key])) {
+        $totals[$key] = ['period' => $key, 'incoming' => 0, 'ending' => 0];
+      }
+      $totals[$key]['incoming'] += $row['count'];
+    }
+    foreach ($ending as $row) {
+      $key = $row['period'];
+      if (!isset($totals[$key])) {
+        $totals[$key] = ['period' => $key, 'incoming' => 0, 'ending' => 0];
+      }
+      $totals[$key]['ending'] += $row['count'];
+    }
+    ksort($totals);
+    return array_values($totals);
   }
 
   /**

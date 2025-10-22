@@ -52,12 +52,43 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#description' => $this->t('Number of days to include when plotting the 7-day rolling average trend.'),
     ];
 
+    $form['engagement'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Engagement settings'),
+      '#open' => FALSE,
+    ];
+
+    $form['engagement']['engagement_cohort_window_days'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Cohort lookback window (days)'),
+      '#default_value' => $config->get('engagement.cohort_window_days') ?? 90,
+      '#min' => 7,
+      '#description' => $this->t('How many days of new-member joins to include when building engagement cohorts.'),
+    ];
+
+    $form['engagement']['engagement_activation_window_days'] = [
+      '#type' => 'number',
+      '#title' => $this->t('Activation window (days)'),
+      '#default_value' => $config->get('engagement.activation_window_days') ?? 90,
+      '#min' => 7,
+      '#description' => $this->t('Number of days after joining to consider for orientation and badge activation metrics.'),
+    ];
+
+    $orientationDefault = $config->get('engagement.orientation_badge_ids') ?? [270];
+    $form['engagement']['engagement_orientation_badge_ids'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Orientation badge term IDs'),
+      '#default_value' => implode(', ', array_map('intval', (array) $orientationDefault)),
+      '#description' => $this->t('Comma-separated taxonomy term IDs that represent orientation prerequisites (e.g. Maker Safety).'),
+    ];
+
     $form['notes'] = [
       '#type' => 'details',
       '#title' => $this->t('Tab notes'),
       '#description' => $this->t('Add contextual notes for each dashboard tab. Notes are visible to all viewers.'),
       '#open' => TRUE,
       '#tree' => TRUE,
+      '#attributes' => ['id' => 'edit-notes'],
     ];
 
     $notes = $config->get('tab_notes') ?? [];
@@ -95,6 +126,29 @@ class DashboardSettingsForm extends ConfigFormBase {
     if ($rolling < $daily) {
       $form_state->setErrorByName('rolling_window_days', $this->t('The rolling-average window must be greater than or equal to the daily chart window.'));
     }
+
+    $cohort = (int) $form_state->getValue('engagement_cohort_window_days');
+    $activation = (int) $form_state->getValue('engagement_activation_window_days');
+    if ($cohort < 1) {
+      $form_state->setErrorByName('engagement_cohort_window_days', $this->t('The cohort window must be at least 1 day.'));
+    }
+    if ($activation < 1) {
+      $form_state->setErrorByName('engagement_activation_window_days', $this->t('The activation window must be at least 1 day.'));
+    }
+
+    $orientationInput = (string) $form_state->getValue('engagement_orientation_badge_ids');
+    if ($orientationInput !== '') {
+      $ids = $this->parseIdList($orientationInput);
+      if (empty($ids)) {
+        $form_state->setErrorByName('engagement_orientation_badge_ids', $this->t('Provide at least one numeric taxonomy term ID.'));
+      }
+      else {
+        $form_state->setValue('engagement_orientation_badge_ids', $ids);
+      }
+    }
+    else {
+      $form_state->setValue('engagement_orientation_badge_ids', []);
+    }
   }
 
   /**
@@ -106,10 +160,31 @@ class DashboardSettingsForm extends ConfigFormBase {
 
     $config
       ->set('utilization.daily_window_days', (int) $form_state->getValue('daily_window_days'))
-      ->set('utilization.rolling_window_days', (int) $form_state->getValue('rolling_window_days'));
+      ->set('utilization.rolling_window_days', (int) $form_state->getValue('rolling_window_days'))
+      ->set('engagement.cohort_window_days', (int) $form_state->getValue('engagement_cohort_window_days'))
+      ->set('engagement.activation_window_days', (int) $form_state->getValue('engagement_activation_window_days'))
+      ->set('engagement.orientation_badge_ids', $form_state->getValue('engagement_orientation_badge_ids'));
 
     $notes = $form_state->getValue('notes', []);
     $config->set('tab_notes', $notes)->save();
+  }
+
+  /**
+   * Parses a comma/space separated list of IDs into integers.
+   */
+  protected function parseIdList(string $input): array {
+    $parts = preg_split('/[\s,]+/', $input);
+    $ids = [];
+    foreach ($parts as $part) {
+      $part = trim($part);
+      if ($part === '') {
+        continue;
+      }
+      if (ctype_digit($part)) {
+        $ids[] = (int) $part;
+      }
+    }
+    return array_values(array_unique($ids));
   }
 
 }

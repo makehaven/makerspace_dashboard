@@ -79,20 +79,28 @@ class UtilizationSection extends DashboardSectionBase {
     $daily_counts = $this->dataService->getDailyUniqueEntries($startAll->getTimestamp(), $end_of_day->getTimestamp());
 
     $allDates = [];
-    $allLabels = [];
     $allData = [];
     $current = $startAll;
     for ($i = 0; $i < $totalWindowDays; $i++) {
       $day_key = $current->format('Y-m-d');
       $allDates[] = $current;
-      $allLabels[] = $this->dateFormatter->format($current->getTimestamp(), 'custom', 'M j');
       $allData[] = $daily_counts[$day_key] ?? 0;
       $current = $current->add(new \DateInterval('P1D'));
     }
 
-    $dailyLabels = array_slice($allLabels, -$dailyWindow);
     $dailyData = array_slice($allData, -$dailyWindow);
     $dailyDates = array_slice($allDates, -$dailyWindow);
+
+    $dailyLabels = [];
+    $dailyCount = count($dailyDates);
+    foreach ($dailyDates as $index => $date) {
+      if ($index === 0 || $index === $dailyCount - 1 || $date->format('j') === '1') {
+        $dailyLabels[] = $this->dateFormatter->format($date->getTimestamp(), 'custom', 'M Y');
+      }
+      else {
+        $dailyLabels[] = '';
+      }
+    }
 
     $rollingDates = array_slice($allDates, -$rollingWindow);
     $rollingCounts = array_slice($allData, -$rollingWindow);
@@ -101,6 +109,10 @@ class UtilizationSection extends DashboardSectionBase {
     $rollingAverage = [];
     $running_sum = 0;
     $rollingCount = count($rollingCounts);
+    $sumX = 0;
+    $sumY = 0;
+    $sumXY = 0;
+    $sumXX = 0;
     for ($i = 0; $i < $rollingCount; $i++) {
       $running_sum += $rollingCounts[$i];
       if ($i >= $window) {
@@ -109,12 +121,32 @@ class UtilizationSection extends DashboardSectionBase {
       $divisor = $i < $window - 1 ? $i + 1 : $window;
       $rollingAverage[] = $divisor > 0 ? round($running_sum / $divisor, 2) : 0;
 
-      $label = '';
       $day = $rollingDates[$i];
       if ($i === 0 || $i === $rollingCount - 1 || $day->format('j') === '1') {
-        $label = $this->dateFormatter->format($day->getTimestamp(), 'custom', 'M Y');
+        $rollingLabels[] = $this->dateFormatter->format($day->getTimestamp(), 'custom', 'M Y');
       }
-      $rollingLabels[] = $label;
+      else {
+        $rollingLabels[] = '';
+      }
+
+      $x = $i;
+      $y = $rollingAverage[$i];
+      $sumX += $x;
+      $sumY += $y;
+      $sumXY += $x * $y;
+      $sumXX += $x * $x;
+    }
+
+    $trendLine = [];
+    $slope = NULL;
+    $intercept = NULL;
+    if ($rollingCount > 1) {
+      $denominator = $rollingCount * $sumXX - ($sumX * $sumX);
+      $slope = $denominator ? (($rollingCount * $sumXY) - ($sumX * $sumY)) / $denominator : 0;
+      $intercept = ($sumY - $slope * $sumX) / $rollingCount;
+      for ($i = 0; $i < $rollingCount; $i++) {
+        $trendLine[] = round($slope * $i + $intercept, 2);
+      }
     }
 
     $total_entries = array_sum($dailyData);
@@ -157,13 +189,25 @@ class UtilizationSection extends DashboardSectionBase {
       ]),
     ];
 
+    $summary = [
+      $this->t('Total entries in last @days days: @total', ['@days' => $dailyWindow, '@total' => $total_entries]),
+      $this->t('Average per day: @avg', ['@avg' => $average_per_day]),
+      $this->t('Busiest day: @day (@count members)', ['@day' => $max_label, '@count' => $max_value]),
+    ];
+    if ($slope !== NULL) {
+      $summary[] = $this->t('Rolling trend: Δ = @per_day members/day (@per_week / week, @per_month / month)', [
+        '@per_day' => round($slope, 3),
+        '@per_week' => round($slope * 7, 2),
+        '@per_month' => round($slope * 30, 2),
+      ]);
+      $summary[] = $this->t('Trendline: y = @m x + @b', [
+        '@m' => round($slope, 3),
+        '@b' => round($intercept, 2),
+      ]);
+    }
     $build['summary'] = [
       '#theme' => 'item_list',
-      '#items' => [
-        $this->t('Total entries in last @days days: @total', ['@days' => $dailyWindow, '@total' => $total_entries]),
-        $this->t('Average per day: @avg', ['@avg' => $average_per_day]),
-        $this->t('Busiest day: @day (@count members)', ['@day' => $max_label, '@count' => $max_value]),
-      ],
+      '#items' => array_filter($summary),
       '#attributes' => ['class' => ['makerspace-dashboard-summary']],
     ];
 
@@ -180,6 +224,13 @@ class UtilizationSection extends DashboardSectionBase {
       '#chart_library' => 'chartjs',
       '#title' => $this->t('Daily unique members entering (last @days days)', ['@days' => $dailyWindow]),
       '#description' => $this->t('Counts distinct members with the Current Member role who badge in each day.'),
+    ];
+    $build['daily_unique_entries']['#raw_options']['options']['scales']['x']['ticks'] = [
+      'autoSkip' => FALSE,
+      'maxRotation' => 0,
+      'minRotation' => 0,
+      'padding' => 8,
+      'callback' => 'function(value){ return value || ""; }',
     ];
 
     $build['daily_unique_entries']['series'] = [
@@ -207,11 +258,40 @@ class UtilizationSection extends DashboardSectionBase {
         '#title' => $this->t('7 day rolling average'),
         '#description' => $this->t('Smooths daily fluctuations to highlight longer-term trends over the last @days days.', ['@days' => $rollingWindow]),
       ];
+      $build['rolling_average_chart']['#raw_options']['options']['scales']['x']['ticks'] = [
+        'autoSkip' => FALSE,
+        'maxRotation' => 0,
+        'minRotation' => 0,
+        'padding' => 8,
+        'callback' => 'function(value){ return value || ""; }',
+      ];
       $build['rolling_average_chart']['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Rolling average'),
         '#data' => $rollingAverage,
+        '#settings' => [
+          'borderColor' => '#ff7f0e',
+          'backgroundColor' => 'rgba(255,127,14,0.2)',
+          'fill' => FALSE,
+          'tension' => 0.3,
+          'borderWidth' => 2,
+          'pointRadius' => 0,
+        ],
       ];
+      if (!empty($trendLine)) {
+        $build['rolling_average_chart']['trend'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Trend'),
+          '#data' => $trendLine,
+          '#settings' => [
+            'borderColor' => '#2ca02c',
+            'borderDash' => [6, 4],
+            'fill' => FALSE,
+            'pointRadius' => 0,
+            'borderWidth' => 2,
+          ],
+        ];
+      }
       $build['rolling_average_chart']['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => $rollingLabels,
