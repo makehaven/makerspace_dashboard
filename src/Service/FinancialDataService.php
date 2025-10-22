@@ -113,10 +113,6 @@ class FinancialDataService {
       $mix[$result->name] = (int) $result->count;
     }
 
-    if (empty($mix)) {
-      $mix = ['No data available' => 0];
-    }
-
     $this->cache->set($cid, $mix, CacheBackendInterface::CACHE_PERMANENT, ['profile_list']);
 
     return $mix;

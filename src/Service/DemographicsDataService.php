@@ -114,13 +114,6 @@ class DemographicsDataService {
       ];
     }
 
-    if (empty($output)) {
-      $output[] = [
-        'label' => 'No data available',
-        'count' => 0,
-      ];
-    }
-
     $expire = time() + $this->ttl;
     $this->cache->set($cid, $output, $expire, ['profile_list', 'user_list']);
 
@@ -187,13 +180,6 @@ class DemographicsDataService {
       $output[] = [
         'label' => 'Other (< ' . $minimum . ')',
         'count' => $other,
-      ];
-    }
-
-    if (empty($output)) {
-      $output[] = [
-        'label' => 'No data available',
-        'count' => 0,
       ];
     }
 

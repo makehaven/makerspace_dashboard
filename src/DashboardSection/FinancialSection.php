@@ -97,8 +97,8 @@ class FinancialSection extends DashboardSectionBase {
         '#type' => 'chart_data',
         '#title' => $this->t('Share'),
         '#data' => array_values($payment_mix_data),
-        '#labels' => array_keys($payment_mix_data),
       ];
+      $build['payment_mix']['#labels'] = array_keys($payment_mix_data);
     }
     else {
       $build['payment_mix_empty'] = [
