@@ -89,7 +89,7 @@ class RetentionSection extends DashboardSectionBase {
 
     $totals = $flowData['totals'] ?? [];
 
-    if ($periodKeys) {
+    if ($periodKeys && array_sum($incomingTotals) + array_sum($endingTotals) > 0) {
       $monthLabels = [];
       $incomingSeries = [];
       $endingSeries = [];
@@ -182,7 +182,9 @@ class RetentionSection extends DashboardSectionBase {
     }
     else {
       $build['net_membership_empty'] = [
-        '#markup' => $this->t('No membership inflow data available in the selected window.'),
+        '#markup' => $this->t('No membership inflow data available in the selected window. Expand the date range or verify join/end dates.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
       ];
     }
 
@@ -199,7 +201,7 @@ class RetentionSection extends DashboardSectionBase {
       $retentionSeries[] = $row['retention_percent'];
     }
 
-    if ($cohortLabels) {
+    if ($cohortLabels && array_sum($retentionSeries) > 0) {
       $build['annual_cohorts'] = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
@@ -242,6 +244,8 @@ class RetentionSection extends DashboardSectionBase {
     else {
       $build['annual_cohorts_empty'] = [
         '#markup' => $this->t('No cohort data available for the selected years.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
       ];
     }
 

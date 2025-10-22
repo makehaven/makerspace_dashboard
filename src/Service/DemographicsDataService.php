@@ -198,6 +198,11 @@ class DemographicsDataService {
       return $cache->data;
     }
 
+    // Some sites may not expose member interests. Return empty results gracefully.
+    if (!$this->database->schema()->tableExists('profile__field_member_interest')) {
+      return [];
+    }
+
     $query = $this->database->select('profile', 'p');
     $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
     $query->addField('interest', 'field_member_interest_value', 'interest_raw');
@@ -213,7 +218,7 @@ class DemographicsDataService {
 
     $query->groupBy('interest.field_member_interest_value');
     $query->orderBy('member_count', 'DESC');
-    $query->limit($limit);
+    $query->range(0, $limit);
 
     $results = $query->execute();
 

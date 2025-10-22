@@ -123,6 +123,11 @@ class DemographicsSection extends DashboardSectionBase {
         '#labels' => $interest_labels,
       ];
     }
+    else {
+      $build['interest_distribution_empty'] = [
+        '#markup' => $this->t('No member interest data available.'),
+      ];
+    }
 
     $build['#cache'] = [
       'max-age' => 3600,

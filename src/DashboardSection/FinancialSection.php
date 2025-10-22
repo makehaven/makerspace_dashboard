@@ -56,39 +56,57 @@ class FinancialSection extends DashboardSectionBase {
     $mrr_data = $this->financialDataService->getMrrTrend($start_date, $end_date);
     $payment_mix_data = $this->financialDataService->getPaymentMix();
 
-    $build['mrr'] = [
-      '#type' => 'chart',
-      '#chart_type' => 'line',
-      '#chart_library' => 'chartjs',
-      '#title' => $this->t('Monthly recurring revenue trend'),
-      '#description' => $this->t('Aggregate by billing source to highlight sustainability of recruitment/retention efforts.'),
-    ];
+    if (!empty(array_filter($mrr_data['data']))) {
+      $build['mrr'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'line',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Monthly recurring revenue trend'),
+        '#description' => $this->t('Aggregate by billing source to highlight sustainability of recruitment/retention efforts.'),
+      ];
 
-    $build['mrr']['series'] = [
-      '#type' => 'chart_data',
-      '#title' => $this->t('MRR ($)'),
-      '#data' => $mrr_data['data'],
-    ];
+      $build['mrr']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('MRR ($)'),
+        '#data' => $mrr_data['data'],
+      ];
 
-    $build['mrr']['xaxis'] = [
-      '#type' => 'chart_xaxis',
-      '#labels' => $mrr_data['labels'],
-    ];
+      $build['mrr']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => $mrr_data['labels'],
+      ];
+    }
+    else {
+      $build['mrr_empty'] = [
+        '#markup' => $this->t('Recurring revenue trend data is not available. Connect financial exports to populate this chart.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+    }
 
-    $build['payment_mix'] = [
-      '#type' => 'chart',
-      '#chart_type' => 'pie',
-      '#chart_library' => 'chartjs',
-      '#title' => $this->t('Payment mix'),
-      '#description' => $this->t('Show contribution of memberships, storage, donations, and education revenue streams.'),
-    ];
+    if (!empty($payment_mix_data)) {
+      $build['payment_mix'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'pie',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Payment mix'),
+        '#description' => $this->t('Show contribution of memberships, storage, donations, and education revenue streams.'),
+      ];
 
-    $build['payment_mix']['series'] = [
-      '#type' => 'chart_data',
-      '#title' => $this->t('Share'),
-      '#data' => array_values($payment_mix_data),
-      '#labels' => array_keys($payment_mix_data),
-    ];
+      $build['payment_mix']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Share'),
+        '#data' => array_values($payment_mix_data),
+        '#labels' => array_keys($payment_mix_data),
+      ];
+    }
+    else {
+      $build['payment_mix_empty'] = [
+        '#markup' => $this->t('Payment mix data is not available. Connect billing sources to populate this chart.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+    }
 
     $build['#cache'] = [
       'max-age' => 3600,

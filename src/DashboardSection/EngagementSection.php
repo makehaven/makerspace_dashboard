@@ -63,6 +63,14 @@ class EngagementSection extends DashboardSectionBase {
     ];
 
     $funnel = $snapshot['funnel'];
+    if (empty($funnel['totals']['joined'])) {
+      $build['empty'] = [
+        '#markup' => $this->t('No new members joined within the configured cohort window. Adjust the engagement settings or check recent member activity.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+      return $build;
+    }
     $labels = array_map(fn($label) => $this->t($label), $funnel['labels']);
 
     $build['badge_funnel'] = [

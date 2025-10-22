@@ -56,55 +56,66 @@ class EventsMembershipSection extends DashboardSectionBase {
     $conversion_data = $this->eventsMembershipDataService->getEventToMembershipConversion($start_date, $end_date);
     $time_to_join_data = $this->eventsMembershipDataService->getAverageTimeToJoin($start_date, $end_date);
 
-    $build['conversion_funnel'] = [
-      '#type' => 'chart',
-      '#chart_type' => 'bar',
-      '#chart_library' => 'chartjs',
-      '#title' => $this->t('Event-to-membership conversion'),
-      '#description' => $this->t('Aggregate attendees by cohort month and show how many activate a membership within 30/60/90 days.'),
-    ];
+    if (!empty(array_filter($conversion_data))) {
+      $build['conversion_funnel'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Event-to-membership conversion'),
+        '#description' => $this->t('Aggregate attendees by cohort month and show how many activate a membership within 30/60/90 days.'),
+      ];
 
-    $build['conversion_funnel']['series'] = [
-      '#type' => 'chart_data',
-      '#title' => $this->t('Members'),
-      '#data' => array_values($conversion_data),
-    ];
+      $build['conversion_funnel']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Members'),
+        '#data' => array_values($conversion_data),
+      ];
 
-    $build['conversion_funnel']['xaxis'] = [
-      '#type' => 'chart_xaxis',
-      '#labels' => [
-        $this->t('Event attendees'),
-        $this->t('30-day joins'),
-        $this->t('60-day joins'),
-        $this->t('90-day joins'),
-      ],
-    ];
+      $build['conversion_funnel']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => [
+          $this->t('Event attendees'),
+          $this->t('30-day joins'),
+          $this->t('60-day joins'),
+          $this->t('90-day joins'),
+        ],
+      ];
+    }
+    else {
+      $build['conversion_empty'] = [
+        '#markup' => $this->t('Event conversion metrics require CiviCRM event participation data. No activity found for the selected window.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+    }
 
-    $build['time_to_join'] = [
-      '#type' => 'chart',
-      '#chart_type' => 'line',
-      '#chart_library' => 'chartjs',
-      '#title' => $this->t('Average days from event to membership'),
-      '#description' => $this->t('Visualize rolling averages for conversion velocity by program type.'),
-    ];
+    if (!empty(array_filter($time_to_join_data))) {
+      $build['time_to_join'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'line',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Average days from event to membership'),
+        '#description' => $this->t('Visualize rolling averages for conversion velocity by program type.'),
+      ];
 
-    $build['time_to_join']['series'] = [
-      '#type' => 'chart_data',
-      '#title' => $this->t('Days'),
-      '#data' => $time_to_join_data,
-    ];
+      $build['time_to_join']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Days'),
+        '#data' => $time_to_join_data,
+      ];
 
-    $build['time_to_join']['xaxis'] = [
-      '#type' => 'chart_xaxis',
-      '#labels' => [
-        $this->t('Jan'),
-        $this->t('Feb'),
-        $this->t('Mar'),
-        $this->t('Apr'),
-        $this->t('May'),
-        $this->t('Jun'),
-      ],
-    ];
+      $build['time_to_join']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => [
+          $this->t('Jan'),
+          $this->t('Feb'),
+          $this->t('Mar'),
+          $this->t('Apr'),
+          $this->t('May'),
+          $this->t('Jun'),
+        ],
+      ];
+    }
 
     $build['#cache'] = [
       'max-age' => 3600,
