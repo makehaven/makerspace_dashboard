@@ -329,8 +329,8 @@ class UtilizationSection extends DashboardSectionBase {
       '#type' => 'chart_data',
       '#title' => $this->t('Share of members'),
       '#data' => $frequency_data,
+      '#labels' => $frequency_label_values,
     ];
-    $build['frequency_buckets']['#labels'] = $frequency_label_values;
 
     if (!empty($rollingDates)) {
       $build['weekday_profile'] = [

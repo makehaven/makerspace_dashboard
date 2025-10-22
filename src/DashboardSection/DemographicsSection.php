@@ -92,8 +92,8 @@ class DemographicsSection extends DashboardSectionBase {
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $gender_counts,
+        '#labels' => $gender_labels,
       ];
-      $build['gender_mix']['#labels'] = $gender_labels;
     }
     else {
       $build['gender_mix_empty'] = [
