@@ -80,6 +80,11 @@ class EventsMembershipSection extends DashboardSectionBase {
           $this->t('90-day joins'),
         ],
       ];
+      $build['conversion_funnel_info'] = $this->buildChartInfo([
+        $this->t('Source: CiviCRM participants (status = Attended) joined to event start dates and Drupal member join dates through civicrm_uf_match.'),
+        $this->t('Processing: Counts attendees whose membership start occurs within 30, 60, or 90 days of the event; time window defaults to the most recent year.'),
+        $this->t('Definitions: Each participant/event record is counted once even if the contact attends multiple events; members without a join date are excluded from the join buckets.'),
+      ]);
     }
     else {
       $build['conversion_empty'] = [
@@ -115,6 +120,11 @@ class EventsMembershipSection extends DashboardSectionBase {
           $this->t('Jun'),
         ],
       ];
+      $build['time_to_join_info'] = $this->buildChartInfo([
+        $this->t('Source: Same participant dataset as the conversion funnel with membership join dates from profile__field_member_join_date.'),
+        $this->t('Processing: Calculates the average days between an attended event and the member\'s recorded join date, grouped by the month of the event.'),
+        $this->t('Definitions: Only participants with a join date contribute to the average; events without follow-on joins plot as zero.'),
+      ]);
     }
 
     $build['#cache'] = [

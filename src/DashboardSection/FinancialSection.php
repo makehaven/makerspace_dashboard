@@ -75,6 +75,11 @@ class FinancialSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $mrr_data['labels'],
       ];
+      $build['mrr_info'] = $this->buildChartInfo([
+        $this->t('Source: Member join dates (profile__field_member_join_date) paired with membership type taxonomy terms.'),
+        $this->t('Processing: Includes joins within the selected six-month window and multiplies counts by assumed monthly values ($50 individual, $75 family).'),
+        $this->t('Definitions: Other membership types currently use a zero value and therefore will not contribute until pricing is modeled.'),
+      ]);
     }
     else {
       $build['mrr_empty'] = [
@@ -97,8 +102,16 @@ class FinancialSection extends DashboardSectionBase {
         '#type' => 'chart_data',
         '#title' => $this->t('Share'),
         '#data' => array_values($payment_mix_data),
+      ];
+      $build['payment_mix']['xaxis'] = [
+        '#type' => 'chart_xaxis',
         '#labels' => array_keys($payment_mix_data),
       ];
+      $build['payment_mix_info'] = $this->buildChartInfo([
+        $this->t('Source: Membership type assignments from profile__field_membership_type for active member profiles.'),
+        $this->t('Processing: Counts distinct profile records per membership type without applying revenue assumptions.'),
+        $this->t('Definitions: Represents share of members by type, not dollars; taxonomy term labels surface directly in the chart.'),
+      ]);
     }
     else {
       $build['payment_mix_empty'] = [

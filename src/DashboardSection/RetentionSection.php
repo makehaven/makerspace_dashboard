@@ -125,6 +125,11 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $monthLabels,
       ];
+      $build['net_membership_info'] = $this->buildChartInfo([
+        $this->t('Source: MembershipMetricsService::getFlow aggregates profile member join (field_member_join_date) and end (field_member_end_date) dates for users with active membership roles.'),
+        $this->t('Processing: Distinct members are grouped by calendar month; if the most recent 12 months are empty the query expands to 24 months.'),
+        $this->t('Definitions: "Joined" counts unique users whose join date falls in that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
+      ]);
 
       $build['net_balance'] = [
         '#type' => 'chart',
@@ -142,6 +147,11 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $monthLabels,
       ];
+      $build['net_balance_info'] = $this->buildChartInfo([
+        $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
+        $this->t('Processing: Calculates joined minus ended members for each month to highlight net growth or contraction.'),
+        $this->t('Definitions: Positive values indicate net growth in headcount that month; negative values indicate attrition exceeded recruitment.'),
+      ]);
 
       if ($totals) {
         $recent = array_slice($totals, -6);
@@ -171,6 +181,11 @@ class RetentionSection extends DashboardSectionBase {
         $incomingByType,
         $periodKeys
       );
+      $build['type_incoming_info'] = $this->buildChartInfo([
+        $this->t('Source: Same join-date dataset as the recruitment totals, segmented by membership type taxonomy terms (profile__field_membership_type).'),
+        $this->t('Processing: Counts distinct members per type per month based on the taxonomy term active at join time.'),
+        $this->t('Definitions: Type names come from taxonomy terms; unknown or missing terms appear as "Unclassified".'),
+      ]);
 
       $build['type_ending'] = $this->buildTypeChart(
         $this->t('Ending memberships by type'),
@@ -179,6 +194,11 @@ class RetentionSection extends DashboardSectionBase {
         $periodKeys,
         'line'
       );
+      $build['type_ending_info'] = $this->buildChartInfo([
+        $this->t('Source: Membership end-date records broken out by membership type at the time of termination.'),
+        $this->t('Processing: Distinct members per membership type per month; mirrors the recruitment breakdown but for churn events.'),
+        $this->t('Definitions: Missing membership types fall back to "Unclassified"; months with no churn display as zero.'),
+      ]);
     }
     else {
       $build['net_membership_empty'] = [
@@ -223,6 +243,11 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $cohortLabels,
       ];
+      $build['annual_cohorts_info'] = $this->buildChartInfo([
+        $this->t('Source: Members with join dates in profile__field_member_join_date grouped by calendar year.'),
+        $this->t('Processing: Counts total members per cohort and marks a member as active when they hold an active membership role (defaults: current_member, member).'),
+        $this->t('Definitions: "Still active" reflects active role assignment today; "No longer active" covers members without those roles.'),
+      ]);
 
       $build['annual_retention'] = [
         '#type' => 'chart',
@@ -240,6 +265,11 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $cohortLabels,
       ];
+      $build['annual_retention_info'] = $this->buildChartInfo([
+        $this->t('Source: Same cohort dataset as the composition chart, using join dates from profile__field_member_join_date.'),
+        $this->t('Processing: Calculates the percentage of each cohort still holding an active membership role and converts it to a percentage.'),
+        $this->t('Definitions: Active roles default to current_member/member; cohorts without active members report 0% retention.'),
+      ]);
     }
     else {
       $build['annual_cohorts_empty'] = [

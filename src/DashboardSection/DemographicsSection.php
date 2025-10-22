@@ -69,6 +69,11 @@ class DemographicsSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $locality_labels,
       ];
+      $build['town_distribution_info'] = $this->buildChartInfo([
+        $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+        $this->t('Processing: Counts distinct members per town and collapses values under the minimum threshold into "Other (< 5)".'),
+        $this->t('Definitions: Only published users with a default profile are included; blank addresses appear as "Unknown / not provided".'),
+      ]);
     }
     else {
       $build['town_distribution_empty'] = [
@@ -92,8 +97,16 @@ class DemographicsSection extends DashboardSectionBase {
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $gender_counts,
+      ];
+      $build['gender_mix']['xaxis'] = [
+        '#type' => 'chart_xaxis',
         '#labels' => $gender_labels,
       ];
+      $build['gender_mix_info'] = $this->buildChartInfo([
+        $this->t('Source: Active "main" member profiles mapped to field_member_gender for members with active roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+        $this->t('Processing: Distinct member counts per gender value with buckets under five members merged into "Other (< 5)".'),
+        $this->t('Definitions: Missing or blank values surface as "Not provided".'),
+      ]);
     }
     else {
       $build['gender_mix_empty'] = [
@@ -122,6 +135,11 @@ class DemographicsSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $interest_labels,
       ];
+      $build['interest_distribution_info'] = $this->buildChartInfo([
+        $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+        $this->t('Processing: Aggregates distinct members per interest, returns the top ten values, and respects the configured minimum count. Unknowns display as "Not provided".'),
+        $this->t('Definitions: Only published accounts with a default profile and status = 1 are considered.'),
+      ]);
     }
     else {
       $build['interest_distribution_empty'] = [

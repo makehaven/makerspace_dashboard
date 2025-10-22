@@ -249,6 +249,11 @@ class UtilizationSection extends DashboardSectionBase {
       '#type' => 'chart_yaxis',
       '#title' => $this->t('Unique members'),
     ];
+    $build['daily_unique_entries_info'] = $this->buildChartInfo([
+      $this->t('Source: Access-control request logs (type = access_control_request) joined to the requesting user.'),
+      $this->t('Processing: Counts distinct members per day within the configured window; multiple badge taps on the same day collapse into one.'),
+      $this->t('Definitions: Only users with active membership roles (defaults: current_member, member) are included.'),
+    ]);
 
     if (!empty($rollingAverage)) {
       $build['rolling_average_chart'] = [
@@ -300,6 +305,11 @@ class UtilizationSection extends DashboardSectionBase {
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Average unique members'),
       ];
+      $build['rolling_average_chart_info'] = $this->buildChartInfo([
+        $this->t('Source: Seven-day rolling average derived from the daily unique member counts.'),
+        $this->t('Processing: Uses a sliding seven-day window (or shorter for the first few points) and overlays a least-squares trendline.'),
+        $this->t('Definitions: Positive slope indicates growing average traffic; negative slope signals declining activity.'),
+      ]);
     }
 
     $frequency_buckets = $this->dataService->getVisitFrequencyBuckets($rollingStartDate->getTimestamp(), $end_of_day->getTimestamp());
@@ -329,8 +339,16 @@ class UtilizationSection extends DashboardSectionBase {
       '#type' => 'chart_data',
       '#title' => $this->t('Share of members'),
       '#data' => $frequency_data,
+    ];
+    $build['frequency_buckets']['xaxis'] = [
+      '#type' => 'chart_xaxis',
       '#labels' => $frequency_label_values,
     ];
+    $build['frequency_buckets_info'] = $this->buildChartInfo([
+      $this->t('Source: Distinct visit days per member calculated from access-control logs over the rolling window.'),
+      $this->t('Processing: Members are bucketed by the number of different days they badged in (1, 2-3, 4-6, 7-12, 13+).'),
+      $this->t('Definitions: Each member appears in exactly one bucket; only members with active roles are counted.'),
+    ]);
 
     if (!empty($rollingDates)) {
       $build['weekday_profile'] = [
@@ -349,6 +367,11 @@ class UtilizationSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => $weekdayLabels,
       ];
+      $build['weekday_profile_info'] = $this->buildChartInfo([
+        $this->t('Source: Same daily unique member dataset used for the rolling average chart.'),
+        $this->t('Processing: Totals unique members per weekday over the configured window and divides by the number of occurrences.'),
+        $this->t('Definitions: Values represent average unique members per weekday; blank weekdays indicate no data within the window.'),
+      ]);
     }
 
     $build['#cache'] = [
