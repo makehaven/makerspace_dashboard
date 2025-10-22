@@ -101,6 +101,29 @@ class DemographicsSection extends DashboardSectionBase {
       ];
     }
 
+    $interest_rows = $this->dataService->getInterestDistribution();
+    if (!empty($interest_rows)) {
+      $interest_labels = array_map(fn(array $row) => $row['label'], $interest_rows);
+      $interest_counts = array_map(fn(array $row) => $row['count'], $interest_rows);
+
+      $build['interest_distribution'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Member interests'),
+        '#description' => $this->t('Top member interests, based on profile selections.'),
+      ];
+      $build['interest_distribution']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Members'),
+        '#data' => $interest_counts,
+      ];
+      $build['interest_distribution']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => $interest_labels,
+      ];
+    }
+
     $build['#cache'] = [
       'max-age' => 3600,
       'tags' => ['profile_list', 'user_list'],

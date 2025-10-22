@@ -26,6 +26,19 @@ services:
       - '@config.factory'
       - '@datetime.time'
 
+  makerspace_dashboard.events_membership_data:
+    class: Drupal\makerspace_dashboard\Service\EventsMembershipDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+
+  makerspace_dashboard.financial_data:
+    class: Drupal\makerspace_dashboard\Service\FinancialDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@date.formatter'
+
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
     arguments:
@@ -66,6 +79,8 @@ services:
 
   makerspace_dashboard.section.events_membership:
     class: Drupal\makerspace_dashboard\DashboardSection\EventsMembershipSection
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -84,6 +99,8 @@ services:
 
   makerspace_dashboard.section.financial:
     class: Drupal\makerspace_dashboard\DashboardSection\FinancialSection
+    arguments:
+      - '@makerspace_dashboard.financial_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

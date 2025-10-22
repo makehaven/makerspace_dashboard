@@ -190,6 +190,59 @@ class DemographicsDataService {
   }
 
   /**
+   * Builds an interest distribution for active members.
+   */
+  public function getInterestDistribution(int $minimum = 5, int $limit = 10): array {
+    $cid = sprintf('makerspace_dashboard:demographics:interest:%d:%d', $minimum, $limit);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('profile', 'p');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
+    $query->addField('interest', 'field_member_interest_value', 'interest_raw');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+
+    $query->leftJoin('profile__field_member_interest', 'interest', 'interest.entity_id = p.profile_id AND interest.deleted = 0');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->condition('u.status', 1);
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+
+    $query->groupBy('interest.field_member_interest_value');
+    $query->orderBy('member_count', 'DESC');
+    $query->limit($limit);
+
+    $results = $query->execute();
+
+    $aggregated = [];
+    foreach ($results as $record) {
+      $raw = trim((string) $record->interest_raw);
+      $key = $raw === '' ? '__unknown' : mb_strtolower($raw);
+      $label = $raw === '' ? 'Not provided' : $this->formatLabel($raw, '');
+      if (!isset($aggregated[$key])) {
+        $aggregated[$key] = [
+          'label' => $label,
+          'count' => 0,
+        ];
+      }
+      $aggregated[$key]['count'] += (int) $record->member_count;
+    }
+
+    $rows = array_values($aggregated);
+    usort($rows, function (array $a, array $b) {
+      return $b['count'] <=> $a['count'];
+    });
+
+    $expire = time() + $this->ttl;
+    $this->cache->set($cid, $rows, $expire, ['profile_list', 'user_list']);
+
+    return $rows;
+  }
+
+  /**
    * Normalizes stored strings into human-readable labels.
    */
   protected function formatLabel(string $raw, string $fallback): string {
