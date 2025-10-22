@@ -329,6 +329,10 @@ class UtilizationSection extends DashboardSectionBase {
       '#type' => 'chart_data',
       '#title' => $this->t('Share of members'),
       '#data' => $frequency_data,
+    ];
+
+    $build['frequency_buckets']['xaxis'] = [
+      '#type' => 'chart_xaxis',
       '#labels' => $frequency_label_values,
     ];
 
