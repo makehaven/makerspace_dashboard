@@ -92,6 +92,7 @@ services:
       - '@makerspace_dashboard.membership_metrics'
       - '@date.formatter'
       - '@datetime.time'
+      - '@makerspace_dashboard.demographics_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

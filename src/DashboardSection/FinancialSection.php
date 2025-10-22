@@ -55,6 +55,8 @@ class FinancialSection extends DashboardSectionBase {
     $start_date = $end_date->modify('-6 months');
     $mrr_data = $this->financialDataService->getMrrTrend($start_date, $end_date);
     $payment_mix_data = $this->financialDataService->getPaymentMix();
+    $average_payment_data = $this->financialDataService->getAverageMonthlyPaymentByType();
+    $chargebee_plan_data = $this->financialDataService->getChargebeePlanDistribution();
 
     if (!empty(array_filter($mrr_data['data']))) {
       $build['mrr'] = [
@@ -119,6 +121,78 @@ class FinancialSection extends DashboardSectionBase {
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
       ];
+    }
+
+    if (!empty($average_payment_data['types'])) {
+      $averageLabels = array_keys($average_payment_data['types']);
+      $averageValues = array_map(fn(array $row) => $row['average'], $average_payment_data['types']);
+
+      $build['average_payment'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Average recorded monthly payment by membership type'),
+        '#description' => $this->t('Uses field_member_payment_monthly to estimate typical recurring revenue by membership category.'),
+      ];
+      $build['average_payment']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Average $ / month'),
+        '#data' => $averageValues,
+      ];
+      $build['average_payment']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => $averageLabels,
+      ];
+      $build['average_payment_info'] = $this->buildChartInfo([
+        $this->t('Source: field_member_payment_monthly on active default member profiles with status = 1.'),
+        $this->t('Processing: Averages monthly payment values per membership type; entries with blank or zero values are excluded.'),
+        $this->t('Definitions: Provides directional insight only—confirm with billing exports before financial reporting.'),
+      ]);
+
+      $summaryLines = [
+        $this->t('Overall average recorded payment: <strong>$@amount</strong> per month', ['@amount' => number_format($average_payment_data['overall_average'] ?? 0, 2)]),
+      ];
+      if (!empty($average_payment_data['total_revenue'])) {
+        $summaryLines[] = $this->t('Projected monthly revenue from recorded amounts: <strong>$@total</strong>', ['@total' => number_format($average_payment_data['total_revenue'], 2)]);
+      }
+      $build['average_payment_summary'] = [
+        '#type' => 'markup',
+        '#markup' => implode('<br>', array_map('strval', $summaryLines)),
+        '#prefix' => '<div class="makerspace-dashboard-definition">',
+        '#suffix' => '</div>',
+      ];
+    }
+
+    if (!empty($chargebee_plan_data)) {
+      $build['chargebee_plans'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'pie',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Chargebee plan distribution'),
+        '#description' => $this->t('Active users grouped by Chargebee plan assignment.'),
+        '#data_labels' => TRUE,
+        '#raw_options' => [
+          'plugins' => [
+            'datalabels' => [
+              'formatter' => "function(value, ctx) { var data = ctx.chart.data.datasets[0].data; var total = data.reduce(function(acc, curr){ return acc + curr; }, 0); if (!total) { return '0%'; } var pct = (value / total) * 100; return pct.toFixed(1) + '%'; }",
+            ],
+          ],
+        ],
+      ];
+      $build['chargebee_plans']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Users'),
+        '#data' => array_values($chargebee_plan_data),
+      ];
+      $build['chargebee_plans']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_keys($chargebee_plan_data),
+      ];
+      $build['chargebee_plans_info'] = $this->buildChartInfo([
+        $this->t('Source: user profile field_user_chargebee_plan for published users.'),
+        $this->t('Processing: Counts distinct users per plan value; empty values are labeled "Unassigned".'),
+        $this->t('Definitions: Reflects CRM state only—verify against Chargebee before billing changes.'),
+      ]);
     }
 
     $build['#cache'] = [

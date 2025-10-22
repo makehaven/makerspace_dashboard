@@ -86,27 +86,65 @@ class DemographicsSection extends DashboardSectionBase {
       $gender_labels = array_map(fn(array $row) => $row['label'], $gender_rows);
       $gender_counts = array_map(fn(array $row) => $row['count'], $gender_rows);
 
+      $filteredLabels = [];
+      $filteredCounts = [];
+      $excluded = [];
+      foreach ($gender_labels as $index => $label) {
+        $normalized = mb_strtolower($label);
+        if (in_array($normalized, ['not provided', 'prefer not to say'], TRUE)) {
+          $excluded[$label] = ($excluded[$label] ?? 0) + ($gender_counts[$index] ?? 0);
+          continue;
+        }
+        $filteredLabels[] = $label;
+        $filteredCounts[] = $gender_counts[$index] ?? 0;
+      }
+
+      if (empty($filteredCounts)) {
+        $filteredLabels = $gender_labels;
+        $filteredCounts = $gender_counts;
+        $excluded = [];
+      }
+
       $build['gender_mix'] = [
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Gender identity mix'),
         '#description' => $this->t('Aggregated from primary member profile gender selections.'),
+        '#data_labels' => TRUE,
       ];
       $build['gender_mix']['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
-        '#data' => $gender_counts,
+        '#data' => $filteredCounts,
       ];
       $build['gender_mix']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $gender_labels,
+        '#labels' => $filteredLabels,
       ];
-      $build['gender_mix_info'] = $this->buildChartInfo([
+      $build['gender_mix']['#raw_options'] = [
+        'plugins' => [
+          'datalabels' => [
+            'color' => '#0f172a',
+            'font' => ['weight' => 'bold'],
+            'formatter' => "function(value, ctx) { var data = ctx.chart.data.datasets[0].data; var total = data.reduce(function(acc, curr){ return acc + curr; }, 0); if (!total) { return '0%'; } var pct = (value / total) * 100; return pct.toFixed(1) + '%'; }",
+          ],
+        ],
+      ];
+
+      $genderInfoItems = [
         $this->t('Source: Active "main" member profiles mapped to field_member_gender for members with active roles (defaults: @roles).', ['@roles' => 'current_member, member']),
         $this->t('Processing: Distinct member counts per gender value with buckets under five members merged into "Other (< 5)".'),
-        $this->t('Definitions: Missing or blank values surface as "Not provided".'),
-      ]);
+      ];
+      $genderInfoItems[] = $this->t('Definitions: Missing or blank values surface as "Not provided" and are excluded from the chart to highlight the proportional mix.');
+      if (!empty($excluded)) {
+        $notes = [];
+        foreach ($excluded as $label => $count) {
+          $notes[] = $this->t('@label: @count', ['@label' => $label, '@count' => $count]);
+        }
+        $genderInfoItems[] = $this->t('Excluded from chart (shown below for reference): @list', ['@list' => implode(', ', $notes)]);
+      }
+      $build['gender_mix_info'] = $this->buildChartInfo($genderInfoItems);
     }
     else {
       $build['gender_mix_empty'] = [
@@ -144,6 +182,46 @@ class DemographicsSection extends DashboardSectionBase {
     else {
       $build['interest_distribution_empty'] = [
         '#markup' => $this->t('No member interest data available.'),
+      ];
+    }
+
+    $age_rows = $this->dataService->getAgeDistribution(13, 100);
+    if (!empty($age_rows)) {
+      $age_labels = array_map(fn(array $row) => $row['label'], $age_rows);
+      $age_counts = array_map(fn(array $row) => $row['count'], $age_rows);
+
+      $build['age_distribution'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'line',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Age distribution of active members'),
+        '#description' => $this->t('Counts members by age based on field_member_birthday.'),
+        '#raw_options' => [
+          'scales' => [
+            'x' => ['title' => ['display' => TRUE, 'text' => (string) $this->t('Age')]],
+            'y' => ['title' => ['display' => TRUE, 'text' => (string) $this->t('Members')]],
+          ],
+          'elements' => ['line' => ['tension' => 0.15]],
+        ],
+      ];
+      $build['age_distribution']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Members'),
+        '#data' => $age_counts,
+      ];
+      $build['age_distribution']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => $age_labels,
+      ];
+      $build['age_distribution_info'] = $this->buildChartInfo([
+        $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
+        $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
+        $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded.'),
+      ]);
+    }
+    else {
+      $build['age_distribution_empty'] = [
+        '#markup' => $this->t('No birthday data available to chart ages.'),
       ];
     }
 

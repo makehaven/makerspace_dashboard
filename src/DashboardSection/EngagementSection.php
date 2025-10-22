@@ -120,6 +120,31 @@ class EngagementSection extends DashboardSectionBase {
       $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
     ]);
 
+    $badgeVolume = $snapshot['badge_volume'];
+    if (!empty($badgeVolume['counts']) && array_sum($badgeVolume['counts']) > 0) {
+      $build['badge_volume'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Badge awards by time since join'),
+        '#description' => $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.'),
+      ];
+      $build['badge_volume']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Badges awarded'),
+        '#data' => $badgeVolume['counts'],
+      ];
+      $build['badge_volume']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map(fn($label) => (string) $this->t($label), $badgeVolume['labels']),
+      ];
+      $build['badge_volume_info'] = $this->buildChartInfo([
+        $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
+        $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
+        $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
+      ]);
+    }
+
     $joined = (int) $funnel['totals']['joined'];
     $firstBadge = (int) $funnel['totals']['first_badge'];
     $toolEnabled = (int) $funnel['totals']['tool_enabled'];

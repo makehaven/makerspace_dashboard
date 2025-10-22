@@ -151,9 +151,12 @@ class EngagementDataService {
 
     $velocity = $this->buildVelocityBuckets($members, $firstBadgeTimes);
 
+    $badgeVolume = $this->buildBadgeVolumeBuckets($members, $events);
+
     return [
       'funnel' => $funnel,
       'velocity' => $velocity,
+      'badge_volume' => $badgeVolume,
     ];
   }
 
@@ -302,6 +305,63 @@ class EngagementDataService {
       'counts' => $counts,
       'median' => $median,
       'cohort_percent' => $cohortPercent,
+    ];
+  }
+
+  /**
+   * Builds histogram for total badges earned within the activation window.
+   */
+  protected function buildBadgeVolumeBuckets(array $members, array $events): array {
+    $activationSeconds = $this->getActivationWindowDays() * 86400;
+    $bucketDefs = [
+      ['label' => '0-3 days', 'max' => 3, 'count' => 0],
+      ['label' => '4-7 days', 'max' => 7, 'count' => 0],
+      ['label' => '8-14 days', 'max' => 14, 'count' => 0],
+      ['label' => '15-30 days', 'max' => 30, 'count' => 0],
+      ['label' => '31-60 days', 'max' => 60, 'count' => 0],
+    ];
+    $over60 = 0;
+
+    foreach ($members as $uid => $joinTs) {
+      if (empty($events[$uid])) {
+        continue;
+      }
+      foreach ($events[$uid] as $event) {
+        $created = (int) $event['created'];
+        if ($created < $joinTs) {
+          continue;
+        }
+        if ($created > $joinTs + $activationSeconds) {
+          continue;
+        }
+        $days = (int) floor(($created - $joinTs) / 86400);
+        $placed = FALSE;
+        foreach ($bucketDefs as &$bucket) {
+          if ($days <= $bucket['max']) {
+            $bucket['count']++;
+            $placed = TRUE;
+            break;
+          }
+        }
+        unset($bucket);
+        if (!$placed) {
+          $over60++;
+        }
+      }
+    }
+
+    $labels = [];
+    $counts = [];
+    foreach ($bucketDefs as $bucket) {
+      $labels[] = $bucket['label'];
+      $counts[] = $bucket['count'];
+    }
+    $labels[] = '60+ days';
+    $counts[] = $over60;
+
+    return [
+      'labels' => $labels,
+      'counts' => $counts,
     ];
   }
 
