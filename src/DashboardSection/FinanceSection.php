@@ -8,7 +8,7 @@ use Drupal\makerspace_dashboard\Service\FinancialDataService;
 /**
  * Summarizes high-level financial metrics sourced from member profiles.
  */
-class FinancialSection extends DashboardSectionBase {
+class FinanceSection extends DashboardSectionBase {
 
   /**
    * Financial data service.
@@ -30,14 +30,14 @@ class FinancialSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'financial';
+    return 'finance';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Financial Snapshot');
+    return $this->t('Finance');
   }
 
   /**
@@ -75,7 +75,7 @@ class FinancialSection extends DashboardSectionBase {
 
       $build['mrr']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $mrr_data['labels'],
+        '#labels' => array_map('strval', $mrr_data['labels']),
       ];
       $build['mrr_info'] = $this->buildChartInfo([
         $this->t('Source: Member join dates (profile__field_member_join_date) paired with membership type taxonomy terms.'),
@@ -98,6 +98,13 @@ class FinancialSection extends DashboardSectionBase {
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Payment mix'),
         '#description' => $this->t('Show contribution of memberships, storage, donations, and education revenue streams.'),
+        '#raw_options' => [
+          'plugins' => [
+            'legend' => [
+              'position' => 'top',
+            ],
+          ],
+        ],
       ];
 
       $build['payment_mix']['series'] = [
@@ -107,7 +114,7 @@ class FinancialSection extends DashboardSectionBase {
       ];
       $build['payment_mix']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => array_keys($payment_mix_data),
+        '#labels' => array_map('strval', array_keys($payment_mix_data)),
       ];
       $build['payment_mix_info'] = $this->buildChartInfo([
         $this->t('Source: Membership type assignments from profile__field_membership_type for active member profiles.'),
@@ -141,7 +148,7 @@ class FinancialSection extends DashboardSectionBase {
       ];
       $build['average_payment']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $averageLabels,
+        '#labels' => array_map('strval', $averageLabels),
       ];
       $build['average_payment_info'] = $this->buildChartInfo([
         $this->t('Source: field_member_payment_monthly on active default member profiles with status = 1.'),
@@ -173,6 +180,9 @@ class FinancialSection extends DashboardSectionBase {
         '#data_labels' => TRUE,
         '#raw_options' => [
           'plugins' => [
+            'legend' => [
+              'position' => 'top',
+            ],
             'datalabels' => [
               'formatter' => "function(value, ctx) { var data = ctx.chart.data.datasets[0].data; var total = data.reduce(function(acc, curr){ return acc + curr; }, 0); if (!total) { return '0%'; } var pct = (value / total) * 100; return pct.toFixed(1) + '%'; }",
             ],
@@ -186,7 +196,7 @@ class FinancialSection extends DashboardSectionBase {
       ];
       $build['chargebee_plans']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => array_keys($chargebee_plan_data),
+        '#labels' => array_map('strval', array_keys($chargebee_plan_data)),
       ];
       $build['chargebee_plans_info'] = $this->buildChartInfo([
         $this->t('Source: user profile field_user_chargebee_plan for published users.'),

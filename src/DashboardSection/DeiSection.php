@@ -8,7 +8,7 @@ use Drupal\makerspace_dashboard\Service\DemographicsDataService;
 /**
  * Provides demographic breakdowns without exposing individual identities.
  */
-class DemographicsSection extends DashboardSectionBase {
+class DeiSection extends DashboardSectionBase {
 
   /**
    * Data service for demographic aggregates.
@@ -27,14 +27,14 @@ class DemographicsSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'demographics';
+    return 'dei';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Demographics');
+    return $this->t('DEI');
   }
 
   /**
@@ -67,7 +67,7 @@ class DemographicsSection extends DashboardSectionBase {
       ];
       $build['town_distribution']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $locality_labels,
+        '#labels' => array_map('strval', $locality_labels),
       ];
       $build['town_distribution_info'] = $this->buildChartInfo([
         $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
@@ -112,6 +112,18 @@ class DemographicsSection extends DashboardSectionBase {
         '#title' => $this->t('Gender identity mix'),
         '#description' => $this->t('Aggregated from primary member profile gender selections.'),
         '#data_labels' => TRUE,
+        '#raw_options' => [
+          'plugins' => [
+            'legend' => [
+              'position' => 'top',
+            ],
+            'datalabels' => [
+              'color' => '#0f172a',
+              'font' => ['weight' => 'bold'],
+              'formatter' => "function(value, ctx) { var data = ctx.chart.data.datasets[0].data; var total = data.reduce(function(acc, curr){ return acc + curr; }, 0); if (!total) { return '0%'; } var pct = (value / total) * 100; return pct.toFixed(1) + '%'; }",
+            ],
+          ],
+        ],
       ];
       $build['gender_mix']['series'] = [
         '#type' => 'chart_data',
@@ -120,16 +132,7 @@ class DemographicsSection extends DashboardSectionBase {
       ];
       $build['gender_mix']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $filteredLabels,
-      ];
-      $build['gender_mix']['#raw_options'] = [
-        'plugins' => [
-          'datalabels' => [
-            'color' => '#0f172a',
-            'font' => ['weight' => 'bold'],
-            'formatter' => "function(value, ctx) { var data = ctx.chart.data.datasets[0].data; var total = data.reduce(function(acc, curr){ return acc + curr; }, 0); if (!total) { return '0%'; } var pct = (value / total) * 100; return pct.toFixed(1) + '%'; }",
-          ],
-        ],
+        '#labels' => array_map('strval', $filteredLabels),
       ];
 
       $genderInfoItems = [
@@ -171,7 +174,7 @@ class DemographicsSection extends DashboardSectionBase {
       ];
       $build['interest_distribution']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $interest_labels,
+        '#labels' => array_map('strval', $interest_labels),
       ];
       $build['interest_distribution_info'] = $this->buildChartInfo([
         $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
@@ -211,7 +214,7 @@ class DemographicsSection extends DashboardSectionBase {
       ];
       $build['age_distribution']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $age_labels,
+        '#labels' => array_map('strval', $age_labels),
       ];
       $build['age_distribution_info'] = $this->buildChartInfo([
         $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),

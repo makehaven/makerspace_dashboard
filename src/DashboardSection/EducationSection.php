@@ -2,27 +2,30 @@
 
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
+use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\makerspace_dashboard\Service\EngagementDataService;
 use Drupal\makerspace_dashboard\Service\EventsMembershipDataService;
 
 /**
- * Connects civicrm event participation with membership conversions.
+ * Shows early member engagement signals like badges earned and trainings.
  */
-class EventsMembershipSection extends DashboardSectionBase {
+class EducationSection extends DashboardSectionBase {
 
-  /**
-   * Events and membership data service.
-   */
+  protected EngagementDataService $dataService;
+
+  protected DateFormatterInterface $dateFormatter;
+
+  protected TimeInterface $time;
+
   protected EventsMembershipDataService $eventsMembershipDataService;
 
-  /**
-   * Constructs the section.
-   *
-   * @param \Drupal\makerspace_dashboard\Service\EventsMembershipDataService $events_membership_data_service
-   *   The events membership data service.
-   */
-  public function __construct(EventsMembershipDataService $events_membership_data_service) {
+  public function __construct(EngagementDataService $data_service, DateFormatterInterface $date_formatter, TimeInterface $time, EventsMembershipDataService $events_membership_data_service) {
     parent::__construct();
+    $this->dataService = $data_service;
+    $this->dateFormatter = $date_formatter;
+    $this->time = $time;
     $this->eventsMembershipDataService = $events_membership_data_service;
   }
 
@@ -30,14 +33,14 @@ class EventsMembershipSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'events_membership';
+    return 'education';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Events ➜ Membership');
+    return $this->t('Education');
   }
 
   /**
@@ -45,11 +48,6 @@ class EventsMembershipSection extends DashboardSectionBase {
    */
   public function build(array $filters = []): array {
     $build = [];
-
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Correlate CiviCRM event engagement with subsequent membership starts to inform programming strategy.'),
-    ];
 
     $end_date = new \DateTimeImmutable();
     $start_date = $end_date->modify('-1 year');
@@ -76,12 +74,12 @@ class EventsMembershipSection extends DashboardSectionBase {
 
       $build['conversion_funnel']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => [
+        '#labels' => array_map('strval', [
           $this->t('Event attendees'),
           $this->t('30-day joins'),
           $this->t('60-day joins'),
           $this->t('90-day joins'),
-        ],
+        ]),
       ];
       $conversionInfo = [
         $this->t('Source: CiviCRM participants (status = Attended) joined to event start dates and Drupal member join dates through civicrm_uf_match.'),
@@ -124,14 +122,14 @@ class EventsMembershipSection extends DashboardSectionBase {
 
       $build['time_to_join']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => [
+        '#labels' => array_map('strval', [
           $this->t('Jan'),
           $this->t('Feb'),
           $this->t('Mar'),
           $this->t('Apr'),
           $this->t('May'),
           $this->t('Jun'),
-        ],
+        ]),
       ];
       $build['time_to_join_info'] = $this->buildChartInfo([
         $this->t('Source: Same participant dataset as the conversion funnel with membership join dates from profile__field_member_join_date.'),
@@ -139,12 +137,6 @@ class EventsMembershipSection extends DashboardSectionBase {
         $this->t('Definitions: Only participants with a join date contribute to the average; events without follow-on joins plot as zero.'),
       ]);
     }
-
-    $build['#cache'] = [
-      'max-age' => 3600,
-      'contexts' => ['timezone'],
-      'tags' => ['civicrm_participant_list', 'user_list', 'profile_list'],
-    ];
 
     if (!empty($registrations_by_type['types'])) {
       $build['registrations_by_type'] = [
@@ -168,7 +160,7 @@ class EventsMembershipSection extends DashboardSectionBase {
       }
       $build['registrations_by_type']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $registrations_by_type['months'],
+        '#labels' => array_map('strval', $registrations_by_type['months']),
       ];
       $build['registrations_by_type']['yaxis'] = [
         '#type' => 'chart_yaxis',
@@ -202,7 +194,7 @@ class EventsMembershipSection extends DashboardSectionBase {
       }
       $build['revenue_per_registration']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $avg_revenue_by_type['months'],
+        '#labels' => array_map('strval', $avg_revenue_by_type['months']),
       ];
       $build['revenue_per_registration']['yaxis'] = [
         '#type' => 'chart_yaxis',
@@ -230,7 +222,7 @@ class EventsMembershipSection extends DashboardSectionBase {
       ];
       $build['workshop_capacity_placeholder']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $capacity_placeholder['months'],
+        '#labels' => array_map('strval', $capacity_placeholder['months']),
       ];
       $build['workshop_capacity_placeholder_info'] = $this->buildChartInfo([
         $this->t('Placeholder: Replace with actual capacity metrics. Currently showing illustrative values only.'),
@@ -238,6 +230,132 @@ class EventsMembershipSection extends DashboardSectionBase {
         $this->t('Observation: @note', ['@note' => $capacity_placeholder['note']]),
       ]);
     }
+
+    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+    $range = $this->dataService->getDefaultRange($now);
+    $snapshot = $this->dataService->getEngagementSnapshot($range['start'], $range['end']);
+
+    $activationDays = $this->dataService->getActivationWindowDays();
+    $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
+    $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
+
+    $build['intro'] = [
+      '#type' => 'markup',
+      '#markup' => $this->t('Tracking new members who joined between @start and @end. Activation window: @days days from join date.', [
+        '@start' => $cohortStart,
+        '@end' => $cohortEnd,
+        '@days' => $activationDays,
+      ]),
+    ];
+
+    $funnel = $snapshot['funnel'];
+    if (empty($funnel['totals']['joined'])) {
+      $build['empty'] = [
+        '#markup' => $this->t('No new members joined within the configured cohort window. Adjust the engagement settings or check recent member activity.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+      return $build;
+    }
+    $labels = array_map(fn($label) => $this->t($label), $funnel['labels']);
+
+    $build['badge_funnel'] = [
+      '#type' => 'chart',
+      '#chart_type' => 'bar',
+      '#chart_library' => 'chartjs',
+      '#title' => $this->t('Badge activation funnel'),
+      '#description' => $this->t('Progression of new members through orientation, first badge, and tool-enabled badges.'),
+    ];
+    $build['badge_funnel']['series'] = [
+      '#type' => 'chart_data',
+      '#title' => $this->t('Members'),
+      '#data' => array_map('intval', $funnel['counts']),
+    ];
+    $build['badge_funnel']['xaxis'] = [
+      '#type' => 'chart_xaxis',
+      '#labels' => array_map('strval', $labels),
+    ];
+    $build['badge_funnel_info'] = $this->buildChartInfo([
+      $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
+      $this->t('Processing: Orientation completion is keyed off configured orientation badge term IDs; first/tool-enabled badges use the earliest qualifying badge within the activation window (default 90 days).'),
+      $this->t('Definitions: Members without any qualifying badge remain at the "Joined" stage; tool-enabled requires the taxonomy flag field_badge_access_control.'),
+    ]);
+
+    $velocity = $snapshot['velocity'];
+    $velocityLabels = array_map(fn($label) => $this->t($label), $velocity['labels']);
+
+    $build['engagement_velocity'] = [
+      '#type' => 'chart',
+      '#chart_type' => 'bar',
+      '#chart_library' => 'chartjs',
+      '#title' => $this->t('Days to first badge'),
+      '#description' => $this->t('Distribution of days elapsed from join date to first non-orientation badge.'),
+    ];
+    $build['engagement_velocity']['series'] = [
+      '#type' => 'chart_data',
+      '#title' => $this->t('Members'),
+      '#data' => array_map('intval', $velocity['counts']),
+    ];
+    $build['engagement_velocity']['xaxis'] = [
+      '#type' => 'chart_xaxis',
+      '#labels' => array_map('strval', $velocityLabels),
+    ];
+    $build['engagement_velocity_info'] = $this->buildChartInfo([
+      $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),
+      $this->t('Processing: Calculates elapsed days between join date and first badge award, then buckets into ranges (0-3, 4-7, 8-14, 15-30, 31-60, 60+, no badge).'),
+      $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
+    ]);
+
+    $badgeVolume = $snapshot['badge_volume'];
+    if (!empty($badgeVolume['counts']) && array_sum($badgeVolume['counts']) > 0) {
+      $build['badge_volume'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Badge awards by time since join'),
+        '#description' => $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.'),
+      ];
+      $build['badge_volume']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Badges awarded'),
+        '#data' => $badgeVolume['counts'],
+      ];
+      $build['badge_volume']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map(fn($label) => (string) $this->t($label), $badgeVolume['labels']),
+      ];
+      $build['badge_volume_info'] = $this->buildChartInfo([
+        $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
+        $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
+        $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
+      ]);
+    }
+
+    $joined = (int) $funnel['totals']['joined'];
+    $firstBadge = (int) $funnel['totals']['first_badge'];
+    $toolEnabled = (int) $funnel['totals']['tool_enabled'];
+
+    $build['summary'] = [
+      '#theme' => 'item_list',
+      '#items' => array_filter([
+        $this->t('Cohort size: @count members', ['@count' => $joined]),
+        $joined ? $this->t('@percent% reach their first badge within @days days', [
+          '@percent' => $velocity['cohort_percent'],
+          '@days' => $activationDays,
+        ]) : NULL,
+        $firstBadge ? $this->t('Median days to first badge: @median', ['@median' => $velocity['median']]) : NULL,
+        $toolEnabled ? $this->t('@count members earn a tool-enabled badge', ['@count' => $toolEnabled]) : NULL,
+      ]),
+      '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+    ];
+
+
+    $build['#cache'] = [
+      'max-age' => 3600,
+      'contexts' => ['timezone'],
+      'tags' => ['user_list', 'config:makerspace_dashboard.settings', 'civicrm_participant_list'],
+    ];
 
     return $build;
   }
