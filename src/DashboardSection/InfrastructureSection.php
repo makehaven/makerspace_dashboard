@@ -11,7 +11,7 @@ use Drupal\makerspace_dashboard\Service\UtilizationDataService;
 /**
  * Provides utilization insights.
  */
-class UtilizationSection extends DashboardSectionBase {
+class InfrastructureSection extends DashboardSectionBase {
 
   /**
    * Date formatter service.
@@ -48,14 +48,14 @@ class UtilizationSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'utilization';
+    return 'infrastructure';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Utilization');
+    return $this->t('Infrastructure');
   }
 
   /**

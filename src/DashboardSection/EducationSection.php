@@ -10,7 +10,7 @@ use Drupal\makerspace_dashboard\Service\EngagementDataService;
 /**
  * Shows early member engagement signals like badges earned and trainings.
  */
-class EngagementSection extends DashboardSectionBase {
+class EducationSection extends DashboardSectionBase {
 
   protected EngagementDataService $dataService;
 
@@ -29,14 +29,14 @@ class EngagementSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'engagement';
+    return 'education';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('New Member Engagement');
+    return $this->t('Education');
   }
 
   /**

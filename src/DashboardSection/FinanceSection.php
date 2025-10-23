@@ -8,7 +8,7 @@ use Drupal\makerspace_dashboard\Service\FinancialDataService;
 /**
  * Summarizes high-level financial metrics sourced from member profiles.
  */
-class FinancialSection extends DashboardSectionBase {
+class FinanceSection extends DashboardSectionBase {
 
   /**
    * Financial data service.
@@ -30,14 +30,14 @@ class FinancialSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'financial';
+    return 'finance';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Financial Snapshot');
+    return $this->t('Finance');
   }
 
   /**

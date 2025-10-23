@@ -45,7 +45,23 @@ services:
       - !tagged_iterator makerspace_dashboard.section
     public: true
 
-  makerspace_dashboard.section.utilization:
+  makerspace_dashboard.section.governance:
+    class: Drupal\makerspace_dashboard\DashboardSection\GovernanceSection
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.finance:
+    class: Drupal\makerspace_dashboard\DashboardSection\FinancialSection
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.infrastructure:
     class: Drupal\makerspace_dashboard\DashboardSection\UtilizationSection
     arguments:
       - '@date.formatter'
@@ -57,29 +73,10 @@ services:
     calls:
       - [setStringTranslation, ['@string_translation']]
 
-  makerspace_dashboard.section.demographics:
-    class: Drupal\makerspace_dashboard\DashboardSection\DemographicsSection
+  makerspace_dashboard.section.outreach:
+    class: Drupal\makerspace_dashboard\DashboardSection\OutreachSection
     arguments:
       - '@makerspace_dashboard.demographics_data'
-    tags:
-      - { name: makerspace_dashboard.section }
-    calls:
-      - [setStringTranslation, ['@string_translation']]
-
-  makerspace_dashboard.section.engagement:
-    class: Drupal\makerspace_dashboard\DashboardSection\EngagementSection
-    arguments:
-      - '@makerspace_dashboard.engagement_data'
-      - '@date.formatter'
-      - '@datetime.time'
-    tags:
-      - { name: makerspace_dashboard.section }
-    calls:
-      - [setStringTranslation, ['@string_translation']]
-
-  makerspace_dashboard.section.events_membership:
-    class: Drupal\makerspace_dashboard\DashboardSection\EventsMembershipSection
-    arguments:
       - '@makerspace_dashboard.events_membership_data'
     tags:
       - { name: makerspace_dashboard.section }
@@ -98,10 +95,33 @@ services:
     calls:
       - [setStringTranslation, ['@string_translation']]
 
-  makerspace_dashboard.section.financial:
-    class: Drupal\makerspace_dashboard\DashboardSection\FinancialSection
+  makerspace_dashboard.section.education:
+    class: Drupal\makerspace_dashboard\DashboardSection\EngagementSection
     arguments:
-      - '@makerspace_dashboard.financial_data'
+      - '@makerspace_dashboard.engagement_data'
+      - '@date.formatter'
+      - '@datetime.time'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.entrepreneurship:
+    class: Drupal\makerspace_dashboard\DashboardSection\EntrepreneurshipSection
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.development:
+    class: Drupal\makerspace_dashboard\DashboardSection\DevelopmentSection
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.dei:
+    class: Drupal\makerspace_dashboard\DashboardSection\DeiSection
     tags:
       - { name: makerspace_dashboard.section }
     calls:
