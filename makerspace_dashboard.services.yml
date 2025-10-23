@@ -53,7 +53,7 @@ services:
       - [setStringTranslation, ['@string_translation']]
 
   makerspace_dashboard.section.finance:
-    class: Drupal\makerspace_dashboard\DashboardSection\FinancialSection
+    class: Drupal\makerspace_dashboard\DashboardSection\FinanceSection
     arguments:
       - '@makerspace_dashboard.financial_data'
     tags:
@@ -62,7 +62,7 @@ services:
       - [setStringTranslation, ['@string_translation']]
 
   makerspace_dashboard.section.infrastructure:
-    class: Drupal\makerspace_dashboard\DashboardSection\UtilizationSection
+    class: Drupal\makerspace_dashboard\DashboardSection\InfrastructureSection
     arguments:
       - '@date.formatter'
       - '@datetime.time'
@@ -96,7 +96,7 @@ services:
       - [setStringTranslation, ['@string_translation']]
 
   makerspace_dashboard.section.education:
-    class: Drupal\makerspace_dashboard\DashboardSection\EngagementSection
+    class: Drupal\makerspace_dashboard\DashboardSection\EducationSection
     arguments:
       - '@makerspace_dashboard.engagement_data'
       - '@date.formatter'
