@@ -58,6 +58,7 @@ class DashboardForm extends FormBase {
     $form['#attributes']['class'][] = 'makerspace-dashboard-wrapper';
     $form['#method'] = 'get';
     $form['#attached']['library'][] = 'makerspace_dashboard/dashboard';
+    $form['#attached']['library'][] = 'makerspace_dashboard/tabs';
 
     $form['tabs'] = [
       '#type' => 'vertical_tabs',
