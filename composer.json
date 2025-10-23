@@ -1,0 +1,5 @@
+{
+    "name": "makehaven/makerspace_dashboard",
+    "type": "drupal-custom-module",
+    "description": "The MakeHaven makerspace dashboard."
+}
