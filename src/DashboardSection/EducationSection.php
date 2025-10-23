@@ -87,7 +87,7 @@ class EducationSection extends DashboardSectionBase {
     ];
     $build['badge_funnel']['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => $labels,
+      '#labels' => array_map('strval', $labels),
     ];
     $build['badge_funnel_info'] = $this->buildChartInfo([
       $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
@@ -112,7 +112,7 @@ class EducationSection extends DashboardSectionBase {
     ];
     $build['engagement_velocity']['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => $velocityLabels,
+      '#labels' => array_map('strval', $velocityLabels),
     ];
     $build['engagement_velocity_info'] = $this->buildChartInfo([
       $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),

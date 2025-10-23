@@ -139,7 +139,7 @@ class RetentionSection extends DashboardSectionBase {
       ];
       $build['net_membership']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $monthLabels,
+        '#labels' => array_map('strval', $monthLabels),
       ];
       $build['net_membership_info'] = $this->buildChartInfo([
         $this->t('Source: MembershipMetricsService::getFlow aggregates profile member join (field_member_join_date) and end (field_member_end_date) dates for users with active membership roles.'),
@@ -162,7 +162,7 @@ class RetentionSection extends DashboardSectionBase {
       ];
       $build['net_balance']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $monthLabels,
+        '#labels' => array_map('strval', $monthLabels),
       ];
       $build['net_balance_info'] = $this->buildChartInfo([
         $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
@@ -223,7 +223,7 @@ class RetentionSection extends DashboardSectionBase {
         ];
         $build['discovery_sources']['xaxis'] = [
           '#type' => 'chart_xaxis',
-          '#labels' => $discoveryLabels,
+          '#labels' => array_map('strval', $discoveryLabels),
         ];
         $build['discovery_sources_info'] = $this->buildChartInfo([
           $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
@@ -271,7 +271,7 @@ class RetentionSection extends DashboardSectionBase {
 
         $endingChart['xaxis'] = [
           '#type' => 'chart_xaxis',
-          '#labels' => $periodLabels,
+          '#labels' => array_map('strval', $periodLabels),
         ];
         $endingChart['yaxis'] = [
           '#type' => 'chart_yaxis',
@@ -339,7 +339,7 @@ class RetentionSection extends DashboardSectionBase {
       ];
       $build['annual_cohorts']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $cohortLabels,
+        '#labels' => array_map('strval', $cohortLabels),
       ];
       $build['annual_cohorts_info'] = $this->buildChartInfo([
         $this->t('Source: Members with join dates in profile__field_member_join_date grouped by calendar year.'),
@@ -362,7 +362,7 @@ class RetentionSection extends DashboardSectionBase {
       ];
       $build['annual_retention']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $cohortLabels,
+        '#labels' => array_map('strval', $cohortLabels),
       ];
       $build['annual_retention_info'] = $this->buildChartInfo([
         $this->t('Source: Same cohort dataset as the composition chart, using join dates from profile__field_member_join_date.'),
@@ -427,7 +427,7 @@ class RetentionSection extends DashboardSectionBase {
 
     $build['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => $labels,
+      '#labels' => array_map('strval', $labels),
     ];
 
     return $build;

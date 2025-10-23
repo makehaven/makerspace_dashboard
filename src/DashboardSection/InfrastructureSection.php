@@ -262,7 +262,7 @@ class InfrastructureSection extends DashboardSectionBase {
     $build['daily_unique_entries']['xaxis'] = [
       '#type' => 'chart_xaxis',
       '#title' => $this->t('Month'),
-      '#labels' => $monthlyLabels,
+      '#labels' => array_map('strval', $monthlyLabels),
     ];
 
     $build['daily_unique_entries']['yaxis'] = [
@@ -319,7 +319,7 @@ class InfrastructureSection extends DashboardSectionBase {
       }
       $build['rolling_average_chart']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $rollingLabels,
+        '#labels' => array_map('strval', $rollingLabels),
       ];
       $build['rolling_average_chart']['yaxis'] = [
         '#type' => 'chart_yaxis',
@@ -363,7 +363,7 @@ class InfrastructureSection extends DashboardSectionBase {
     ];
     $build['frequency_buckets']['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => $frequency_label_values,
+      '#labels' => array_map('strval', $frequency_label_values),
     ];
     $build['frequency_buckets_info'] = $this->buildChartInfo([
       $this->t('Source: Distinct visit days per member calculated from access-control logs over the rolling window.'),
@@ -386,7 +386,7 @@ class InfrastructureSection extends DashboardSectionBase {
       ];
       $build['weekday_profile']['xaxis'] = [
         '#type' => 'chart_xaxis',
-        '#labels' => $weekdayLabels,
+        '#labels' => array_map('strval', $weekdayLabels),
       ];
       $build['weekday_profile_info'] = $this->buildChartInfo([
         $this->t('Source: Same daily unique member dataset used for the rolling average chart.'),
@@ -424,7 +424,7 @@ class InfrastructureSection extends DashboardSectionBase {
 
     $firstEntryChart['xaxis'] = [
       '#type' => 'chart_xaxis',
-      '#labels' => $firstEntryLabels,
+      '#labels' => array_map('strval', $firstEntryLabels),
     ];
     $firstEntryChart['yaxis'] = [
       '#type' => 'chart_yaxis',
