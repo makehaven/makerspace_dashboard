@@ -50,7 +50,7 @@ class GovernanceSection extends DashboardSectionBase {
    */
   public function getGoogleSheetChartMetadata(): array {
     return [
-      'title' => $this->t('Board Roster'),
+      'label' => $this->t('Board Roster'),
       'tab_name' => 'Board-Roster',
     ];
   }
