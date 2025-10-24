@@ -1,4 +1,9 @@
 services:
+  makerspace_dashboard.google_sheet_client:
+    class: Drupal\makerspace_dashboard\Service\GoogleSheetClientService
+    arguments:
+      - '@config.factory'
+
   makerspace_dashboard.utilization_data:
     class: Drupal\makerspace_dashboard\Service\UtilizationDataService
     arguments:

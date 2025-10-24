@@ -1,5 +1,8 @@
 {
     "name": "makehaven/makerspace_dashboard",
     "type": "drupal-custom-module",
-    "description": "The MakeHaven makerspace dashboard."
+    "description": "The MakeHaven makerspace dashboard.",
+    "require": {
+        "google/apiclient": "^2.12"
+    }
 }

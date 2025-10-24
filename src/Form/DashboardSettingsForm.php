@@ -101,6 +101,40 @@ class DashboardSettingsForm extends ConfigFormBase {
       'financial' => $this->t('Financial Snapshot'),
     ];
 
+    $form['google_sheets'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Google Sheets Integration'),
+      '#open' => TRUE,
+    ];
+
+    $form['google_sheets']['google_sheet_url'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Google Sheet URL'),
+      '#default_value' => $config->get('google_sheet_url') ?? '',
+      '#description' => $this->t('The full URL of the public Google Sheet.'),
+    ];
+
+    $form['google_sheets']['google_sheet_tab_finance'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Finance Tab Name'),
+      '#default_value' => $config->get('google_sheet_tab_finance') ?? 'Finance',
+      '#description' => $this->t('The name of the tab/worksheet containing financial data.'),
+    ];
+
+    $form['google_sheets']['google_sheet_tab_governance'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Governance Tab Name'),
+      '#default_value' => $config->get('google_sheet_tab_governance') ?? 'Governance',
+      '#description' => $this->t('The name of the tab/worksheet containing governance data.'),
+    ];
+
+    $form['google_sheets']['google_api_key'] = [
+      '#type' => 'textfield',
+      '#title' => $this->t('Google API Key'),
+      '#default_value' => $config->get('google_api_key') ?? '',
+      '#description' => $this->t('The Google API key for accessing the Google Sheets API.'),
+    ];
+
     foreach ($tabs as $key => $label) {
       $form['notes'][$key] = [
         '#type' => 'textarea',
@@ -163,7 +197,11 @@ class DashboardSettingsForm extends ConfigFormBase {
       ->set('utilization.rolling_window_days', (int) $form_state->getValue('rolling_window_days'))
       ->set('engagement.cohort_window_days', (int) $form_state->getValue('engagement_cohort_window_days'))
       ->set('engagement.activation_window_days', (int) $form_state->getValue('engagement_activation_window_days'))
-      ->set('engagement.orientation_badge_ids', $form_state->getValue('engagement_orientation_badge_ids'));
+      ->set('engagement.orientation_badge_ids', $form_state->getValue('engagement_orientation_badge_ids'))
+      ->set('google_sheet_url', $form_state->getValue('google_sheet_url'))
+      ->set('google_sheet_tab_finance', $form_state->getValue('google_sheet_tab_finance'))
+      ->set('google_sheet_tab_governance', $form_state->getValue('google_sheet_tab_governance'))
+      ->set('google_api_key', $form_state->getValue('google_api_key'));
 
     $notes = $form_state->getValue('notes', []);
     $config->set('tab_notes', $notes)->save();
