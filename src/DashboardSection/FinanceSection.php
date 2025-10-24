@@ -43,6 +43,13 @@ class FinanceSection extends DashboardSectionBase {
   /**
    * {@inheritdoc}
    */
+  public function getGoogleSheetChartMetadata(): array {
+    return [
+      'label' => 'Financial Snapshot',
+      'tab_name' => 'Finance',
+    ];
+  }
+
   public function build(array $filters = []): array {
     $build = [];
 

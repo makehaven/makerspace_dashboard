@@ -1,4 +1,14 @@
 services:
+  makerspace_dashboard.google_sheet_client:
+    class: Drupal\makerspace_dashboard\Service\GoogleSheetClientService
+    arguments:
+      - '@config.factory'
+
+  makerspace_dashboard.google_sheet_chart_manager:
+    class: Drupal\makerspace_dashboard\Service\GoogleSheetChartManager
+    arguments:
+      - !tagged_iterator makerspace_dashboard.google_sheet_chart
+
   makerspace_dashboard.utilization_data:
     class: Drupal\makerspace_dashboard\Service\UtilizationDataService
     arguments:
@@ -47,10 +57,12 @@ services:
 
   makerspace_dashboard.section.governance:
     class: Drupal\makerspace_dashboard\DashboardSection\GovernanceSection
+    arguments:
+      - '@makerspace_dashboard.google_sheet_client'
+      - '@string_translation'
     tags:
       - { name: makerspace_dashboard.section }
-    calls:
-      - [setStringTranslation, ['@string_translation']]
+      - { name: makerspace_dashboard.google_sheet_chart, label: 'Governance', tab_name: 'Governance' }
 
   makerspace_dashboard.section.finance:
     class: Drupal\makerspace_dashboard\DashboardSection\FinanceSection
@@ -58,6 +70,7 @@ services:
       - '@makerspace_dashboard.financial_data'
     tags:
       - { name: makerspace_dashboard.section }
+      - { name: makerspace_dashboard.google_sheet_chart, label: 'Financial Snapshot', tab_name: 'Finance' }
     calls:
       - [setStringTranslation, ['@string_translation']]
 
