@@ -54,6 +54,7 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\GovernanceSection
     tags:
       - { name: makerspace_dashboard.section }
+      - { name: makerspace_dashboard.google_sheet_chart, label: 'Governance', tab_name: 'Governance' }
     calls:
       - [setStringTranslation, ['@string_translation']]
 
@@ -63,6 +64,7 @@ services:
       - '@makerspace_dashboard.financial_data'
     tags:
       - { name: makerspace_dashboard.section }
+      - { name: makerspace_dashboard.google_sheet_chart, label: 'Financial Snapshot', tab_name: 'Finance' }
     calls:
       - [setStringTranslation, ['@string_translation']]
 

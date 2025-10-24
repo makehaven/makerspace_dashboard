@@ -4,11 +4,55 @@ namespace Drupal\makerspace_dashboard\Form;
 
 use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\makerspace_dashboard\Service\GoogleSheetClientService;
+use Drupal\Core\Config\ConfigFactoryInterface;
 
 /**
  * Settings form for Makerspace dashboard configuration.
  */
 class DashboardSettingsForm extends ConfigFormBase {
+
+  /**
+   * The Google Sheet Client service.
+   *
+   * @var \Drupal\makerspace_dashboard\Service\GoogleSheetClientService
+   */
+  protected $googleSheetClientService;
+
+  /**
+   * The service container.
+   *
+   * @var \Symfony\Component\DependencyInjection\ContainerInterface
+   */
+  protected $container;
+
+  /**
+   * Constructs a new DashboardSettingsForm object.
+   *
+   * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
+   *   The factory for configuration objects.
+   * @param \Drupal\makerspace_dashboard\Service\GoogleSheetClientService $google_sheet_client_service
+   *   The Google Sheet Client service.
+   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
+   *   The service container.
+   */
+  public function __construct(ConfigFactoryInterface $config_factory, GoogleSheetClientService $google_sheet_client_service, ContainerInterface $container) {
+    parent::__construct($config_factory);
+    $this->googleSheetClientService = $google_sheet_client_service;
+    $this->container = $container;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public static function create(ContainerInterface $container) {
+    return new static(
+      $container->get('config.factory'),
+      $container->get('makerspace_dashboard.google_sheet_client'),
+      $container
+    );
+  }
 
   /**
    * {@inheritdoc}
@@ -131,6 +175,31 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Google API Key'),
       '#default_value' => $config->get('google_api_key') ?? '',
       '#description' => $this->t('The Google API key for accessing the Google Sheets API.'),
+    ];
+
+    $form['google_sheets_status'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Google Sheet Data Status'),
+      '#open' => TRUE,
+      '#description' => $this->t('This section shows the status of the data connection for each chart defined in the code.'),
+    ];
+
+    $chart_services = $this->container->findTaggedServiceIds('makerspace_dashboard.google_sheet_chart');
+    $items = [];
+    foreach ($chart_services as $id => $tags) {
+      foreach ($tags as $tag) {
+        $label = $tag['label'];
+        $tab_name = $tag['tab_name'];
+        $data = $this->googleSheetClientService->getSheetData($tab_name);
+        $status = !empty($data) ? '✅ Data found' : '❌ Data not found';
+        $items[] = $this->t('@label: @status', ['@label' => $label, '@status' => $status]);
+      }
+    }
+
+    $form['google_sheets_status']['status'] = [
+      '#theme' => 'item_list',
+      '#items' => $items,
+      '#title' => $this->t('Chart Data Status'),
     ];
 
     foreach ($tabs as $key => $label) {
