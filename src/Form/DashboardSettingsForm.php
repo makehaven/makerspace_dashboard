@@ -178,6 +178,24 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#description' => $this->t('The Google API key for accessing the Google Sheets API.'),
     ];
 
+    $form['google_sheets']['api_setup_help'] = [
+      '#type' => 'item',
+      '#markup' => $this->t(
+        '<b>How to get a Google API Key:</b><br>
+        <ol>
+          <li>Go to the <a href="@cloud_console_url" target="_blank">Google Cloud Console</a>.</li>
+          <li>Create a new project (or select an existing one).</li>
+          <li>From the navigation menu, go to <b>APIs & Services > Library</b>.</li>
+          <li>Search for "Google Sheets API" and click <b>Enable</b>.</li>
+          <li>Go to <b>APIs & Services > Credentials</b>.</li>
+          <li>Click <b>Create Credentials > API key</b>.</li>
+          <li>Copy the generated API key and paste it into the field above.</li>
+          <li><b>Important:</b> For security, it is highly recommended to restrict the API key. Click on the new key, and under "Application restrictions", select "HTTP referrers". Add your website\'s domain to the list of allowed referrers. Under "API restrictions", select "Restrict key" and choose the "Google Sheets API".</li>
+        </ol>',
+        ['@cloud_console_url' => 'https://console.cloud.google.com/']
+      ),
+    ];
+
     $form['google_sheets_status'] = [
       '#type' => 'details',
       '#title' => $this->t('Google Sheet Data Status'),
