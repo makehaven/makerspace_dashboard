@@ -59,7 +59,6 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\GovernanceSection
     arguments:
       - '@makerspace_dashboard.google_sheet_client'
-      - '@logger.channel.makerspace_dashboard'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.section }
