@@ -59,22 +59,75 @@ class GovernanceSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): array {
-    $chart_data = $this->googleSheetClientService->getSheetData('Governance');
+    $raw_rows = $this->googleSheetClientService->getSheetData('Governance');
 
-    if (!is_array($chart_data) || empty($chart_data)) {
+    if (!is_array($raw_rows) || empty($raw_rows)) {
       return [
         '#markup' => $this->t('No data found for the Governance chart.'),
       ];
     }
 
-    // The charts module can parse a simple 2D array.
-    // The first row is treated as the header.
+    // Filter out empty rows that Google Sheets may return past the data range.
+    $rows = array_values(array_filter($raw_rows, static function ($row) {
+      if (!is_array($row)) {
+        return FALSE;
+      }
+      foreach ($row as $value) {
+        if ($value !== '' && $value !== NULL) {
+          return TRUE;
+        }
+      }
+      return FALSE;
+    }));
+
+    if (empty($rows)) {
+      return [
+        '#markup' => $this->t('No usable data found for the Governance chart.'),
+      ];
+    }
+
+    $headers = array_shift($rows);
+    if (!is_array($headers) || count($headers) < 2) {
+      return [
+        '#markup' => $this->t('The Governance sheet must contain a header row with at least two columns.'),
+      ];
+    }
+
+    $series_headers = array_slice($headers, 1);
+    $series_count = count($series_headers);
+    $labels = [];
+    $series_data = array_fill(0, $series_count, []);
+
+    foreach ($rows as $row) {
+      if (!is_array($row) || !isset($row[0])) {
+        continue;
+      }
+
+      $label = trim((string) $row[0]);
+      if ($label === '') {
+        continue;
+      }
+
+      $labels[] = $label;
+
+      for ($i = 0; $i < $series_count; $i++) {
+        $value = $row[$i + 1] ?? NULL;
+        $series_data[$i][] = static::normalizeNumericValue($value);
+      }
+    }
+
+    if (empty($labels)) {
+      return [
+        '#markup' => $this->t('No labeled rows were found for the Governance chart.'),
+      ];
+    }
+
     $build['chart'] = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
+      '#chart_library' => 'google',
       '#title' => $this->t('Board & Committee Attendance'),
-      '#legend_position' => 'none',
-      '#data' => ['data' => $chart_data],
+      '#legend_position' => $series_count > 1 ? 'right' : 'none',
       '#attached' => [
         'library' => [
           'charts/chart',
@@ -82,7 +135,43 @@ class GovernanceSection extends DashboardSectionBase {
       ],
     ];
 
+    $build['chart']['xaxis'] = [
+      '#type' => 'chart_xaxis',
+      '#labels' => $labels,
+    ];
+
+    foreach ($series_headers as $index => $series_label) {
+      $key = 'series_' . $index;
+      $build['chart'][$key] = [
+        '#type' => 'chart_data',
+        '#title' => (string) ($series_label ?: $this->t('Series @num', ['@num' => $index + 1])),
+        '#data' => $series_data[$index],
+      ];
+    }
+
     return $build;
+  }
+
+  /**
+   * Convert sheet cell values into floats while preserving NULL gaps.
+   */
+  protected static function normalizeNumericValue($value): ?float {
+    if ($value === '' || $value === NULL) {
+      return NULL;
+    }
+
+    if (is_numeric($value)) {
+      return (float) $value;
+    }
+
+    if (is_string($value)) {
+      $cleaned = str_replace([',', '$', '%'], '', $value);
+      if (is_numeric($cleaned)) {
+        return (float) $cleaned;
+      }
+    }
+
+    return NULL;
   }
 
 }
