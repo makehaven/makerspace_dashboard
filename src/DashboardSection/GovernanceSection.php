@@ -254,7 +254,7 @@ class GovernanceSection extends DashboardSectionBase {
       '#chart_library' => 'google',
       '#title' => $this->t('Board Gender Identity (Goal vs. Actual)'),
       '#legend_position' => 'top',
-      '#data' => $gender_chart_data,
+      '#data' => ['data' => $gender_chart_data],
       '#options' => [
         'vAxis' => ['format' => 'percent'],
       ],
@@ -267,7 +267,7 @@ class GovernanceSection extends DashboardSectionBase {
       '#chart_library' => 'google',
       '#title' => $this->t('Board Age Range (Goal vs. Actual)'),
       '#legend_position' => 'top',
-      '#data' => $age_chart_data,
+      '#data' => ['data' => $age_chart_data],
       '#options' => [
         'vAxis' => ['format' => 'percent'],
       ],
@@ -283,7 +283,7 @@ class GovernanceSection extends DashboardSectionBase {
       '#chart_library' => 'google',
       '#title' => $this->t('Board Ethnicity (Goal vs. Actual)'),
       '#legend_position' => 'top',
-      '#data' => $ethnicity_chart_data,
+      '#data' => ['data' => $ethnicity_chart_data],
       '#options' => [
         'vAxis' => ['format' => 'percent'],
       ],
