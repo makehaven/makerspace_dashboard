@@ -66,3 +66,23 @@ Orientation prerequisites are identified by `orientation_badge_ids` (configurabl
 - Tool usage logs (if stored separately) to cross-check badge utilization.
 
 Keep this document current whenever new metrics or joins are introduced. Include table names, join columns, and business rules so downstream automation (including AI) can reason about the data without reverse engineering the code.
+
+## External Data Sources
+
+This section documents data sources that live outside of the Drupal/CiviCRM database.
+
+### Google Sheets
+- **Service:** `GoogleSheetClientService` (hypothetical, to be implemented)
+- **Authentication:** OAuth 2.0 Service Account credentials stored in Drupal's key/secrets management.
+
+#### Board & Governance Data
+- **Sheet Name:** `Makerspace Board & Governance Roster`
+- **Tab:** `Governance`
+- **Columns:**
+    - `Name` (string): Full name of the individual.
+    - `Role` (string): e.g., "Board Member", "Shop Tech", "Instructor", "Volunteer".
+    - `Committee` (string): Name of the committee they serve on (if any).
+    - `Diversity - Gender` (string): Self-identified gender.
+    - `Diversity - BIPOC` (string): "Yes" or "No".
+    - `Start Date` (string): YYYY-MM-DD format.
+- **Purpose:** Used by `GovernanceDataService` to build charts for the "Governance" dashboard section.
