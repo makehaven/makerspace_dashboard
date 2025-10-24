@@ -217,33 +217,32 @@ class GovernanceSection extends DashboardSectionBase {
     }
 
     // === 6. Build Render Array ===
-    $goal_color = 'rgba(255, 99, 132, 0.6)';
-    $actual_color = 'rgba(54, 162, 235, 0.6)';
 
-    // --- Chart options to format Y-axis as percentage ---
-    $percentage_axis_options = [
-      'plugins' => ['title' => ['display' => TRUE]],
-      'scales' => [
-        'yAxes' => [[
-          'ticks' => [
-            'beginAtZero' => TRUE,
-            'callback' => 'function(value) { return value * 100 + "%"; }',
-          ],
-        ]],
-      ],
-      'tooltips' => [
-        'callbacks' => [
-          'label' => 'function(tooltipItem, data) {
-            var label = data.datasets[tooltipItem.datasetIndex].label || "";
-            if (label) {
-              label += ": ";
-            }
-            label += (tooltipItem.yLabel * 100).toFixed(0) + "%";
-            return label;
-          }',
-        ],
-      ],
-    ];
+    // --- Helper function to format data for Google Charts ---
+    $format_for_google = function(array $actual_data, array $goal_data, string $category_label) {
+      $output = [[$category_label, $this->t('Goal %'), $this->t('Actual %')]];
+      foreach ($actual_data as $key => $actual_value) {
+        $output[] = [$key, $goal_data[$key] ?? 0, $actual_value];
+      }
+      return $output;
+    };
+
+    // --- Create Google Charts compatible data arrays ---
+    $gender_chart_data = $format_for_google($actual_gender_pct, $goal_gender_pct, 'Gender');
+    $age_chart_data = $format_for_google($actual_age_pct, $goal_age_pct, 'Age Range');
+
+    // For ethnicity, filter out 0-value rows before formatting.
+    $filtered_actual_ethnicity = [];
+    $filtered_goal_ethnicity = [];
+    foreach ($actual_ethnicity_pct as $label => $actual_pct) {
+      $goal_pct = $goal_ethnicity_pct[$label] ?? 0;
+      if ($actual_pct > 0 || $goal_pct > 0) {
+        $filtered_actual_ethnicity[$label] = $actual_pct;
+        $filtered_goal_ethnicity[$label] = $goal_pct;
+      }
+    }
+    $ethnicity_chart_data = $format_for_google($filtered_actual_ethnicity, $filtered_goal_ethnicity, 'Ethnicity');
+
 
     $build['#prefix'] = '<div style="display: grid; grid-template-columns: 1fr; gap: 30px;">';
     $build['#suffix'] = '</div>';
@@ -252,92 +251,46 @@ class GovernanceSection extends DashboardSectionBase {
     $build['gender_chart'] = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
+      '#chart_library' => 'google',
+      '#title' => $this->t('Board Gender Identity (Goal vs. Actual)'),
       '#legend_position' => 'top',
-      '#data' => [
-        'labels' => array_keys($actual_gender_pct),
-        'datasets' => [
-          [
-            'label' => $this->t('Goal %'),
-            'data' => array_values($goal_gender_pct),
-            'backgroundColor' => $goal_color,
-          ],
-          [
-            'label' => $this->t('Actual %'),
-            'data' => array_values($actual_gender_pct),
-            'backgroundColor' => $actual_color,
-          ],
-        ],
+      '#data' => $gender_chart_data,
+      '#options' => [
+        'vAxis' => ['format' => 'percent'],
       ],
-      '#options' => array_merge_recursive($percentage_axis_options, [
-        'plugins' => ['title' => ['text' => $this->t('Board Gender Identity (Goal vs. Actual)')]],
-      ]),
     ];
 
     // --- Chart 2: Age Range (Grouped Bar) ---
     $build['age_chart'] = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
+      '#chart_library' => 'google',
+      '#title' => $this->t('Board Age Range (Goal vs. Actual)'),
       '#legend_position' => 'top',
-      '#data' => [
-        'labels' => array_keys($actual_age_pct),
-        'datasets' => [
-          [
-            'label' => $this->t('Goal %'),
-            'data' => array_values($goal_age_pct),
-            'backgroundColor' => $goal_color,
-          ],
-          [
-            'label' => $this->t('Actual %'),
-            'data' => array_values($actual_age_pct),
-            'backgroundColor' => $actual_color,
-          ],
-        ],
+      '#data' => $age_chart_data,
+      '#options' => [
+        'vAxis' => ['format' => 'percent'],
       ],
-      '#options' => array_merge_recursive($percentage_axis_options, [
-        'plugins' => ['title' => ['text' => $this->t('Board Age Range (Goal vs. Actual)')]],
-      ]),
     ];
 
     // --- Chart 3: Ethnicity (Grouped Bar) ---
-    // Filter out categories with 0 for both goal and actual
-    $ethnicity_labels = [];
-    $goal_eth_data = [];
-    $actual_eth_data = [];
-    foreach($actual_ethnicity_pct as $label => $actual_pct) {
-      $goal_pct = $goal_ethnicity_pct[$label] ?? 0;
-      if ($actual_pct > 0 || $goal_pct > 0) {
-        $ethnicity_labels[] = $label;
-        $goal_eth_data[] = $goal_pct;
-        $actual_eth_data[] = $actual_pct;
-      }
-    }
-
     $build['ethnicity_heading'] = [
       '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
     ];
     $build['ethnicity_chart'] = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
+      '#chart_library' => 'google',
+      '#title' => $this->t('Board Ethnicity (Goal vs. Actual)'),
       '#legend_position' => 'top',
-      '#data' => [
-        'labels' => $ethnicity_labels,
-        'datasets' => [
-          [
-            'label' => $this->t('Goal %'),
-            'data' => $goal_eth_data,
-            'backgroundColor' => $goal_color,
-          ],
-           [
-            'label' => $this->t('Actual %'),
-            'data' => $actual_eth_data,
-            'backgroundColor' => $actual_color,
-          ],
-        ],
+      '#data' => $ethnicity_chart_data,
+      '#options' => [
+        'vAxis' => ['format' => 'percent'],
       ],
-      '#options' => array_merge_recursive($percentage_axis_options, [
-        'plugins' => ['title' => ['text' => $this->t('Board Ethnicity (Goal vs. Actual)')]],
-      ]),
     ];
+
+    // Attach the main charts library.
+    $build['#attached']['library'][] = 'charts/chart';
 
     return $build;
   }
