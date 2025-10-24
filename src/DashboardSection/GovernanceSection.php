@@ -218,8 +218,8 @@ class GovernanceSection extends DashboardSectionBase {
 
     // === 6. Build Render Array ===
 
-    // --- Create a helper function for building chart arrays ---
-    $build_chart = function(string $title, array $labels, array $goal_data, array $actual_data) {
+    // --- Helper for bar charts ---
+    $build_bar_chart = function(string $title, array $labels, array $goal_data, array $actual_data) {
       $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
@@ -228,44 +228,47 @@ class GovernanceSection extends DashboardSectionBase {
         '#legend_position' => 'top',
         '#options' => ['vAxis' => ['format' => 'percent']],
       ];
-      $chart['xaxis'] = [
-        '#type' => 'chart_xaxis',
+      $chart['xaxis'] = ['#type' => 'chart_xaxis', '#labels' => $labels];
+      $chart['goal_series'] = ['#type' => 'chart_data', '#title' => $this->t('Goal %'), '#data' => $goal_data];
+      $chart['actual_series'] = ['#type' => 'chart_data', '#title' => $this->t('Actual %'), '#data' => $actual_data];
+      return $chart;
+    };
+
+    // --- Helper for pie charts ---
+    $build_pie_chart = function(string $title, array $data) {
+      $labels = array_keys($data);
+      $values = array_values($data);
+
+      $chart = [
+        '#type' => 'chart',
+        '#chart_type' => 'pie',
+        '#chart_library' => 'google',
+        '#title' => $this->t($title),
+        '#legend_position' => 'right',
+      ];
+      $chart['pie_data'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Distribution'),
         '#labels' => $labels,
-      ];
-      $chart['goal_series'] = [
-        '#type' => 'chart_data',
-        '#title' => $this->t('Goal %'),
-        '#data' => $goal_data,
-      ];
-      $chart['actual_series'] = [
-        '#type' => 'chart_data',
-        '#title' => $this->t('Actual %'),
-        '#data' => $actual_data,
+        '#data' => $values,
       ];
       return $chart;
     };
 
-    $build['#prefix'] = '<div style="display: grid; grid-template-columns: 1fr; gap: 30px;">';
+    $build['#prefix'] = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">';
     $build['#suffix'] = '</div>';
 
-    // --- Chart 1: Gender Identity (Grouped Bar) ---
-    $build['gender_chart'] = $build_chart(
-      'Board Gender Identity (Goal vs. Actual)',
-      array_keys($actual_gender_pct),
-      array_values($goal_gender_pct),
-      array_values($actual_gender_pct)
-    );
+    // --- Charts 1 & 2: Gender Identity (Pie Charts) ---
+    $build['gender_heading'] = ['#markup' => '<h2>Board Gender Identity</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
+    $build['gender_goal_chart'] = $build_pie_chart('Goal %', $goal_gender_pct);
+    $build['gender_actual_chart'] = $build_pie_chart('Actual %', $actual_gender_pct);
 
-    // --- Chart 2: Age Range (Grouped Bar) ---
-    $build['age_chart'] = $build_chart(
-      'Board Age Range (Goal vs. Actual)',
-      array_keys($actual_age_pct),
-      array_values($goal_age_pct),
-      array_values($actual_age_pct)
-    );
+    // --- Charts 3 & 4: Age Range (Pie Charts) ---
+    $build['age_heading'] = ['#markup' => '<h2>Board Age Range</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
+    $build['age_goal_chart'] = $build_pie_chart('Goal %', $goal_age_pct);
+    $build['age_actual_chart'] = $build_pie_chart('Actual %', $actual_age_pct);
 
-    // --- Chart 3: Ethnicity (Grouped Bar) ---
-    // Filter out categories with 0 for both goal and actual before building.
+    // --- Chart 5: Ethnicity (Grouped Bar) ---
     $ethnicity_labels = [];
     $goal_eth_data = [];
     $actual_eth_data = [];
@@ -279,14 +282,18 @@ class GovernanceSection extends DashboardSectionBase {
     }
 
     $build['ethnicity_heading'] = [
-      '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
+      '#markup' => '<div style="grid-column: 1 / -1;"><h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p></div>',
     ];
-    $build['ethnicity_chart'] = $build_chart(
+    $build['ethnicity_chart'] = $build_bar_chart(
       'Board Ethnicity (Goal vs. Actual)',
       $ethnicity_labels,
       $goal_eth_data,
       $actual_eth_data
     );
+    // The ethnicity chart should span both columns.
+    $build['ethnicity_chart']['#prefix'] = '<div style="grid-column: 1 / -1;">';
+    $build['ethnicity_chart']['#suffix'] = '</div>';
+
 
     // Attach the main charts library.
     $build['#attached']['library'][] = 'charts/chart';
