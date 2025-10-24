@@ -105,6 +105,13 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#type' => 'details',
       '#title' => $this->t('Google Sheets Integration'),
       '#open' => TRUE,
+      '#description' => $this->t(
+        'This section configures the connection to a central Google Sheet for fetching KPI data that does not live in the local database (e.g., financial or governance metrics).<br><br>
+        <b>API Key:</b> A Google API key is required for the site to read the sheet, even if it is public. You can create one in the <a href="@credentials_url" target="_blank">Google Cloud Console</a>. Ensure the "Google Sheets API" is enabled for your project.<br>
+        <b>Sheet Formatting:</b> The service expects a simple 2D table of data. The first row should be the headers, and subsequent rows should be the data points.<br>
+        <b>Tab Names:</b> The service can be extended by a developer to fetch data from any number of tabs. The initial implementation includes "Finance" and "Governance" as per the project requirements, but more can be added in the code.',
+        ['@credentials_url' => 'https://console.cloud.google.com/apis/credentials']
+      ),
     ];
 
     $form['google_sheets']['google_sheet_url'] = [
