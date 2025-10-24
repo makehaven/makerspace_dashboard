@@ -106,10 +106,15 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Google Sheets Integration'),
       '#open' => TRUE,
       '#description' => $this->t(
-        'This section configures the connection to a central Google Sheet for fetching KPI data that does not live in the local database (e.g., financial or governance metrics).<br><br>
-        <b>API Key:</b> A Google API key is required for the site to read the sheet, even if it is public. You can create one in the <a href="@credentials_url" target="_blank">Google Cloud Console</a>. Ensure the "Google Sheets API" is enabled for your project.<br>
-        <b>Sheet Formatting:</b> The service expects a simple 2D table of data. The first row should be the headers, and subsequent rows should be the data points.<br>
-        <b>Tab Names:</b> The service can be extended by a developer to fetch data from any number of tabs. The initial implementation includes "Finance" and "Governance" as per the project requirements, but more can be added in the code.',
+        'This section configures the connection to a central Google Sheet for fetching KPI data.<br><br>
+        <b>API Key:</b> A Google API key is required for the site to read the sheet, even if it is public. You can create one in the <a href="@credentials_url" target="_blank">Google Cloud Console</a>. Ensure the "Google Sheets API" is enabled for your project.<br><br>
+        <b>Sheet Formatting Instructions:</b><br>
+        The data in the Google Sheet must be structured correctly to be parsed. The service expects a simple 2D table with the first row as headers. New chart types and data formats can be added by a developer via code.<br><br>
+        <em>For Bar Charts:</em>
+        <ul>
+          <li><b>Column A:</b> The labels for each bar (e.g., "Q1 2023", "Q2 2023").</li>
+          <li><b>Column B:</b> The numerical values for each bar.</li>
+        </ul>',
         ['@credentials_url' => 'https://console.cloud.google.com/apis/credentials']
       ),
     ];
@@ -119,20 +124,6 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Google Sheet URL'),
       '#default_value' => $config->get('google_sheet_url') ?? '',
       '#description' => $this->t('The full URL of the public Google Sheet.'),
-    ];
-
-    $form['google_sheets']['google_sheet_tab_finance'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Finance Tab Name'),
-      '#default_value' => $config->get('google_sheet_tab_finance') ?? 'Finance',
-      '#description' => $this->t('The name of the tab/worksheet containing financial data.'),
-    ];
-
-    $form['google_sheets']['google_sheet_tab_governance'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Governance Tab Name'),
-      '#default_value' => $config->get('google_sheet_tab_governance') ?? 'Governance',
-      '#description' => $this->t('The name of the tab/worksheet containing governance data.'),
     ];
 
     $form['google_sheets']['google_api_key'] = [
@@ -206,8 +197,6 @@ class DashboardSettingsForm extends ConfigFormBase {
       ->set('engagement.activation_window_days', (int) $form_state->getValue('engagement_activation_window_days'))
       ->set('engagement.orientation_badge_ids', $form_state->getValue('engagement_orientation_badge_ids'))
       ->set('google_sheet_url', $form_state->getValue('google_sheet_url'))
-      ->set('google_sheet_tab_finance', $form_state->getValue('google_sheet_tab_finance'))
-      ->set('google_sheet_tab_governance', $form_state->getValue('google_sheet_tab_governance'))
       ->set('google_api_key', $form_state->getValue('google_api_key'));
 
     $notes = $form_state->getValue('notes', []);

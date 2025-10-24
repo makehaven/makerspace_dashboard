@@ -31,16 +31,15 @@ class GoogleSheetClientService {
   /**
    * Fetches data from a specific tab in the configured Google Sheet.
    *
-   * @param string $tab_config_key
-   *   The config key for the tab name (e.g., 'google_sheet_tab_finance').
+   * @param string $tab_name
+   *   The name of the tab/worksheet to fetch data from.
    *
    * @return array
    *   A 2D array of the data, or an empty array on failure.
    */
-  public function getSheetData(string $tab_config_key): array {
+  public function getSheetData(string $tab_name): array {
     $config = $this->configFactory->get('makerspace_dashboard.settings');
     $sheet_url = $config->get('google_sheet_url');
-    $tab_name = $config->get($tab_config_key);
     $api_key = $config->get('google_api_key');
 
     if (empty($sheet_url) || empty($tab_name) || empty($api_key)) {
