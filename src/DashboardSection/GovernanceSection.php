@@ -74,7 +74,7 @@ class GovernanceSection extends DashboardSectionBase {
       '#chart_type' => 'bar',
       '#title' => $this->t('Board & Committee Attendance'),
       '#legend_position' => 'none',
-      '#data' => $chart_data,
+      '#data' => ['data' => $chart_data],
       '#attached' => [
         'library' => [
           'charts/chart',
