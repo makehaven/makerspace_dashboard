@@ -78,24 +78,17 @@ class GovernanceSection extends DashboardSectionBase {
       ];
     }
 
-    // Remove header row.
-    array_shift($chart_data);
-
-    $labels = array_map('strval', array_column($chart_data, 0));
-    $data = array_map('intval', array_column($chart_data, 1));
-
+    // The charts module can parse a simple 2D array.
+    // The first row is treated as the header.
     $build['chart'] = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#title' => $this->t('Board & Committee Attendance'),
       '#legend_position' => 'none',
-      '#data' => [
-        'labels' => $labels,
-        'datasets' => [
-          [
-            'label' => $this->t('Attendance'),
-            'data' => $data,
-          ],
+      '#data' => $chart_data,
+      '#attached' => [
+        'library' => [
+          'charts/chart',
         ],
       ],
     ];
