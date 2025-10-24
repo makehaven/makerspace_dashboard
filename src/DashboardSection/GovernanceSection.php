@@ -72,7 +72,7 @@ class GovernanceSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $chart_data = $this->googleSheetClientService->getSheetData('Governance');
 
-    if (empty($chart_data)) {
+    if (!is_array($chart_data) || empty($chart_data)) {
       return [
         '#markup' => $this->t('No data found for the Governance chart.'),
       ];
