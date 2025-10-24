@@ -255,6 +255,32 @@ class GovernanceSection extends DashboardSectionBase {
       return $chart;
     };
 
+    // --- Helper for comparison tables ---
+    $build_table = function(string $category_label, array $goal_data, array $actual_data) {
+      $header = [$this->t($category_label), $this->t('Goal'), $this->t('Actual')];
+      $rows = [];
+      foreach ($goal_data as $key => $goal_value) {
+        // Filter out rows where both values are 0 to keep tables clean.
+        $actual_value = $actual_data[$key] ?? 0;
+        if ($goal_value == 0 && $actual_value == 0) {
+          continue;
+        }
+        $rows[] = [
+          $key,
+          round($goal_value * 100) . '%',
+          round($actual_value * 100) . '%',
+        ];
+      }
+      return [
+        '#type' => 'table',
+        '#header' => $header,
+        '#rows' => $rows,
+        '#attributes' => ['class' => ['governance-comparison-table']],
+        '#prefix' => '<div style="grid-column: 1 / -1;">',
+        '#suffix' => '</div>',
+      ];
+    };
+
     $build['#prefix'] = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">';
     $build['#suffix'] = '</div>';
 
@@ -262,11 +288,13 @@ class GovernanceSection extends DashboardSectionBase {
     $build['gender_heading'] = ['#markup' => '<h2>Board Gender Identity</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
     $build['gender_goal_chart'] = $build_pie_chart('Goal %', $goal_gender_pct);
     $build['gender_actual_chart'] = $build_pie_chart('Actual %', $actual_gender_pct);
+    $build['gender_table'] = $build_table('Gender', $goal_gender_pct, $actual_gender_pct);
 
     // --- Charts 3 & 4: Age Range (Pie Charts) ---
     $build['age_heading'] = ['#markup' => '<h2>Board Age Range</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
     $build['age_goal_chart'] = $build_pie_chart('Goal %', $goal_age_pct);
     $build['age_actual_chart'] = $build_pie_chart('Actual %', $actual_age_pct);
+    $build['age_table'] = $build_table('Age Range', $goal_age_pct, $actual_age_pct);
 
     // --- Chart 5: Ethnicity (Grouped Bar) ---
     $ethnicity_labels = [];
