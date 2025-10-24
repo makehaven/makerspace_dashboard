@@ -6,6 +6,7 @@ use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\makerspace_dashboard\Service\GoogleSheetClientService;
+use Drupal\makerspace_dashboard\Service\GoogleSheetChartManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 
 /**
@@ -21,11 +22,11 @@ class DashboardSettingsForm extends ConfigFormBase {
   protected $googleSheetClientService;
 
   /**
-   * The service container.
+   * The Google Sheet Chart Manager service.
    *
-   * @var \Symfony\Component\DependencyInjection\ContainerInterface
+   * @var \Drupal\makerspace_dashboard\Service\GoogleSheetChartManager
    */
-  protected $container;
+  protected $googleSheetChartManager;
 
   /**
    * Constructs a new DashboardSettingsForm object.
@@ -34,13 +35,13 @@ class DashboardSettingsForm extends ConfigFormBase {
    *   The factory for configuration objects.
    * @param \Drupal\makerspace_dashboard\Service\GoogleSheetClientService $google_sheet_client_service
    *   The Google Sheet Client service.
-   * @param \Symfony\Component\DependencyInjection\ContainerInterface $container
-   *   The service container.
+   * @param \Drupal\makerspace_dashboard\Service\GoogleSheetChartManager $google_sheet_chart_manager
+   *   The Google Sheet Chart Manager service.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, GoogleSheetClientService $google_sheet_client_service, ContainerInterface $container) {
+  public function __construct(ConfigFactoryInterface $config_factory, GoogleSheetClientService $google_sheet_client_service, GoogleSheetChartManager $google_sheet_chart_manager) {
     parent::__construct($config_factory);
     $this->googleSheetClientService = $google_sheet_client_service;
-    $this->container = $container;
+    $this->googleSheetChartManager = $google_sheet_chart_manager;
   }
 
   /**
@@ -50,7 +51,7 @@ class DashboardSettingsForm extends ConfigFormBase {
     return new static(
       $container->get('config.factory'),
       $container->get('makerspace_dashboard.google_sheet_client'),
-      $container
+      $container->get('makerspace_dashboard.google_sheet_chart_manager')
     );
   }
 
@@ -184,16 +185,18 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#description' => $this->t('This section shows the status of the data connection for each chart defined in the code.'),
     ];
 
-    $chart_services = $this->container->findTaggedServiceIds('makerspace_dashboard.google_sheet_chart');
+    $chart_services = $this->googleSheetChartManager->getCharts();
     $items = [];
-    foreach ($chart_services as $id => $tags) {
-      foreach ($tags as $tag) {
-        $label = $tag['label'];
-        $tab_name = $tag['tab_name'];
-        $data = $this->googleSheetClientService->getSheetData($tab_name);
-        $status = !empty($data) ? '✅ Data found' : '❌ Data not found';
-        $items[] = $this->t('@label: @status', ['@label' => $label, '@status' => $status]);
+    foreach ($chart_services as $chart_service) {
+      $metadata = $chart_service->getGoogleSheetChartMetadata();
+      if (empty($metadata)) {
+        continue;
       }
+      $label = $metadata['label'];
+      $tab_name = $metadata['tab_name'];
+      $data = $this->googleSheetClientService->getSheetData($tab_name);
+      $status = !empty($data) ? '✅ Data found' : '❌ Data not found';
+      $items[] = $this->t('@label: @status', ['@label' => $label, '@status' => $status]);
     }
 
     $form['google_sheets_status']['status'] = [

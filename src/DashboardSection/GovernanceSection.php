@@ -23,4 +23,14 @@ class GovernanceSection extends PlaceholderSection {
     return $this->t('Governance');
   }
 
+  /**
+   * {@inheritdoc}
+   */
+  public function getGoogleSheetChartMetadata(): array {
+    return [
+      'label' => 'Governance',
+      'tab_name' => 'Governance',
+    ];
+  }
+
 }

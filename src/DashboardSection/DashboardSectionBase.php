@@ -30,6 +30,13 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   }
 
   /**
+   * {@inheritdoc}
+   */
+  public function getGoogleSheetChartMetadata(): array {
+    return [];
+  }
+
+  /**
    * Builds a reusable details element describing chart data sources.
    *
    * @param array $items

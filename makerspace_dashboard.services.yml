@@ -4,6 +4,11 @@ services:
     arguments:
       - '@config.factory'
 
+  makerspace_dashboard.google_sheet_chart_manager:
+    class: Drupal\makerspace_dashboard\Service\GoogleSheetChartManager
+    arguments:
+      - !tagged_iterator makerspace_dashboard.google_sheet_chart
+
   makerspace_dashboard.utilization_data:
     class: Drupal\makerspace_dashboard\Service\UtilizationDataService
     arguments:
