@@ -244,7 +244,12 @@ class GovernanceSection extends DashboardSectionBase {
         '#chart_type' => 'pie',
         '#chart_library' => 'google',
         '#title' => $this->t($title),
-        '#legend_position' => 'right',
+        '#legend_position' => 'none',
+        '#options' => [
+          'pieSliceText' => 'percentage',
+          'chartArea' => ['width' => '90%', 'height' => '90%'],
+          'fontSize' => 14,
+        ],
       ];
       $chart['pie_data'] = [
         '#type' => 'chart_data',
@@ -276,24 +281,28 @@ class GovernanceSection extends DashboardSectionBase {
         '#header' => $header,
         '#rows' => $rows,
         '#attributes' => ['class' => ['governance-comparison-table']],
-        '#prefix' => '<div style="grid-column: 1 / -1;">',
-        '#suffix' => '</div>',
       ];
     };
 
-    $build['#prefix'] = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">';
-    $build['#suffix'] = '</div>';
-
     // --- Charts 1 & 2: Gender Identity (Pie Charts) ---
-    $build['gender_heading'] = ['#markup' => '<h2>Board Gender Identity</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
-    $build['gender_goal_chart'] = $build_pie_chart('Goal %', $goal_gender_pct);
-    $build['gender_actual_chart'] = $build_pie_chart('Actual %', $actual_gender_pct);
+    $build['gender_heading'] = ['#markup' => '<h2>Board Gender Identity</h2>'];
+    $build['gender_charts'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['pie-chart-pair-container']],
+      'goal' => $build_pie_chart('Goal %', $goal_gender_pct),
+      'actual' => $build_pie_chart('Actual %', $actual_gender_pct),
+    ];
     $build['gender_table'] = $build_table('Gender', $goal_gender_pct, $actual_gender_pct);
 
+
     // --- Charts 3 & 4: Age Range (Pie Charts) ---
-    $build['age_heading'] = ['#markup' => '<h2>Board Age Range</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
-    $build['age_goal_chart'] = $build_pie_chart('Goal %', $goal_age_pct);
-    $build['age_actual_chart'] = $build_pie_chart('Actual %', $actual_age_pct);
+    $build['age_heading'] = ['#markup' => '<h2>Board Age Range</h2>'];
+    $build['age_charts'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['pie-chart-pair-container']],
+      'goal' => $build_pie_chart('Goal %', $goal_age_pct),
+      'actual' => $build_pie_chart('Actual %', $actual_age_pct),
+    ];
     $build['age_table'] = $build_table('Age Range', $goal_age_pct, $actual_age_pct);
 
     // --- Chart 5: Ethnicity (Grouped Bar) ---
@@ -310,7 +319,7 @@ class GovernanceSection extends DashboardSectionBase {
     }
 
     $build['ethnicity_heading'] = [
-      '#markup' => '<div style="grid-column: 1 / -1;"><h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p></div>',
+      '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
     ];
     $build['ethnicity_chart'] = $build_bar_chart(
       'Board Ethnicity (Goal vs. Actual)',
@@ -318,9 +327,6 @@ class GovernanceSection extends DashboardSectionBase {
       $goal_eth_data,
       $actual_eth_data
     );
-    // The ethnicity chart should span both columns.
-    $build['ethnicity_chart']['#prefix'] = '<div style="grid-column: 1 / -1;">';
-    $build['ethnicity_chart']['#suffix'] = '</div>';
 
 
     // Attach the main charts library.
