@@ -219,7 +219,7 @@ class GovernanceSection extends DashboardSectionBase {
     // === 6. Build Render Array ===
 
     // --- Helper for bar charts ---
-    $build_bar_chart = function(string $title, array $labels, array $goal_data, array $actual_data) {
+    $build_bar_chart = function(string $title, array $labels, array $data) {
       $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
@@ -229,8 +229,7 @@ class GovernanceSection extends DashboardSectionBase {
         '#options' => ['vAxis' => ['format' => 'percent']],
       ];
       $chart['xaxis'] = ['#type' => 'chart_xaxis', '#labels' => $labels];
-      $chart['goal_series'] = ['#type' => 'chart_data', '#title' => $this->t('Goal %'), '#data' => $goal_data];
-      $chart['actual_series'] = ['#type' => 'chart_data', '#title' => $this->t('Actual %'), '#data' => $actual_data];
+      $chart['series_data'] = ['#type' => 'chart_data', '#data' => $data];
       return $chart;
     };
 
@@ -337,14 +336,12 @@ class GovernanceSection extends DashboardSectionBase {
 
     // --- Chart 5: Ethnicity (Grouped Bar) ---
     $ethnicity_labels = [];
-    $goal_eth_data = [];
-    $actual_eth_data = [];
+    $ethnicity_data = [['', 'Goal %', 'Actual %']];
     foreach ($actual_ethnicity_pct as $label => $actual_pct) {
       $goal_pct = $goal_ethnicity_pct[$label] ?? 0;
       if ($actual_pct > 0 || $goal_pct > 0) {
         $ethnicity_labels[] = $label;
-        $goal_eth_data[] = $goal_pct;
-        $actual_eth_data[] = $actual_pct;
+        $ethnicity_data[] = [$label, $goal_pct, $actual_pct];
       }
     }
 
@@ -354,8 +351,7 @@ class GovernanceSection extends DashboardSectionBase {
     $build['ethnicity_chart'] = $build_bar_chart(
       'Board Ethnicity (Goal vs. Actual)',
       $ethnicity_labels,
-      $goal_eth_data,
-      $actual_eth_data
+      $ethnicity_data
     );
 
 
