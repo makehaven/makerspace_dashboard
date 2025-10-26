@@ -218,8 +218,8 @@ class GovernanceSection extends DashboardSectionBase {
 
     // === 6. Build Render Array ===
 
-    // --- Helper for bar charts ---
-    $build_bar_chart = function(string $title, array $labels, array $data) {
+    // --- Helper for a grouped bar chart ---
+    $build_grouped_bar_chart = function(string $title, array $data) {
       $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
@@ -228,7 +228,8 @@ class GovernanceSection extends DashboardSectionBase {
         '#legend_position' => 'top',
         '#options' => ['vAxis' => ['format' => 'percent']],
       ];
-      $chart['xaxis'] = ['#type' => 'chart_xaxis', '#labels' => $labels];
+      // For a data table format, the first column provides the x-axis labels.
+      // No separate '#chart_xaxis' is needed.
       $chart['series_data'] = ['#type' => 'chart_data', '#data' => $data];
       return $chart;
     };
@@ -335,12 +336,10 @@ class GovernanceSection extends DashboardSectionBase {
     ];
 
     // --- Chart 5: Ethnicity (Grouped Bar) ---
-    $ethnicity_labels = [];
-    $ethnicity_data = [['', 'Goal %', 'Actual %']];
+    $ethnicity_data = [['Ethnicity', 'Goal %', 'Actual %']];
     foreach ($actual_ethnicity_pct as $label => $actual_pct) {
       $goal_pct = $goal_ethnicity_pct[$label] ?? 0;
       if ($actual_pct > 0 || $goal_pct > 0) {
-        $ethnicity_labels[] = $label;
         $ethnicity_data[] = [$label, $goal_pct, $actual_pct];
       }
     }
@@ -348,11 +347,14 @@ class GovernanceSection extends DashboardSectionBase {
     $build['ethnicity_heading'] = [
       '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
     ];
-    $build['ethnicity_chart'] = $build_bar_chart(
+    $build['ethnicity_chart'] = $build_grouped_bar_chart(
       'Board Ethnicity (Goal vs. Actual)',
-      $ethnicity_labels,
       $ethnicity_data
     );
+
+    $build['ethnicity_source'] = [
+      '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
+    ];
 
 
     // Attach the main charts library.
