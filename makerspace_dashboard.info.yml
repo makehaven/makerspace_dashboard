@@ -5,4 +5,4 @@ core_version_requirement: ^10
 package: 'MakeHaven'
 dependencies:
   - drupal:charts
-  - charts:charts_chartjs
+  - charts:charts_google
