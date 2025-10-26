@@ -66,15 +66,25 @@
   margin-top: 1rem;
 }
 
-.pie-chart-pair-container {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 0;
+.metric-container {
   background-color: #f8fafc;
   border: 1px solid #d0d7de;
   border-radius: 8px;
   padding: 1.25rem;
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
+}
+
+.metric-container h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.pie-chart-pair-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
 }
 
 .pie-chart-pair-container .chart {
@@ -82,4 +92,8 @@
   border: none;
   padding: 0;
   margin-bottom: 0;
+}
+
+.metric-container .governance-comparison-table {
+  margin-top: 1.5rem;
 }
