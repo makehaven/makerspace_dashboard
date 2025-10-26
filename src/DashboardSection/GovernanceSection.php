@@ -313,6 +313,9 @@ class GovernanceSection extends DashboardSectionBase {
         'actual' => $build_pie_chart('Actual %', $actual_gender_pct),
       ],
       'table' => $build_table('Gender', $goal_gender_pct, $actual_gender_pct),
+      'source' => [
+        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
+      ],
     ];
 
     // --- Charts 3 & 4: Age Range (Pie Charts) ---
@@ -327,6 +330,9 @@ class GovernanceSection extends DashboardSectionBase {
         'actual' => $build_pie_chart('Actual %', $actual_age_pct),
       ],
       'table' => $build_table('Age Range', $goal_age_pct, $actual_age_pct),
+      'source' => [
+        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
+      ],
     ];
 
     // --- Chart 5: Ethnicity (Grouped Bar) ---

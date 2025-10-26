@@ -97,3 +97,10 @@
 .metric-container .governance-comparison-table {
   margin-top: 1.5rem;
 }
+
+.data-source {
+  margin-top: 1.5rem;
+  font-size: 0.875rem;
+  color: #64748b;
+  text-align: right;
+}
