@@ -1,0 +1,190 @@
+<?php
+
+namespace Drupal\makerspace_dashboard\Service;
+
+use DateTimeImmutable;
+use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Database\Connection;
+use InvalidArgumentException;
+
+/**
+ * Provides reusable access to makerspace snapshot aggregates.
+ */
+class SnapshotDataService {
+
+  /**
+   * Database connection.
+   */
+  protected Connection $database;
+
+  /**
+   * Cache backend.
+   */
+  protected CacheBackendInterface $cache;
+
+  /**
+   * Time service.
+   */
+  protected TimeInterface $time;
+
+  /**
+   * Cache lifetime.
+   */
+  protected int $ttl;
+
+  /**
+   * Constructs the service.
+   */
+  public function __construct(Connection $database, CacheBackendInterface $cache, TimeInterface $time, int $ttl = 900) {
+    $this->database = $database;
+    $this->cache = $cache;
+    $this->time = $time;
+    $this->ttl = $ttl;
+  }
+
+  /**
+   * Returns active membership counts grouped by the requested granularity.
+   *
+   * @param string $granularity
+   *   One of day, month, or year.
+   * @param bool $includeTests
+   *   Whether to include rows flagged as test snapshots.
+   * @param array|null $snapshotTypes
+   *   Optional array of snapshot_type values to include. Defaults to all
+   *   makerspace_snapshot membership_totals schedules.
+   *
+   * @return array
+   *   Ordered list of associative arrays with keys:
+   *   - period_key: Canonical string key for the grouping period.
+   *   - period_date: DateTimeImmutable representing the period anchor (start of
+   *     day/month/year).
+   *   - snapshot_date: DateTimeImmutable of the source snapshot.
+   *   - snapshot_type: The snapshot type string.
+   *   - members_active: Integer active membership count.
+   */
+  public function getMembershipCountSeries(string $granularity = 'day', bool $includeTests = FALSE, ?array $snapshotTypes = NULL): array {
+    $granularity = $this->normalizeGranularity($granularity);
+
+    $cacheIdParts = [
+      'makerspace_dashboard:snapshot:membership',
+      $granularity,
+      $includeTests ? 'with_tests' : 'production',
+    ];
+    if ($snapshotTypes) {
+      $cacheIdParts[] = md5(implode('|', $snapshotTypes));
+    }
+    $cacheId = implode(':', $cacheIdParts);
+
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('ms_snapshot') || !$schema->tableExists('ms_fact_org_snapshot')) {
+      return [];
+    }
+
+    $query = $this->database->select('ms_snapshot', 's');
+    $query->innerJoin('ms_fact_org_snapshot', 'o', 'o.snapshot_id = s.id');
+    $query->fields('s', ['snapshot_date', 'snapshot_type', 'is_test']);
+    $query->fields('o', ['members_active']);
+
+    if ($snapshotTypes) {
+      $query->condition('s.snapshot_type', $snapshotTypes, 'IN');
+    }
+    else {
+      $query->condition('s.snapshot_type', 'membership_totals%', 'LIKE');
+    }
+
+    if (!$includeTests) {
+      $query->condition('s.is_test', 0);
+    }
+
+    $query->orderBy('s.snapshot_date', 'ASC');
+    $records = $query->execute()->fetchAll();
+
+    if (!$records) {
+      return [];
+    }
+
+    $series = [];
+    foreach ($records as $record) {
+      $snapshotDate = DateTimeImmutable::createFromFormat('Y-m-d', $record->snapshot_date);
+      if (!$snapshotDate) {
+        continue;
+      }
+
+      $periodDate = $this->normalizeDateForGranularity($snapshotDate, $granularity);
+      $periodKey = $periodDate->format($this->periodFormat($granularity));
+      $snapshotTimestamp = $snapshotDate->getTimestamp();
+
+      if (!isset($series[$periodKey]) || $snapshotTimestamp >= $series[$periodKey]['snapshot_timestamp']) {
+        $series[$periodKey] = [
+          'period_key' => $periodKey,
+          'period_date' => $periodDate,
+          'snapshot_date' => $snapshotDate,
+          'snapshot_type' => $record->snapshot_type,
+          'members_active' => (int) $record->members_active,
+          'snapshot_timestamp' => $snapshotTimestamp,
+        ];
+      }
+    }
+
+    if (!$series) {
+      return [];
+    }
+
+    $ordered = array_values($series);
+    usort($ordered, static function (array $a, array $b) {
+      return $a['period_date'] <=> $b['period_date'];
+    });
+
+    $clean = array_map(static function (array $row): array {
+      unset($row['snapshot_timestamp']);
+      return $row;
+    }, $ordered);
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $clean, $expire, ['makerspace_snapshot:membership_totals']);
+
+    return $clean;
+  }
+
+  /**
+   * Ensures we only accept supported granularities.
+   */
+  protected function normalizeGranularity(string $granularity): string {
+    $granularity = strtolower($granularity);
+    $allowed = ['day', 'month', 'year'];
+    if (!in_array($granularity, $allowed, TRUE)) {
+      throw new InvalidArgumentException(sprintf('Unsupported granularity "%s".', $granularity));
+    }
+    return $granularity;
+  }
+
+  /**
+   * Returns the canonical period format string per granularity.
+   */
+  protected function periodFormat(string $granularity): string {
+    return match ($granularity) {
+      'day' => 'Y-m-d',
+      'month' => 'Y-m',
+      'year' => 'Y',
+      default => throw new InvalidArgumentException(sprintf('Unsupported granularity "%s".', $granularity)),
+    };
+  }
+
+  /**
+   * Normalizes a snapshot date to the anchor for the requested granularity.
+   */
+  protected function normalizeDateForGranularity(DateTimeImmutable $date, string $granularity): DateTimeImmutable {
+    return match ($granularity) {
+      'day' => $date,
+      'month' => $date->setDate((int) $date->format('Y'), (int) $date->format('m'), 1),
+      'year' => $date->setDate((int) $date->format('Y'), 1, 1),
+      default => $date,
+    };
+  }
+
+}

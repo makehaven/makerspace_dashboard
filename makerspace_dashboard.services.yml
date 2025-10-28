@@ -29,6 +29,13 @@ services:
       - '@cache.default'
       - '@datetime.time'
 
+  makerspace_dashboard.snapshot_data:
+    class: Drupal\makerspace_dashboard\Service\SnapshotDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+
   makerspace_dashboard.engagement_data:
     class: Drupal\makerspace_dashboard\Service\EngagementDataService
     arguments:
@@ -98,6 +105,7 @@ services:
       - '@datetime.time'
       - '@makerspace_dashboard.utilization_data'
       - '@config.factory'
+      - '@makerspace_dashboard.snapshot_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
