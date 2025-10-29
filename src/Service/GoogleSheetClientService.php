@@ -70,6 +70,17 @@ class GoogleSheetClientService {
   }
 
   /**
+   * Returns the configured Google Sheet URL.
+   *
+   * @return string
+   *   The Google Sheet URL, or an empty string if not configured.
+   */
+  public function getGoogleSheetUrl(): string {
+    $config = $this->configFactory->get('makerspace_dashboard.settings');
+    return $config->get('google_sheet_url') ?? '';
+  }
+
+  /**
    * Extracts the spreadsheet ID from a Google Sheet URL.
    *
    * @param string $url

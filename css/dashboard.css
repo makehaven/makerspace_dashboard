@@ -65,3 +65,42 @@
 .makerspace-dashboard-section .chart + .makerspace-dashboard-info {
   margin-top: 1rem;
 }
+
+.metric-container {
+  background-color: #f8fafc;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  padding: 1.25rem;
+  margin-bottom: 2rem;
+}
+
+.metric-container h2 {
+  margin-top: 0;
+  margin-bottom: 1.5rem;
+  font-size: 1.5rem;
+}
+
+.pie-chart-pair-container {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.pie-chart-pair-container .chart {
+  background-color: transparent;
+  border: none;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+.metric-container .governance-comparison-table {
+  margin-top: 1.5rem;
+}
+
+.data-source {
+  margin-top: 1.5rem;
+  font-size: 0.875rem;
+  color: #64748b;
+  text-align: right;
+}

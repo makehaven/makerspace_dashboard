@@ -218,8 +218,8 @@ class GovernanceSection extends DashboardSectionBase {
 
     // === 6. Build Render Array ===
 
-    // --- Helper for bar charts ---
-    $build_bar_chart = function(string $title, array $labels, array $goal_data, array $actual_data) {
+    // --- Helper for a grouped bar chart ---
+    $build_grouped_bar_chart = function(string $title, array $data) {
       $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
@@ -228,9 +228,9 @@ class GovernanceSection extends DashboardSectionBase {
         '#legend_position' => 'top',
         '#options' => ['vAxis' => ['format' => 'percent']],
       ];
-      $chart['xaxis'] = ['#type' => 'chart_xaxis', '#labels' => $labels];
-      $chart['goal_series'] = ['#type' => 'chart_data', '#title' => $this->t('Goal %'), '#data' => $goal_data];
-      $chart['actual_series'] = ['#type' => 'chart_data', '#title' => $this->t('Actual %'), '#data' => $actual_data];
+      // For a data table format, the first column provides the x-axis labels.
+      // No separate '#chart_xaxis' is needed.
+      $chart['series_data'] = ['#type' => 'chart_data', '#data' => $data];
       return $chart;
     };
 
@@ -244,8 +244,30 @@ class GovernanceSection extends DashboardSectionBase {
         '#chart_type' => 'pie',
         '#chart_library' => 'google',
         '#title' => $this->t($title),
-        '#legend_position' => 'right',
+        '#legend_position' => 'none',
+        '#options' => [
+          'pieSliceText' => 'percentage',
+          'chartArea' => ['width' => '90%', 'height' => '90%'],
+          'fontSize' => 16,
+          'pieSliceTextStyle' => [
+            'color' => 'black',
+          ],
+          'colors' => [], // This will be populated dynamically.
+        ],
       ];
+
+      // Assign custom colors based on labels.
+      $color_map = [
+        'Female' => '#dc3912', // Red
+        'Male' => '#3366cc', // Blue
+        'Non-Binary' => '#ff9900', // Orange
+        'Other/Unknown' => '#990099', // Purple
+      ];
+
+      $chart['#options']['colors'] = [];
+      foreach ($labels as $label) {
+        $chart['#options']['colors'][] = $color_map[$label] ?? '#dddddd';
+      }
       $chart['pie_data'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Distribution'),
@@ -276,51 +298,63 @@ class GovernanceSection extends DashboardSectionBase {
         '#header' => $header,
         '#rows' => $rows,
         '#attributes' => ['class' => ['governance-comparison-table']],
-        '#prefix' => '<div style="grid-column: 1 / -1;">',
-        '#suffix' => '</div>',
       ];
     };
 
-    $build['#prefix'] = '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">';
-    $build['#suffix'] = '</div>';
-
     // --- Charts 1 & 2: Gender Identity (Pie Charts) ---
-    $build['gender_heading'] = ['#markup' => '<h2>Board Gender Identity</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
-    $build['gender_goal_chart'] = $build_pie_chart('Goal %', $goal_gender_pct);
-    $build['gender_actual_chart'] = $build_pie_chart('Actual %', $actual_gender_pct);
-    $build['gender_table'] = $build_table('Gender', $goal_gender_pct, $actual_gender_pct);
+    $build['gender_metric'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'heading' => ['#markup' => '<h2>Board Gender Identity</h2>'],
+      'charts' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['pie-chart-pair-container']],
+        'goal' => $build_pie_chart('Goal %', $goal_gender_pct),
+        'actual' => $build_pie_chart('Actual %', $actual_gender_pct),
+      ],
+      'table' => $build_table('Gender', $goal_gender_pct, $actual_gender_pct),
+      'source' => [
+        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
+      ],
+    ];
 
     // --- Charts 3 & 4: Age Range (Pie Charts) ---
-    $build['age_heading'] = ['#markup' => '<h2>Board Age Range</h2>', '#prefix' => '<div style="grid-column: 1 / -1;">', '#suffix' => '</div>'];
-    $build['age_goal_chart'] = $build_pie_chart('Goal %', $goal_age_pct);
-    $build['age_actual_chart'] = $build_pie_chart('Actual %', $actual_age_pct);
-    $build['age_table'] = $build_table('Age Range', $goal_age_pct, $actual_age_pct);
+    $build['age_metric'] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'heading' => ['#markup' => '<h2>Board Age Range</h2>'],
+      'charts' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['pie-chart-pair-container']],
+        'goal' => $build_pie_chart('Goal %', $goal_age_pct),
+        'actual' => $build_pie_chart('Actual %', $actual_age_pct),
+      ],
+      'table' => $build_table('Age Range', $goal_age_pct, $actual_age_pct),
+      'source' => [
+        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
+      ],
+    ];
 
     // --- Chart 5: Ethnicity (Grouped Bar) ---
-    $ethnicity_labels = [];
-    $goal_eth_data = [];
-    $actual_eth_data = [];
+    $ethnicity_data = [['Ethnicity', 'Goal %', 'Actual %']];
     foreach ($actual_ethnicity_pct as $label => $actual_pct) {
       $goal_pct = $goal_ethnicity_pct[$label] ?? 0;
       if ($actual_pct > 0 || $goal_pct > 0) {
-        $ethnicity_labels[] = $label;
-        $goal_eth_data[] = $goal_pct;
-        $actual_eth_data[] = $actual_pct;
+        $ethnicity_data[] = [$label, $goal_pct, $actual_pct];
       }
     }
 
     $build['ethnicity_heading'] = [
-      '#markup' => '<div style="grid-column: 1 / -1;"><h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p></div>',
+      '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
     ];
-    $build['ethnicity_chart'] = $build_bar_chart(
+    $build['ethnicity_chart'] = $build_grouped_bar_chart(
       'Board Ethnicity (Goal vs. Actual)',
-      $ethnicity_labels,
-      $goal_eth_data,
-      $actual_eth_data
+      $ethnicity_data
     );
-    // The ethnicity chart should span both columns.
-    $build['ethnicity_chart']['#prefix'] = '<div style="grid-column: 1 / -1;">';
-    $build['ethnicity_chart']['#suffix'] = '</div>';
+
+    $build['ethnicity_source'] = [
+      '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
+    ];
 
 
     // Attach the main charts library.
