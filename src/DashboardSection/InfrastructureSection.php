@@ -52,6 +52,10 @@ class InfrastructureSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
+    // This build method is organized into two main parts:
+    // 1. Tool Status Breakdown: A chart showing the distribution of tools by their current status.
+    // 2. Tools Needing Attention: A table listing tools that require maintenance or are otherwise non-operational.
+
     $statusCounts = $this->dataService->getToolStatusCounts();
     $totalTools = array_sum($statusCounts);
 
@@ -66,12 +70,10 @@ class InfrastructureSection extends DashboardSectionBase {
       $labels = array_keys($statusCounts);
       $counts = array_values($statusCounts);
 
-      $build['tool_status_breakdown'] = [
+      $tool_status_breakdown_chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Tools by status'),
-        '#description' => $this->t('Counts published equipment records by their current status taxonomy term.'),
         '#raw_options' => [
           'options' => [
             'plugins' => [
@@ -93,25 +95,33 @@ class InfrastructureSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['tool_status_breakdown']['series'] = [
+      $tool_status_breakdown_chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Tools'),
         '#data' => $counts,
         '#color' => '#0ea5e9',
       ];
-      $build['tool_status_breakdown']['xaxis'] = [
+      $tool_status_breakdown_chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $labels),
       ];
-      $build['tool_status_breakdown']['yaxis'] = [
+      $tool_status_breakdown_chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Count of tools'),
       ];
-      $build['tool_status_breakdown_info'] = $this->buildChartInfo([
-        $this->t('Source: Published item nodes joined to field_item_status and taxonomy term labels.'),
-        $this->t('Processing: Counts each tool once regardless of category; status “Unspecified” captures items missing a taxonomy assignment.'),
-        $this->t('Definitions: Status vocabulary is maintained in taxonomy.vocabulary.item_status—align naming conventions to keep the legend concise.'),
-      ]);
+      $build['tool_status_breakdown_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('Tools by Status') . '</h2><p>' . $this->t('Counts published equipment records by their current status taxonomy term.') . '</p>',
+        ],
+        'chart' => $tool_status_breakdown_chart,
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Published item nodes joined to field_item_status and taxonomy term labels.'),
+          $this->t('Processing: Counts each tool once regardless of category; status “Unspecified” captures items missing a taxonomy assignment.'),
+          $this->t('Definitions: Status vocabulary is maintained in taxonomy.vocabulary.item_status—align naming conventions to keep the legend concise.'),
+        ]),
+      ];
     }
     else {
       $build['tool_status_breakdown_empty'] = [
@@ -145,21 +155,28 @@ class InfrastructureSection extends DashboardSectionBase {
         ];
       }
 
-      $build['attention_table'] = [
-        '#type' => 'table',
-        '#header' => [
-          'tool' => $this->t('Tool'),
-          'status' => $this->t('Status'),
-          'updated' => $this->t('Last updated'),
+      $build['attention_table_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('Tools Needing Attention') . '</h2>',
         ],
-        '#rows' => $rows,
-        '#attributes' => ['class' => ['makerspace-dashboard-table']],
+        'table' => [
+          '#type' => 'table',
+          '#header' => [
+            'tool' => $this->t('Tool'),
+            'status' => $this->t('Status'),
+            'updated' => $this->t('Last updated'),
+          ],
+          '#rows' => $rows,
+          '#attributes' => ['class' => ['makerspace-dashboard-table']],
+        ],
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Same item dataset limited to non-operational statuses (maintenance, down, retired, etc.).'),
+          $this->t('Processing: Sorts by latest update timestamp and trims to the most recent assets needing attention.'),
+          $this->t('Definitions: Operational statuses are detected heuristically—ensure the taxonomy uses consistent wording for “Operational” vs “Down”.'),
+        ], $this->t('Maintenance notes')),
       ];
-      $build['attention_table_info'] = $this->buildChartInfo([
-        $this->t('Source: Same item dataset limited to non-operational statuses (maintenance, down, retired, etc.).'),
-        $this->t('Processing: Sorts by latest update timestamp and trims to the most recent assets needing attention.'),
-        $this->t('Definitions: Operational statuses are detected heuristically—ensure the taxonomy uses consistent wording for “Operational” vs “Down”.'),
-      ], $this->t('Maintenance notes'));
     }
     else {
       $build['attention_empty'] = [

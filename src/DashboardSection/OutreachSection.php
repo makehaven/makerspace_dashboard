@@ -43,6 +43,10 @@ class OutreachSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
+    // This build method is organized into two main parts:
+    // 1. Discovery Sources: A chart showing how members discovered the makerspace.
+    // 2. New Member Interests: A chart showing the interests of new members.
+
     $build['intro'] = [
       '#type' => 'markup',
       '#markup' => $this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'),
@@ -53,27 +57,33 @@ class OutreachSection extends DashboardSectionBase {
       $discoveryLabels = array_map(fn(array $row) => $row['label'], $discoveryRows);
       $discoveryCounts = array_map(fn(array $row) => $row['count'], $discoveryRows);
 
-      $build['discovery_sources'] = [
+      $discovery_sources_chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('How members discovered us'),
-        '#description' => $this->t('Self-reported discovery sources from member profiles.'),
       ];
-      $build['discovery_sources']['series'] = [
+      $discovery_sources_chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $discoveryCounts,
       ];
-      $build['discovery_sources']['xaxis'] = [
+      $discovery_sources_chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $discoveryLabels),
       ];
-      $build['discovery_sources_info'] = $this->buildChartInfo([
-        $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
-        $this->t('Processing: Aggregates responses and rolls options with fewer than five members into "Other".'),
-        $this->t('Definitions: Missing responses surface as "Not captured"; encourage staff to populate this field for richer recruitment insights.'),
-      ]);
+      $build['discovery_sources_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('How Members Discovered Us') . '</h2><p>' . $this->t('Self-reported discovery sources from member profiles.') . '</p>',
+        ],
+        'chart' => $discovery_sources_chart,
+        'info' => $this->buildChartInfo([
+          $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
+          $this->t('Processing: Aggregates responses and rolls options with fewer than five members into "Other".'),
+          $this->t('Definitions: Missing responses surface as "Not captured"; encourage staff to populate this field for richer recruitment insights.'),
+        ]),
+      ];
     }
 
     $recentWindowEnd = new \DateTimeImmutable('now', new \DateTimeZone(date_default_timezone_get()));

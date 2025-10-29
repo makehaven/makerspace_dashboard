@@ -58,98 +58,6 @@ class GovernanceSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
-    // This build method follows several steps:
-    // 1. Fetch ACTUAL and GOAL data from Google Sheets.
-    // 2. Perform validation to ensure data is present.
-    // 3. Define mappings for ethnicity categories.
-    // 4. Process the raw ACTUAL data into countable arrays for gender, age, and ethnicity.
-    // 5. Convert the counts to percentages.
-    // 6. Process the raw GOAL data into lookup arrays.
-    // 7. Build the final render array, assembling charts and tables.
-    // 8. Define anonymous helper functions for building charts and tables.
-    // --- Helper for a grouped bar chart ---
-    $build_grouped_bar_chart = function(string $title, array $data) {
-      $chart = [
-        '#type' => 'chart',
-        '#chart_type' => 'bar',
-        '#chart_library' => 'google',
-        '#title' => $this->t($title),
-        '#legend_position' => 'top',
-        '#options' => ['vAxis' => ['format' => 'percent']],
-      ];
-      // For a data table format, the first column provides the x-axis labels.
-      // No separate '#chart_xaxis' is needed.
-      $chart['series_data'] = ['#type' => 'chart_data', '#data' => $data];
-      return $chart;
-    };
-
-    // --- Helper for pie charts ---
-    $build_pie_chart = function(string $title, array $data) {
-      $labels = array_keys($data);
-      $values = array_values($data);
-
-      $chart = [
-        '#type' => 'chart',
-        '#chart_type' => 'pie',
-        '#chart_library' => 'google',
-        '#title' => $this->t($title),
-        '#legend_position' => 'none',
-        '#options' => [
-          'pieSliceText' => 'percentage',
-          'chartArea' => ['width' => '90%', 'height' => '90%'],
-          'fontSize' => 16,
-          'pieSliceTextStyle' => [
-            'color' => 'black',
-          ],
-          'colors' => [], // This will be populated dynamically.
-        ],
-      ];
-
-      // Assign custom colors based on labels.
-      $color_map = [
-        'Female' => '#dc3912', // Red
-        'Male' => '#3366cc', // Blue
-        'Non-Binary' => '#ff9900', // Orange
-        'Other/Unknown' => '#990099', // Purple
-      ];
-
-      $chart['#options']['colors'] = [];
-      foreach ($labels as $label) {
-        $chart['#options']['colors'][] = $color_map[$label] ?? '#dddddd';
-      }
-      $chart['pie_data'] = [
-        '#type' => 'chart_data',
-        '#title' => $this->t('Distribution'),
-        '#labels' => $labels,
-        '#data' => $values,
-      ];
-      return $chart;
-    };
-
-    // --- Helper for comparison tables ---
-    $build_table = function(string $category_label, array $goal_data, array $actual_data) {
-      $header = [$this->t($category_label), $this->t('Goal'), $this->t('Actual')];
-      $rows = [];
-      foreach ($goal_data as $key => $goal_value) {
-        // Filter out rows where both values are 0 to keep tables clean.
-        $actual_value = $actual_data[$key] ?? 0;
-        if ($goal_value == 0 && $actual_value == 0) {
-          continue;
-        }
-        $rows[] = [
-          $key,
-          round($goal_value * 100) . '%',
-          round($actual_value * 100) . '%',
-        ];
-      }
-      return [
-        '#type' => 'table',
-        '#header' => $header,
-        '#rows' => $rows,
-        '#attributes' => ['class' => ['governance-comparison-table']],
-      ];
-    };
-
     // === 1. Fetch ACTUAL Data ===
     $actual_raw_data = $this->googleSheetClient->getSheetData('Board-Roster');
 
@@ -310,6 +218,89 @@ class GovernanceSection extends DashboardSectionBase {
 
     // === 6. Build Render Array ===
 
+    // --- Helper for a grouped bar chart ---
+    $build_grouped_bar_chart = function(string $title, array $data) {
+      $chart = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'google',
+        '#title' => $this->t($title),
+        '#legend_position' => 'top',
+        '#options' => ['vAxis' => ['format' => 'percent']],
+      ];
+      // For a data table format, the first column provides the x-axis labels.
+      // No separate '#chart_xaxis' is needed.
+      $chart['series_data'] = ['#type' => 'chart_data', '#data' => $data];
+      return $chart;
+    };
+
+    // --- Helper for pie charts ---
+    $build_pie_chart = function(string $title, array $data) {
+      $labels = array_keys($data);
+      $values = array_values($data);
+
+      $chart = [
+        '#type' => 'chart',
+        '#chart_type' => 'pie',
+        '#chart_library' => 'google',
+        '#title' => $this->t($title),
+        '#legend_position' => 'none',
+        '#options' => [
+          'pieSliceText' => 'percentage',
+          'chartArea' => ['width' => '90%', 'height' => '90%'],
+          'fontSize' => 16,
+          'pieSliceTextStyle' => [
+            'color' => 'black',
+          ],
+          'colors' => [], // This will be populated dynamically.
+        ],
+      ];
+
+      // Assign custom colors based on labels.
+      $color_map = [
+        'Female' => '#dc3912', // Red
+        'Male' => '#3366cc', // Blue
+        'Non-Binary' => '#ff9900', // Orange
+        'Other/Unknown' => '#990099', // Purple
+      ];
+
+      $chart['#options']['colors'] = [];
+      foreach ($labels as $label) {
+        $chart['#options']['colors'][] = $color_map[$label] ?? '#dddddd';
+      }
+      $chart['pie_data'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Distribution'),
+        '#labels' => $labels,
+        '#data' => $values,
+      ];
+      return $chart;
+    };
+
+    // --- Helper for comparison tables ---
+    $build_table = function(string $category_label, array $goal_data, array $actual_data) {
+      $header = [$this->t($category_label), $this->t('Goal'), $this->t('Actual')];
+      $rows = [];
+      foreach ($goal_data as $key => $goal_value) {
+        // Filter out rows where both values are 0 to keep tables clean.
+        $actual_value = $actual_data[$key] ?? 0;
+        if ($goal_value == 0 && $actual_value == 0) {
+          continue;
+        }
+        $rows[] = [
+          $key,
+          round($goal_value * 100) . '%',
+          round($actual_value * 100) . '%',
+        ];
+      }
+      return [
+        '#type' => 'table',
+        '#header' => $header,
+        '#rows' => $rows,
+        '#attributes' => ['class' => ['governance-comparison-table']],
+      ];
+    };
+
     // --- Charts 1 & 2: Gender Identity (Pie Charts) ---
     $build['gender_metric'] = [
       '#type' => 'container',
@@ -353,19 +344,16 @@ class GovernanceSection extends DashboardSectionBase {
       }
     }
 
-    $build['ethnicity_metric'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'heading' => [
-        '#markup' => '<h2>Board Ethnicity</h2><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
-      ],
-      'chart' => $build_grouped_bar_chart(
-        'Goal vs. Actual %',
-        $ethnicity_data
-      ),
-      'source' => [
-        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
-      ],
+    $build['ethnicity_heading'] = [
+      '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
+    ];
+    $build['ethnicity_chart'] = $build_grouped_bar_chart(
+      'Board Ethnicity (Goal vs. Actual)',
+      $ethnicity_data
+    );
+
+    $build['ethnicity_source'] = [
+      '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
     ];
 
 
