@@ -16,7 +16,7 @@ class GovernanceSection extends DashboardSectionBase {
    *
    * @var \Drupal\makerspace_dashboard\Service\GoogleSheetClientService
    */
-  protected GoogleSheetClientService $googleSheetClient;
+  protected $googleSheetClient;
 
   /**
    * Constructs a new GovernanceSection object.

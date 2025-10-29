@@ -49,13 +49,6 @@ class EducationSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
-    // This build method is organized into two main parts:
-    // 1. CiviCRM Event-Based Metrics: Charts related to event participation,
-    //    conversion to membership, revenue, and demographics.
-    // 2. New Member Engagement Metrics: Charts focused on the onboarding
-    //    experience of new members, such as badge acquisition and time to
-    //    engagement.
-
     $end_date = new \DateTimeImmutable();
     $start_date = $end_date->modify('-1 year');
     $conversion_data = $this->eventsMembershipDataService->getEventToMembershipConversion($start_date, $end_date);
@@ -64,157 +57,23 @@ class EducationSection extends DashboardSectionBase {
     $avg_revenue_by_type = $this->eventsMembershipDataService->getAverageRevenuePerRegistration($start_date, $end_date);
     $capacity_placeholder = $this->eventsMembershipDataService->getSampleCapacitySeries();
 
-    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
-      ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
-    $range = $this->dataService->getDefaultRange($now);
-    $snapshot = $this->dataService->getEngagementSnapshot($range['start'], $range['end']);
-
-    $activationDays = $this->dataService->getActivationWindowDays();
-    $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
-    $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
-
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Tracking new members who joined between @start and @end. Activation window: @days days from join date.', [
-        '@start' => $cohortStart,
-        '@end' => $cohortEnd,
-        '@days' => $activationDays,
-      ]),
-    ];
-
-    $funnel = $snapshot['funnel'];
-    if (empty($funnel['totals']['joined'])) {
-      $build['empty'] = [
-        '#markup' => $this->t('No new members joined within the configured cohort window. Adjust the engagement settings or check recent member activity.'),
-        '#prefix' => '<div class="makerspace-dashboard-empty">',
-        '#suffix' => '</div>',
-      ];
-      return $build;
-    }
-    $labels = array_map(fn($label) => $this->t($label), $funnel['labels']);
-
-    $badge_funnel_chart = [
-      '#type' => 'chart',
-      '#chart_type' => 'bar',
-      '#chart_library' => 'chartjs',
-    ];
-    $badge_funnel_chart['series'] = [
-      '#type' => 'chart_data',
-      '#title' => $this->t('Members'),
-      '#data' => array_map('intval', $funnel['counts']),
-    ];
-    $badge_funnel_chart['xaxis'] = [
-      '#type' => 'chart_xaxis',
-      '#labels' => array_map('strval', $labels),
-    ];
-    $build['badge_funnel_metric'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'heading' => [
-        '#markup' => '<h2>' . $this->t('Badge Activation Funnel') . '</h2><p>' . $this->t('Progression of new members through orientation, first badge, and tool-enabled badges.') . '</p>',
-      ],
-      'chart' => $badge_funnel_chart,
-      'info' => $this->buildChartInfo([
-        $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
-        $this->t('Processing: Orientation completion is keyed off configured orientation badge term IDs; first/tool-enabled badges use the earliest qualifying badge within the activation window (default 90 days).'),
-        $this->t('Definitions: Members without any qualifying badge remain at the "Joined" stage; tool-enabled requires the taxonomy flag field_badge_access_control.'),
-      ]),
-    ];
-
-    $velocity = $snapshot['velocity'];
-    $velocityLabels = array_map(fn($label) => $this->t($label), $velocity['labels']);
-
-    $engagement_velocity_chart = [
-      '#type' => 'chart',
-      '#chart_type' => 'bar',
-      '#chart_library' => 'chartjs',
-    ];
-    $engagement_velocity_chart['series'] = [
-      '#type' => 'chart_data',
-      '#title' => $this->t('Members'),
-      '#data' => array_map('intval', $velocity['counts']),
-    ];
-    $engagement_velocity_chart['xaxis'] = [
-      '#type' => 'chart_xaxis',
-      '#labels' => array_map('strval', $velocityLabels),
-    ];
-    $build['engagement_velocity_metric'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'heading' => [
-        '#markup' => '<h2>' . $this->t('Days to First Badge') . '</h2><p>' . $this->t('Distribution of days elapsed from join date to first non-orientation badge.') . '</p>',
-      ],
-      'chart' => $engagement_velocity_chart,
-      'info' => $this->buildChartInfo([
-        $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),
-        $this->t('Processing: Calculates elapsed days between join date and first badge award, then buckets into ranges (0-3, 4-7, 8-14, 15-30, 31-60, 60+, no badge).'),
-        $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
-      ]),
-    ];
-
-    $badgeVolume = $snapshot['badge_volume'];
-    if (!empty($badgeVolume['counts']) && array_sum($badgeVolume['counts']) > 0) {
-      $badge_volume_chart = [
-        '#type' => 'chart',
-        '#chart_type' => 'bar',
-        '#chart_library' => 'chartjs',
-      ];
-      $badge_volume_chart['series'] = [
-        '#type' => 'chart_data',
-        '#title' => $this->t('Badges awarded'),
-        '#data' => $badgeVolume['counts'],
-      ];
-      $badge_volume_chart['xaxis'] = [
-        '#type' => 'chart_xaxis',
-        '#labels' => array_map(fn($label) => (string) $this->t($label), $badgeVolume['labels']),
-      ];
-      $build['badge_volume_metric'] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t('Badge Awards by Time Since Join') . '</h2><p>' . $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.') . '</p>',
-        ],
-        'chart' => $badge_volume_chart,
-        'info' => $this->buildChartInfo([
-          $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
-          $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
-          $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
-        ]),
-      ];
-    }
-
-    $joined = (int) $funnel['totals']['joined'];
-    $firstBadge = (int) $funnel['totals']['first_badge'];
-    $toolEnabled = (int) $funnel['totals']['tool_enabled'];
-
-    $build['summary'] = [
-      '#theme' => 'item_list',
-      '#items' => array_filter([
-        $this->t('Cohort size: @count members', ['@count' => $joined]),
-        $joined ? $this->t('@percent% reach their first badge within @days days', [
-          '@percent' => $velocity['cohort_percent'],
-          '@days' => $activationDays,
-        ]) : NULL,
-        $firstBadge ? $this->t('Median days to first badge: @median', ['@median' => $velocity['median']]) : NULL,
-        $toolEnabled ? $this->t('@count members earn a tool-enabled badge', ['@count' => $toolEnabled]) : NULL,
-      ]),
-      '#attributes' => ['class' => ['makerspace-dashboard-summary']],
-    ];
-
     if (!empty(array_filter($conversion_data))) {
-      $conversion_funnel_chart = [
+      $chart_id = 'conversion_funnel';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
+        '#title' => $this->t('Event-to-membership conversion'),
+        '#description' => $this->t('Aggregate attendees by cohort month and show how many activate a membership within 30/60/90 days.'),
       ];
 
-      $conversion_funnel_chart['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => array_values($conversion_data),
       ];
 
-      $conversion_funnel_chart['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', [
           $this->t('Event attendees'),
@@ -237,13 +96,11 @@ class EducationSection extends DashboardSectionBase {
       else {
         $conversionInfo[] = $this->t('Observation: @count attendees converted within 90 days of attending an event.', ['@count' => $joinTotal]);
       }
-      $build['conversion_funnel_metric'] = [
+      $build[$chart_id] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['metric-container']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t('Event-to-Membership Conversion') . '</h2><p>' . $this->t('Aggregate attendees by cohort month and show how many activate a membership within 30/60/90 days.') . '</p>',
-        ],
-        'chart' => $conversion_funnel_chart,
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
         'info' => $this->buildChartInfo($conversionInfo),
       ];
     }
@@ -256,19 +113,22 @@ class EducationSection extends DashboardSectionBase {
     }
 
     if (!empty(array_filter($time_to_join_data))) {
-      $time_to_join_chart = [
+      $chart_id = 'time_to_join';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
+        '#title' => $this->t('Average days from event to membership'),
+        '#description' => $this->t('Visualize rolling averages for conversion velocity by program type.'),
       ];
 
-      $time_to_join_chart['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Days'),
         '#data' => $time_to_join_data,
       ];
 
-      $time_to_join_chart['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', [
           $this->t('Jan'),
@@ -279,13 +139,11 @@ class EducationSection extends DashboardSectionBase {
           $this->t('Jun'),
         ]),
       ];
-      $build['time_to_join_metric'] = [
+      $build[$chart_id] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['metric-container']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t('Average Days from Event to Membership') . '</h2><p>' . $this->t('Visualize rolling averages for conversion velocity by program type.') . '</p>',
-        ],
-        'chart' => $time_to_join_chart,
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
         'info' => $this->buildChartInfo([
           $this->t('Source: Same participant dataset as the conversion funnel with membership join dates from profile__field_member_join_date.'),
           $this->t('Processing: Calculates the average days between an attended event and the member\'s recorded join date, grouped by the month of the event.'),
@@ -295,16 +153,19 @@ class EducationSection extends DashboardSectionBase {
     }
 
     if (!empty($registrations_by_type['types'])) {
-      $registrations_by_type_chart = [
+      $chart_id = 'registrations_by_type';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
+        '#title' => $this->t('Event registrations by type'),
+        '#description' => $this->t('Counts counted registrations per month, grouped by event type.'),
         '#stacking' => 1,
       ];
       $colorPalette = ['#2563eb', '#f97316', '#22c55e', '#a855f7', '#eab308', '#14b8a6', '#f43f5e'];
       $paletteIndex = 0;
       foreach ($registrations_by_type['types'] as $type => $counts) {
-        $registrations_by_type_chart['series_' . $paletteIndex] = [
+        $chart['series_' . $paletteIndex] = [
           '#type' => 'chart_data',
           '#title' => $type,
           '#data' => $counts,
@@ -312,21 +173,19 @@ class EducationSection extends DashboardSectionBase {
         ];
         $paletteIndex++;
       }
-      $registrations_by_type_chart['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $registrations_by_type['months']),
       ];
-      $registrations_by_type_chart['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Registrations'),
       ];
-      $build['registrations_by_type_metric'] = [
+      $build[$chart_id] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['metric-container']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t('Event Registrations by Type') . '</h2><p>' . $this->t('Counts counted registrations per month, grouped by event type.') . '</p>',
-        ],
-        'chart' => $registrations_by_type_chart,
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
         'info' => $this->buildChartInfo([
           $this->t('Source: CiviCRM participants joined to events where the participant status “is counted”.'),
           $this->t('Processing: Grouped by event start month and event type; canceled/pending statuses are excluded automatically.'),
@@ -336,10 +195,13 @@ class EducationSection extends DashboardSectionBase {
     }
 
     if (!empty($avg_revenue_by_type['types'])) {
-      $revenue_per_registration_chart = [
+      $chart_id = 'revenue_per_registration';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
+        '#title' => $this->t('Average revenue per registration'),
+        '#description' => $this->t('Average paid amount (from CiviCRM contributions) per counted registration, by event type.'),
         '#raw_options' => [
           'options' => [
             'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -369,7 +231,7 @@ class EducationSection extends DashboardSectionBase {
       $colorPalette = ['#6366f1', '#0ea5e9', '#ec4899', '#84cc16', '#f59e0b', '#ef4444'];
       $paletteIndex = 0;
       foreach ($avg_revenue_by_type['types'] as $type => $values) {
-        $revenue_per_registration_chart['series_' . $paletteIndex] = [
+        $chart['series_' . $paletteIndex] = [
           '#type' => 'chart_data',
           '#title' => $type,
           '#data' => $values,
@@ -386,21 +248,19 @@ class EducationSection extends DashboardSectionBase {
         ];
         $paletteIndex++;
       }
-      $revenue_per_registration_chart['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $avg_revenue_by_type['months']),
       ];
-      $revenue_per_registration_chart['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Average $ per registration'),
       ];
-      $build['revenue_per_registration_metric'] = [
+      $build[$chart_id] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['metric-container']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t('Average Revenue per Registration') . '</h2><p>' . $this->t('Average paid amount (from CiviCRM contributions) per counted registration, by event type.') . '</p>',
-        ],
-        'chart' => $revenue_per_registration_chart,
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
         'info' => $this->buildChartInfo([
           $this->t('Source: CiviCRM participant payments joined to contributions for counted registrations.'),
           $this->t('Processing: Sums paid contributions per month and divides by the number of counted registrations for each event type.'),
@@ -779,27 +639,34 @@ class EducationSection extends DashboardSectionBase {
 
 
     if (!empty($capacity_placeholder['data'])) {
-      $build['workshop_capacity_placeholder'] = [
+      $chart_id = 'workshop_capacity_placeholder';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Workshop capacity utilization (sample)'),
         '#description' => $this->t('Placeholder illustrating capacity tracking. Replace with actual utilization logic.'),
       ];
-      $build['workshop_capacity_placeholder']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Utilization %'),
         '#data' => $capacity_placeholder['data'],
       ];
-      $build['workshop_capacity_placeholder']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $capacity_placeholder['months']),
       ];
-      $build['workshop_capacity_placeholder_info'] = $this->buildChartInfo([
-        $this->t('Placeholder: Replace with actual capacity metrics. Currently showing illustrative values only.'),
-        $this->t('Next steps: join CiviCRM or scheduling data to calculate registrations as a share of capacity.'),
-        $this->t('Observation: @note', ['@note' => $capacity_placeholder['note']]),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Placeholder: Replace with actual capacity metrics. Currently showing illustrative values only.'),
+          $this->t('Next steps: join CiviCRM or scheduling data to calculate registrations as a share of capacity.'),
+          $this->t('Observation: @note', ['@note' => $capacity_placeholder['note']]),
+        ]),
+      ];
     }
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
@@ -831,81 +698,117 @@ class EducationSection extends DashboardSectionBase {
     }
     $labels = array_map(fn($label) => $this->t($label), $funnel['labels']);
 
-    $build['badge_funnel'] = [
+    $chart_id = 'badge_funnel';
+    $chart = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
       '#title' => $this->t('Badge activation funnel'),
       '#description' => $this->t('Progression of new members through orientation, first badge, and tool-enabled badges.'),
     ];
-    $build['badge_funnel']['series'] = [
+    $chart['series'] = [
       '#type' => 'chart_data',
       '#title' => $this->t('Members'),
       '#data' => array_map('intval', $funnel['counts']),
     ];
-    $build['badge_funnel']['xaxis'] = [
+    $chart['xaxis'] = [
       '#type' => 'chart_xaxis',
       '#labels' => array_map('strval', $labels),
     ];
-    $build['badge_funnel_info'] = $this->buildChartInfo([
-      $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
-      $this->t('Processing: Orientation completion is keyed off configured orientation badge term IDs; first/tool-enabled badges use the earliest qualifying badge within the activation window (default 90 days).'),
-      $this->t('Definitions: Members without any qualifying badge remain at the "Joined" stage; tool-enabled requires the taxonomy flag field_badge_access_control.'),
-    ]);
+    $build[$chart_id] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'chart' => $chart,
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+      'info' => $this->buildChartInfo([
+        $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
+        $this->t('Processing: Orientation completion is keyed off configured orientation badge term IDs; first/tool-enabled badges use the earliest qualifying badge within the activation window (default 90 days).'),
+        $this->t('Definitions: Members without any qualifying badge remain at the "Joined" stage; tool-enabled requires the taxonomy flag field_badge_access_control.'),
+      ]),
+    ];
 
     $velocity = $snapshot['velocity'];
     $velocityLabels = array_map(fn($label) => $this->t($label), $velocity['labels']);
 
-    $build['engagement_velocity'] = [
+    $chart_id = 'engagement_velocity';
+    $chart = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
       '#title' => $this->t('Days to first badge'),
       '#description' => $this->t('Distribution of days elapsed from join date to first non-orientation badge.'),
     ];
-    $build['engagement_velocity']['series'] = [
+    $chart['series'] = [
       '#type' => 'chart_data',
       '#title' => $this->t('Members'),
       '#data' => array_map('intval', $velocity['counts']),
     ];
-    $build['engagement_velocity']['xaxis'] = [
+    $chart['xaxis'] = [
       '#type' => 'chart_xaxis',
       '#labels' => array_map('strval', $velocityLabels),
     ];
-    $build['engagement_velocity_info'] = $this->buildChartInfo([
-      $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),
-      $this->t('Processing: Calculates elapsed days between join date and first badge award, then buckets into ranges (0-3, 4-7, 8-14, 15-30, 31-60, 60+, no badge).'),
-      $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
-    ]);
+    $build[$chart_id] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'chart' => $chart,
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+      'info' => $this->buildChartInfo([
+        $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),
+        $this->t('Processing: Calculates elapsed days between join date and first badge award, then buckets into ranges (0-3, 4-7, 8-14, 15-30, 31-60, 60+, no badge).'),
+        $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
+      ]),
+    ];
 
     $badgeVolume = $snapshot['badge_volume'];
     if (!empty($badgeVolume['counts']) && array_sum($badgeVolume['counts']) > 0) {
-      $build['badge_volume'] = [
+      $chart_id = 'badge_volume';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Badge awards by time since join'),
         '#description' => $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.'),
       ];
-      $build['badge_volume']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Badges awarded'),
         '#data' => $badgeVolume['counts'],
       ];
-      $build['badge_volume']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map(fn($label) => (string) $this->t($label), $badgeVolume['labels']),
       ];
-      $build['badge_volume_info'] = $this->buildChartInfo([
-        $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
-        $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
-        $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
+          $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
+          $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
+        ]),
+      ];
     }
 
     $joined = (int) $funnel['totals']['joined'];
     $firstBadge = (int) $funnel['totals']['first_badge'];
     $toolEnabled = (int) $funnel['totals']['tool_enabled'];
+
+    $build['summary'] = [
+      '#theme' => 'item_list',
+      '#items' => array_filter([
+        $this->t('Cohort size: @count members', ['@count' => $joined]),
+        $joined ? $this->t('@percent% reach their first badge within @days days', [
+          '@percent' => $velocity['cohort_percent'],
+          '@days' => $activationDays,
+        ]) : NULL,
+        $firstBadge ? $this->t('Median days to first badge: @median', ['@median' => $velocity['median']]) : NULL,
+        $toolEnabled ? $this->t('@count members earn a tool-enabled badge', ['@count' => $toolEnabled]) : NULL,
+      ]),
+      '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+    ];
+
 
     $build['#cache'] = [
       'max-age' => 3600,

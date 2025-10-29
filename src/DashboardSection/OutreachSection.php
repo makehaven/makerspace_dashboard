@@ -43,10 +43,6 @@ class OutreachSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
-    // This build method is organized into two main parts:
-    // 1. Discovery Sources: A chart showing how members discovered the makerspace.
-    // 2. New Member Interests: A chart showing the interests of new members.
-
     $build['intro'] = [
       '#type' => 'markup',
       '#markup' => $this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'),
@@ -57,27 +53,29 @@ class OutreachSection extends DashboardSectionBase {
       $discoveryLabels = array_map(fn(array $row) => $row['label'], $discoveryRows);
       $discoveryCounts = array_map(fn(array $row) => $row['count'], $discoveryRows);
 
-      $discovery_sources_chart = [
+      $chart_id = 'discovery_sources';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
+        '#title' => $this->t('How members discovered us'),
+        '#description' => $this->t('Self-reported discovery sources from member profiles.'),
       ];
-      $discovery_sources_chart['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $discoveryCounts,
       ];
-      $discovery_sources_chart['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $discoveryLabels),
       ];
-      $build['discovery_sources_metric'] = [
+
+      $build[$chart_id] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['metric-container']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t('How Members Discovered Us') . '</h2><p>' . $this->t('Self-reported discovery sources from member profiles.') . '</p>',
-        ],
-        'chart' => $discovery_sources_chart,
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
         'info' => $this->buildChartInfo([
           $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
           $this->t('Processing: Aggregates responses and rolls options with fewer than five members into "Other".'),
@@ -95,7 +93,8 @@ class OutreachSection extends DashboardSectionBase {
       $startLabel = $recentWindowStart->format('M j, Y');
       $endLabel = $recentWindowEnd->format('M j, Y');
 
-      $build['recent_member_interests'] = [
+      $chart_id = 'recent_member_interests';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
@@ -105,20 +104,27 @@ class OutreachSection extends DashboardSectionBase {
           '@end' => $endLabel,
         ]),
       ];
-      $build['recent_member_interests']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $interestCounts,
       ];
-      $build['recent_member_interests']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $interestLabels),
       ];
-      $build['recent_member_interests_info'] = $this->buildChartInfo([
-        $this->t('Source: Default "main" member profiles created in the last 3 months with interest selections (field_member_interest).'),
-        $this->t('Processing: Filters to published users, active membership roles, and aggregates distinct members per interest.'),
-        $this->t('Definitions: Bins with fewer than two members roll into "Other" to avoid displaying sensitive counts.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Default "main" member profiles created in the last 3 months with interest selections (field_member_interest).'),
+          $this->t('Processing: Filters to published users, active membership roles, and aggregates distinct members per interest.'),
+          $this->t('Definitions: Bins with fewer than two members roll into "Other" to avoid displaying sensitive counts.'),
+        ]),
+      ];
     }
     else {
       $build['recent_member_interests_empty'] = [

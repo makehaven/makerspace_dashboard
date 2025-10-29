@@ -28,3 +28,12 @@ makerspace_dashboard.settings:
     _title: 'Makerspace dashboard settings'
   requirements:
     _permission: 'administer site configuration'
+
+makerspace_dashboard.download_csv:
+  path: '/makerspace-dashboard/download-csv/{section_id}/{chart_id}'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\CsvDownloadController::downloadCsv'
+  requirements:
+    _permission: 'view makerspace dashboard'
+    section_id: '[a-z0-9_]+'
+    chart_id: '[a-z0-9_]+'

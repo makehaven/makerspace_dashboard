@@ -37,11 +37,10 @@ This is where you build the chart itself.
     - **Action:**
         1. Call the data service to get your data.
         2. Build a Drupal Render Array using the `charts` module API.
-        3. Wrap the chart and its related data notes in a `'metric-container'` for visual grouping.
-        4. **Important:** Set the legend position to `top` for Pie/Doughnut charts to avoid library bugs.
-        5. **Important:** Explicitly cast all chart labels to strings (`array_map('strval', ...)`).
-        6. Add the appropriate cache tags from your data service.
-        7. Return the render array.
+        3. **Important:** Set the legend position to `top` for Pie/Doughnut charts to avoid library bugs.
+        4. **Important:** Explicitly cast all chart labels to strings (`array_map('strval', ...)`).
+        5. Add the appropriate cache tags from your data service.
+        6. Return the render array.
 
 ### 4. Add Custom JavaScript (If Necessary)
 If your chart requires client-side interactivity beyond what the `charts` module provides:

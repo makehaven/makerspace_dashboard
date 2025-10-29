@@ -66,7 +66,8 @@ class FinanceSection extends DashboardSectionBase {
     $chargebee_plan_data = $this->financialDataService->getChargebeePlanDistribution();
 
     if (!empty(array_filter($mrr_data['data']))) {
-      $build['mrr'] = [
+      $chart_id = 'mrr';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
@@ -74,21 +75,27 @@ class FinanceSection extends DashboardSectionBase {
         '#description' => $this->t('Aggregate by billing source to highlight sustainability of recruitment/retention efforts.'),
       ];
 
-      $build['mrr']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('MRR ($)'),
         '#data' => $mrr_data['data'],
       ];
 
-      $build['mrr']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $mrr_data['labels']),
       ];
-      $build['mrr_info'] = $this->buildChartInfo([
-        $this->t('Source: Member join dates (profile__field_member_join_date) paired with membership type taxonomy terms.'),
-        $this->t('Processing: Includes joins within the selected six-month window and multiplies counts by assumed monthly values ($50 individual, $75 family).'),
-        $this->t('Definitions: Other membership types currently use a zero value and therefore will not contribute until pricing is modeled.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Member join dates (profile__field_member_join_date) paired with membership type taxonomy terms.'),
+          $this->t('Processing: Includes joins within the selected six-month window and multiplies counts by assumed monthly values ($50 individual, $75 family).'),
+          $this->t('Definitions: Other membership types currently use a zero value and therefore will not contribute until pricing is modeled.'),
+        ]),
+      ];
     }
     else {
       $build['mrr_empty'] = [
@@ -99,7 +106,8 @@ class FinanceSection extends DashboardSectionBase {
     }
 
     if (!empty($payment_mix_data)) {
-      $build['payment_mix'] = [
+      $chart_id = 'payment_mix';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
@@ -114,20 +122,26 @@ class FinanceSection extends DashboardSectionBase {
         ],
       ];
 
-      $build['payment_mix']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Share'),
         '#data' => array_values($payment_mix_data),
       ];
-      $build['payment_mix']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', array_keys($payment_mix_data)),
       ];
-      $build['payment_mix_info'] = $this->buildChartInfo([
-        $this->t('Source: Membership type assignments from profile__field_membership_type for active member profiles.'),
-        $this->t('Processing: Counts distinct profile records per membership type without applying revenue assumptions.'),
-        $this->t('Definitions: Represents share of members by type, not dollars; taxonomy term labels surface directly in the chart.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Membership type assignments from profile__field_membership_type for active member profiles.'),
+          $this->t('Processing: Counts distinct profile records per membership type without applying revenue assumptions.'),
+          $this->t('Definitions: Represents share of members by type, not dollars; taxonomy term labels surface directly in the chart.'),
+        ]),
+      ];
     }
     else {
       $build['payment_mix_empty'] = [
@@ -141,7 +155,8 @@ class FinanceSection extends DashboardSectionBase {
       $averageLabels = array_keys($average_payment_data['types']);
       $averageValues = array_map(fn(array $row) => $row['average'], $average_payment_data['types']);
 
-      $build['average_payment'] = [
+      $chart_id = 'average_payment';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
@@ -167,7 +182,7 @@ class FinanceSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['average_payment']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Average $ / month'),
         '#data' => $averageValues,
@@ -178,15 +193,22 @@ class FinanceSection extends DashboardSectionBase {
           'borderWidth' => 1,
         ],
       ];
-      $build['average_payment']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $averageLabels),
       ];
-      $build['average_payment_info'] = $this->buildChartInfo([
-        $this->t('Source: field_member_payment_monthly on active default member profiles with status = 1.'),
-        $this->t('Processing: Averages monthly payment values per membership type; entries with blank or zero values are excluded.'),
-        $this->t('Definitions: Provides directional insight only—confirm with billing exports before financial reporting.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: field_member_payment_monthly on active default member profiles with status = 1.'),
+          $this->t('Processing: Averages monthly payment values per membership type; entries with blank or zero values are excluded.'),
+          $this->t('Definitions: Provides directional insight only—confirm with billing exports before financial reporting.'),
+        ]),
+      ];
 
       $summaryLines = [
         $this->t('Overall average recorded payment: <strong>$@amount</strong> per month', ['@amount' => number_format($average_payment_data['overall_average'] ?? 0, 2)]),
@@ -203,7 +225,8 @@ class FinanceSection extends DashboardSectionBase {
     }
 
     if (!empty($chargebee_plan_data)) {
-      $build['chargebee_plans'] = [
+      $chart_id = 'chargebee_plans';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
@@ -221,20 +244,26 @@ class FinanceSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['chargebee_plans']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Users'),
         '#data' => array_values($chargebee_plan_data),
       ];
-      $build['chargebee_plans']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', array_keys($chargebee_plan_data)),
       ];
-      $build['chargebee_plans_info'] = $this->buildChartInfo([
-        $this->t('Source: user profile field_user_chargebee_plan for published users.'),
-        $this->t('Processing: Counts distinct users per plan value; empty values are labeled "Unassigned".'),
-        $this->t('Definitions: Reflects CRM state only—verify against Chargebee before billing changes.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: user profile field_user_chargebee_plan for published users.'),
+          $this->t('Processing: Counts distinct users per plan value; empty values are labeled "Unassigned".'),
+          $this->t('Definitions: Reflects CRM state only—verify against Chargebee before billing changes.'),
+        ]),
+      ];
     }
 
     $build['#cache'] = [
