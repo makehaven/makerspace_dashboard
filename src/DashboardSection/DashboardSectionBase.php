@@ -55,6 +55,33 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   }
 
   /**
+   * Builds a CSV download link for a chart.
+   *
+   * @param string $section_id
+   *   The ID of the section.
+   * @param string $chart_id
+   *   The ID of the chart.
+   *
+   * @return array
+   *   A render array for the download link.
+   */
+  protected function buildCsvDownloadLink(string $section_id, string $chart_id): array {
+    $url = \Drupal\Core\Url::fromRoute('makerspace_dashboard.csv_download', [
+      'section_id' => $section_id,
+      'chart_id' => $chart_id,
+    ]);
+
+    return [
+      '#type' => 'link',
+      '#title' => $this->t('Download CSV'),
+      '#url' => $url,
+      '#attributes' => [
+        'class' => ['csv-download-link'],
+      ],
+    ];
+  }
+
+  /**
    * {@inheritdoc}
    */
   public function getGoogleSheetChartMetadata(): array {
