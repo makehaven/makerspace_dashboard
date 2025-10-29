@@ -438,9 +438,9 @@ class RetentionSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $monthLabels),
       ];
       $build['net_membership_info'] = $this->buildChartInfo([
-        $this->t('Source: MembershipMetricsService::getFlow aggregates profile member join (field_member_join_date) and end (field_member_end_date) dates for users with active membership roles.'),
+        $this->t('Source: MembershipMetricsService::getFlow aggregates main member profile creation timestamps (treated as join dates) alongside recorded end dates (field_member_end_date) for published users.'),
         $this->t('Processing: Distinct members are grouped by calendar month; if the most recent 12 months are empty the query expands to 24 months.'),
-        $this->t('Definitions: "Joined" counts unique users whose join date falls in that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
+        $this->t('Definitions: "Joined" counts unique users whose default member profile was created that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
       ]);
 
       $build['net_balance'] = [
@@ -448,13 +448,72 @@ class RetentionSection extends DashboardSectionBase {
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Net membership change'),
-        '#description' => $this->t('Joined minus ended members per month.'),
+        '#description' => $this->t('Joined minus ended members per month with join/end overlays for context.'),
       ];
-      $build['net_balance']['series'] = [
+      $build['net_balance']['#raw_options']['options'] = [
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'plugins' => [
+          'legend' => ['position' => 'bottom'],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return context.dataset.label + \': \' + value.toLocaleString(); }',
+            ],
+          ],
+        ],
+        'scales' => [
+          'y' => [
+            'ticks' => [
+              'precision' => 0,
+              'callback' => 'function(value){ return value.toLocaleString(); }',
+            ],
+          ],
+        ],
+      ];
+      $build['net_balance']['series_joined'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Joined'),
+        '#data' => $incomingSeries,
+        '#color' => '#2563eb',
+        '#settings' => [
+          'borderColor' => '#2563eb',
+          'backgroundColor' => 'rgba(37,99,235,0.15)',
+          'fill' => FALSE,
+          'tension' => 0.2,
+          'borderWidth' => 2,
+          'pointRadius' => 3,
+          'pointHoverRadius' => 5,
+        ],
+      ];
+      $build['net_balance']['series_ended'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Ended'),
+        '#data' => $endingSeries,
+        '#color' => '#f97316',
+        '#settings' => [
+          'borderColor' => '#f97316',
+          'backgroundColor' => 'rgba(249,115,22,0.15)',
+          'fill' => FALSE,
+          'tension' => 0.2,
+          'borderWidth' => 2,
+          'pointRadius' => 3,
+          'pointHoverRadius' => 5,
+        ],
+      ];
+      $build['net_balance']['series_net'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Net change'),
         '#data' => $netSeries,
         '#color' => '#0f172a',
+        '#settings' => [
+          'borderColor' => '#0f172a',
+          'backgroundColor' => 'rgba(15,23,42,0.1)',
+          'fill' => FALSE,
+          'tension' => 0.25,
+          'borderWidth' => 2,
+          'borderDash' => [6, 4],
+          'pointRadius' => 0,
+          'pointHoverRadius' => 4,
+        ],
       ];
       $build['net_balance']['xaxis'] = [
         '#type' => 'chart_xaxis',
@@ -462,7 +521,7 @@ class RetentionSection extends DashboardSectionBase {
       ];
       $build['net_balance_info'] = $this->buildChartInfo([
         $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
-        $this->t('Processing: Calculates joined minus ended members for each month to highlight net growth or contraction.'),
+        $this->t('Processing: Calculates joined minus ended members for each month and overlays raw join/end totals so spikes are easy to attribute.'),
         $this->t('Definitions: Positive values indicate net growth in headcount that month; negative values indicate attrition exceeded recruitment.'),
       ]);
 
@@ -975,6 +1034,42 @@ class RetentionSection extends DashboardSectionBase {
         $this->t('Source: Same daily unique member dataset used for the rolling average chart.'),
         $this->t('Processing: Totals unique members per weekday over the configured window and divides by the number of occurrences.'),
         $this->t('Definitions: Values represent average unique members per weekday; blank weekdays indicate no data within the window.'),
+      ]);
+    }
+
+    $hourlyAverages = $this->utilizationDataService->getAverageEntriesByHour($startAll->getTimestamp(), $end_of_day->getTimestamp());
+    $hourlyData = $hourlyAverages['averages'] ?? [];
+    if (!empty($hourlyData)) {
+      $hourLabels = [];
+      foreach (array_keys($hourlyData) as $hour) {
+        $hourLabels[] = sprintf('%02d:00', (int) $hour);
+      }
+
+      $build['hourly_entry_profile'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Average entries per hour of day'),
+        '#description' => $this->t('Average access-control requests in each hour, averaged across @days days.', ['@days' => $hourlyAverages['days'] ?? count($rollingDates)]),
+      ];
+      $build['hourly_entry_profile']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Average entries'),
+        '#data' => array_values($hourlyData),
+        '#color' => '#3b82f6',
+      ];
+      $build['hourly_entry_profile']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $hourLabels),
+      ];
+      $build['hourly_entry_profile']['yaxis'] = [
+        '#type' => 'chart_yaxis',
+        '#title' => $this->t('Average entries / day'),
+      ];
+      $build['hourly_entry_profile_info'] = $this->buildChartInfo([
+        $this->t('Source: Raw access_control_request logs for the same window as the utilization charts.'),
+        $this->t('Processing: Counts every entry event per hour, sums across the window, and divides by the number of days to produce an hourly average.'),
+        $this->t('Definitions: Includes repeat entries; filter above charts for unique-member analysis.'),
       ]);
     }
 

@@ -248,6 +248,87 @@ class DemographicsDataService {
   }
 
   /**
+   * Builds an interest distribution for new members within a date range.
+   */
+  public function getRecentInterestDistribution(\DateTimeImmutable $start, \DateTimeImmutable $end, int $minimum = 2, int $limit = 10): array {
+    $rangeStart = $start->setTime(0, 0, 0)->getTimestamp();
+    $rangeEnd = $end->setTime(23, 59, 59)->getTimestamp();
+    $cid = sprintf('makerspace_dashboard:demographics:interest_recent:%d:%d:%d:%d', $rangeStart, $rangeEnd, $minimum, $limit);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('profile__field_member_interest')) {
+      return [];
+    }
+
+    $query = $this->database->select('profile', 'p');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
+    $query->addField('interest', 'field_member_interest_value', 'interest_raw');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->condition('p.created', $rangeStart, '>=');
+    $query->condition('p.created', $rangeEnd, '<=');
+
+    $query->leftJoin('profile__field_member_interest', 'interest', 'interest.entity_id = p.profile_id AND interest.deleted = 0');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->condition('u.status', 1);
+
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+
+    $query->groupBy('interest.field_member_interest_value');
+    $query->orderBy('member_count', 'DESC');
+    $query->range(0, $limit * 2);
+
+    $results = $query->execute();
+
+    $aggregated = [];
+    foreach ($results as $record) {
+      $raw = trim((string) $record->interest_raw);
+      $key = $raw === '' ? '__unknown' : mb_strtolower($raw);
+      $label = $raw === '' ? 'Not provided' : $this->formatLabel($raw, '');
+      if (!isset($aggregated[$key])) {
+        $aggregated[$key] = [
+          'label' => $label,
+          'count' => 0,
+        ];
+      }
+      $aggregated[$key]['count'] += (int) $record->member_count;
+    }
+
+    $rows = array_values($aggregated);
+    usort($rows, function (array $a, array $b) {
+      return $b['count'] <=> $a['count'];
+    });
+
+    $output = [];
+    $other = 0;
+    foreach ($rows as $row) {
+      if ($row['count'] < $minimum) {
+        $other += $row['count'];
+        continue;
+      }
+      $output[] = $row;
+      if (count($output) >= $limit) {
+        break;
+      }
+    }
+    if ($other > 0) {
+      $output[] = [
+        'label' => 'Other (< ' . $minimum . ')',
+        'count' => $other,
+      ];
+    }
+
+    $expire = time() + $this->ttl;
+    $this->cache->set($cid, $output, $expire, ['profile_list', 'user_list']);
+
+    return $output;
+  }
+
+  /**
    * Builds a discovery source distribution for active members.
    */
   public function getDiscoveryDistribution(int $minimum = 5): array {

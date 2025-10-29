@@ -76,9 +76,52 @@ class OutreachSection extends DashboardSectionBase {
       ]);
     }
 
+    $recentWindowEnd = new \DateTimeImmutable('now', new \DateTimeZone(date_default_timezone_get()));
+    $recentWindowStart = $recentWindowEnd->modify('-3 months');
+    $recentInterestRows = $this->dataService->getRecentInterestDistribution($recentWindowStart, $recentWindowEnd);
+    if (!empty($recentInterestRows)) {
+      $interestLabels = array_map(fn(array $row) => $row['label'], $recentInterestRows);
+      $interestCounts = array_map(fn(array $row) => $row['count'], $recentInterestRows);
+      $startLabel = $recentWindowStart->format('M j, Y');
+      $endLabel = $recentWindowEnd->format('M j, Y');
+
+      $build['recent_member_interests'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('New member interests (last 3 months)'),
+        '#description' => $this->t('Interest areas selected on member profiles created between @start and @end.', [
+          '@start' => $startLabel,
+          '@end' => $endLabel,
+        ]),
+      ];
+      $build['recent_member_interests']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Members'),
+        '#data' => $interestCounts,
+      ];
+      $build['recent_member_interests']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $interestLabels),
+      ];
+      $build['recent_member_interests_info'] = $this->buildChartInfo([
+        $this->t('Source: Default "main" member profiles created in the last 3 months with interest selections (field_member_interest).'),
+        $this->t('Processing: Filters to published users, active membership roles, and aggregates distinct members per interest.'),
+        $this->t('Definitions: Bins with fewer than two members roll into "Other" to avoid displaying sensitive counts.'),
+      ]);
+    }
+    else {
+      $build['recent_member_interests_empty'] = [
+        '#markup' => $this->t('No interest data captured for new members in the last three months.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+    }
+
     $build['#cache'] = [
       'max-age' => 3600,
       'tags' => ['profile_list', 'user_list'],
+      'contexts' => ['timezone'],
     ];
 
     return $build;

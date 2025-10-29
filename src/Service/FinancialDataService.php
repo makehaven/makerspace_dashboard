@@ -140,13 +140,16 @@ class FinancialDataService {
     $query->condition('u.status', 1);
     $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
     $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
+    $query->condition('payment.deleted', 0);
+    $query->isNotNull('payment.field_member_payment_monthly_value');
+    $query->where("payment.field_member_payment_monthly_value <> ''");
 
     $query->addExpression("COALESCE(term.name, 'Unknown')", 'membership_type');
     $query->addExpression('AVG(payment.field_member_payment_monthly_value)', 'avg_payment');
     $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
 
     $query->groupBy('membership_type');
-    $query->orderBy('membership_type', 'ASC');
+    $query->orderBy('avg_payment', 'DESC');
 
     $results = $query->execute();
 
@@ -166,6 +169,8 @@ class FinancialDataService {
       $totalAmount += $total;
       $totalMembers += $count;
     }
+
+    ksort($typeStats);
 
     $overallAverage = $totalMembers > 0 ? round($totalAmount / $totalMembers, 2) : 0.0;
 

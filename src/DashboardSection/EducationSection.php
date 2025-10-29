@@ -180,6 +180,31 @@ class EducationSection extends DashboardSectionBase {
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Average revenue per registration'),
         '#description' => $this->t('Average paid amount (from CiviCRM contributions) per counted registration, by event type.'),
+        '#raw_options' => [
+          'options' => [
+            'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+            'spanGaps' => TRUE,
+            'plugins' => [
+              'legend' => [
+                'position' => 'bottom',
+                'labels' => ['usePointStyle' => TRUE],
+                'onClick' => 'function(e, legendItem, legend){ const index = legendItem.datasetIndex; const chart = legend.chart; const meta = chart.getDatasetMeta(index); if (meta.hidden === null) { meta.hidden = !chart.data.datasets[index].hidden; } else { meta.hidden = null; } chart.update(); }',
+              ],
+              'tooltip' => [
+                'callbacks' => [
+                  'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return context.dataset.label + \': $\' + (value ?? 0).toFixed(2); }',
+                ],
+              ],
+            ],
+            'scales' => [
+              'y' => [
+                'ticks' => [
+                  'callback' => 'function(value){ return "$" + Number(value ?? 0).toFixed(2); }',
+                ],
+              ],
+            ],
+          ],
+        ],
       ];
       $colorPalette = ['#6366f1', '#0ea5e9', '#ec4899', '#84cc16', '#f59e0b', '#ef4444'];
       $paletteIndex = 0;
@@ -189,6 +214,15 @@ class EducationSection extends DashboardSectionBase {
           '#title' => $type,
           '#data' => $values,
           '#color' => $colorPalette[$paletteIndex % count($colorPalette)],
+          '#settings' => [
+            'borderColor' => $colorPalette[$paletteIndex % count($colorPalette)],
+            'backgroundColor' => 'transparent',
+            'fill' => FALSE,
+            'tension' => 0.25,
+            'borderWidth' => 2,
+            'pointRadius' => 3,
+            'pointHoverRadius' => 5,
+          ],
         ];
         $paletteIndex++;
       }
@@ -203,9 +237,378 @@ class EducationSection extends DashboardSectionBase {
       $build['revenue_per_registration_info'] = $this->buildChartInfo([
         $this->t('Source: CiviCRM participant payments joined to contributions for counted registrations.'),
         $this->t('Processing: Sums paid contributions per month and divides by the number of counted registrations for each event type.'),
-        $this->t('Definitions: Registrations without payments contribute $0; refunded amounts are not excluded presently.'),
+        $this->t('Definitions: Registrations without payments contribute $0; refunded amounts are not excluded presently. Use the legend to toggle individual event types.'),
       ]);
     }
+
+    $rangeDefault = '1y';
+
+    // Top areas of interest chart.
+    $interestRanges = ['1m', '3m', '1y', '2y', 'all'];
+    $interestRange = $this->resolveSelectedRange($filters, 'interest_breakdown', $rangeDefault, $interestRanges);
+    $interestBounds = $this->calculateRangeBounds($interestRange, $end_date);
+    $interestData = $this->eventsMembershipDataService->getEventInterestBreakdown($interestBounds['start'], $interestBounds['end'], 8);
+    if (!empty($interestData['items'])) {
+      $interestLabels = array_map(fn(array $row) => $row['interest'], $interestData['items']);
+      $interestEventCounts = array_map(fn(array $row) => $row['events'], $interestData['items']);
+      $interestAvgTickets = array_map(fn(array $row) => $row['avg_ticket'], $interestData['items']);
+
+      $interestChart = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Events by area of interest (top @limit)', ['@limit' => count($interestLabels)]),
+        '#description' => $this->t('Highlights the busiest interest areas by event count, with average ticket revenue as a secondary axis.'),
+        '#raw_options' => [
+          'options' => [
+            'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+            'plugins' => [
+              'legend' => ['position' => 'bottom'],
+              'tooltip' => [
+                'callbacks' => [
+                  'label' => 'function(context){ if (context.dataset.yAxisID === "y1") { return context.dataset.label + ": $" + Number(context.parsed.y ?? 0).toFixed(2); } return context.dataset.label + ": " + Number(context.parsed.y ?? 0).toLocaleString(); }',
+                ],
+              ],
+            ],
+            'scales' => [
+              'y' => [
+                'title' => ['display' => TRUE, 'text' => (string) $this->t('Events')],
+                'ticks' => ['precision' => 0],
+              ],
+              'y1' => [
+                'position' => 'right',
+                'title' => ['display' => TRUE, 'text' => (string) $this->t('Average ticket ($)')],
+                'grid' => ['drawOnChartArea' => FALSE],
+                'ticks' => [
+                  'callback' => 'function(value){ return "$" + Number(value ?? 0).toFixed(0); }',
+                ],
+              ],
+            ],
+          ],
+        ],
+      ];
+      $interestChart['events'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Events'),
+        '#data' => $interestEventCounts,
+        '#color' => '#34d399',
+        '#settings' => [
+          'backgroundColor' => 'rgba(52,211,153,0.4)',
+          'borderColor' => '#10b981',
+          'borderWidth' => 1,
+        ],
+      ];
+      $interestChart['avg_ticket'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Average ticket'),
+        '#data' => $interestAvgTickets,
+        '#color' => '#6366f1',
+        '#settings' => [
+          'type' => 'line',
+          'yAxisID' => 'y1',
+          'borderColor' => '#6366f1',
+          'backgroundColor' => 'rgba(99,102,241,0.2)',
+          'fill' => FALSE,
+          'tension' => 0.25,
+          'borderWidth' => 2,
+          'pointRadius' => 3,
+          'pointHoverRadius' => 5,
+        ],
+      ];
+      $interestChart['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $interestLabels),
+      ];
+      $interestContent = [
+        '#type' => 'container',
+        'chart' => $interestChart,
+        'info' => $this->buildChartInfo([
+          $this->t('Source: CiviCRM events tagged with Areas of Interest (taxonomy) over the selected window.'),
+          $this->t('Processing: Events contribute to each top-level interest they are tagged with; average ticket is total contributions divided by counted registrations.'),
+          $this->t('Definitions: Registrations include counted participant statuses only; revenue reflects linked participant payments.'),
+        ]),
+        'summary' => [
+          '#theme' => 'item_list',
+          '#items' => [
+            $this->t('Top interests total events: @count', ['@count' => number_format($interestData['total_events'])]),
+            $this->t('Top interests total registrations: @count', ['@count' => number_format($interestData['total_registrations'])]),
+          ],
+          '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+        ],
+      ];
+      $build['interest_breakdown'] = $this->wrapChartWithRangeControls('interest_breakdown', $interestContent, $interestRanges, $interestRange);
+    }
+    else {
+      $emptyInterest = $this->buildRangeEmptyContent($this->t('No events tagged with areas of interest were found for the selected time range.'));
+      $build['interest_breakdown'] = $this->wrapChartWithRangeControls('interest_breakdown', $emptyInterest, $interestRanges, $interestRange);
+    }
+
+    // Skill level split chart.
+    $skillRanges = ['3m', '1y', '2y', 'all'];
+    $skillRange = $this->resolveSelectedRange($filters, 'skill_levels', $rangeDefault, $skillRanges);
+    $skillBounds = $this->calculateRangeBounds($skillRange, $end_date);
+    $skillData = $this->eventsMembershipDataService->getSkillLevelBreakdown($skillBounds['start'], $skillBounds['end']);
+    if (!empty($skillData['levels'])) {
+      $totalSkill = array_sum($skillData['workshop']) + array_sum($skillData['other']);
+      if ($totalSkill > 0) {
+        $skillChart = [
+          '#type' => 'chart',
+          '#chart_type' => 'bar',
+          '#chart_library' => 'chartjs',
+          '#title' => $this->t('Events by skill level'),
+          '#description' => $this->t('Compare workshop offerings to other event types across advertised skill levels.'),
+          '#raw_options' => [
+            'options' => [
+              'plugins' => [
+                'legend' => ['position' => 'bottom'],
+              ],
+              'scales' => [
+                'y' => [
+                  'ticks' => ['precision' => 0],
+                ],
+              ],
+            ],
+          ],
+        ];
+        $skillChart['workshop'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Workshops'),
+          '#data' => $skillData['workshop'],
+          '#color' => '#fb7185',
+        ];
+        $skillChart['other'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Other events'),
+          '#data' => $skillData['other'],
+          '#color' => '#0ea5e9',
+        ];
+        $skillChart['xaxis'] = [
+          '#type' => 'chart_xaxis',
+          '#labels' => array_map('strval', $skillData['levels']),
+        ];
+        $skillContent = [
+          '#type' => 'container',
+          'chart' => $skillChart,
+          'info' => $this->buildChartInfo([
+            $this->t('Source: CiviCRM event field_event_skill_level for events in the selected range.'),
+            $this->t('Processing: Counts each event once; workshops identified via event type labels containing "workshop".'),
+            $this->t('Definitions: Skill level labels follow the configured taxonomy in Drupal (Introductory, Intermediate, Advanced).'),
+          ]),
+        ];
+        $build['skill_levels'] = $this->wrapChartWithRangeControls('skill_levels', $skillContent, $skillRanges, $skillRange);
+      }
+      else {
+        $emptySkill = $this->buildRangeEmptyContent($this->t('No events with skill level classifications were recorded for the selected time range.'));
+        $build['skill_levels'] = $this->wrapChartWithRangeControls('skill_levels', $emptySkill, $skillRanges, $skillRange);
+      }
+    }
+    else {
+      $emptySkill = $this->buildRangeEmptyContent($this->t('Skill level tracking is not available for this data set.'));
+      $build['skill_levels'] = $this->wrapChartWithRangeControls('skill_levels', $emptySkill, $skillRanges, $skillRange);
+    }
+
+    $demographicRanges = ['3m', '1y', '2y', 'all'];
+
+    // Gender demographics.
+    $genderRange = $this->resolveSelectedRange($filters, 'demographics_gender', $rangeDefault, $demographicRanges);
+    $genderBounds = $this->calculateRangeBounds($genderRange, $end_date);
+    $genderData = $this->eventsMembershipDataService->getParticipantDemographics($genderBounds['start'], $genderBounds['end']);
+    if (!empty($genderData['gender']['labels'])) {
+      $genderTotal = array_sum($genderData['gender']['workshop']) + array_sum($genderData['gender']['other']);
+      if ($genderTotal > 0) {
+        $genderChart = [
+          '#type' => 'chart',
+          '#chart_type' => 'bar',
+          '#chart_library' => 'chartjs',
+          '#title' => $this->t('Participant gender by event type'),
+          '#description' => $this->t('Counted participants grouped by gender across workshops and other events.'),
+          '#raw_options' => [
+            'options' => [
+              'plugins' => ['legend' => ['position' => 'bottom']],
+              'scales' => ['y' => ['ticks' => ['precision' => 0]]],
+            ],
+          ],
+        ];
+        $genderChart['workshop'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Workshops'),
+          '#data' => $genderData['gender']['workshop'],
+          '#color' => '#8b5cf6',
+        ];
+        $genderChart['other'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Other events'),
+          '#data' => $genderData['gender']['other'],
+          '#color' => '#f97316',
+        ];
+        $genderChart['xaxis'] = [
+          '#type' => 'chart_xaxis',
+          '#labels' => array_map('strval', $genderData['gender']['labels']),
+        ];
+        $genderContent = [
+          '#type' => 'container',
+          'chart' => $genderChart,
+          'info' => $this->buildChartInfo([
+            $this->t('Source: Participant gender from CiviCRM contacts linked to workshop and other event registrations.'),
+            $this->t('Processing: Includes counted participant statuses only; unspecified genders are shown explicitly.'),
+          ]),
+        ];
+        $build['demographics_gender'] = $this->wrapChartWithRangeControls('demographics_gender', $genderContent, $demographicRanges, $genderRange);
+      }
+      else {
+        $emptyGender = $this->buildRangeEmptyContent($this->t('No participant gender data is available for the selected time range.'));
+        $build['demographics_gender'] = $this->wrapChartWithRangeControls('demographics_gender', $emptyGender, $demographicRanges, $genderRange);
+      }
+    }
+    else {
+      $emptyGender = $this->buildRangeEmptyContent($this->t('Participant gender reporting is not available for this data set.'));
+      $build['demographics_gender'] = $this->wrapChartWithRangeControls('demographics_gender', $emptyGender, $demographicRanges, $genderRange);
+    }
+
+    // Ethnicity demographics.
+    $ethnicityRange = $this->resolveSelectedRange($filters, 'demographics_ethnicity', $rangeDefault, $demographicRanges);
+    $ethBounds = $this->calculateRangeBounds($ethnicityRange, $end_date);
+    $ethnicityData = $this->eventsMembershipDataService->getParticipantDemographics($ethBounds['start'], $ethBounds['end']);
+    if (!empty($ethnicityData['ethnicity']['labels'])) {
+      $ethnicityTotal = array_sum($ethnicityData['ethnicity']['workshop']) + array_sum($ethnicityData['ethnicity']['other']);
+      if ($ethnicityTotal > 0) {
+        $ethnicityChart = [
+          '#type' => 'chart',
+          '#chart_type' => 'bar',
+          '#chart_library' => 'chartjs',
+          '#title' => $this->t('Participant ethnicity (top 10)'),
+          '#description' => $this->t('Top reported ethnicities for counted participants, comparing workshops to other events.'),
+          '#raw_options' => [
+            'options' => [
+              'indexAxis' => 'y',
+              'plugins' => ['legend' => ['position' => 'bottom']],
+              'responsive' => TRUE,
+              'maintainAspectRatio' => TRUE,
+              'aspectRatio' => 1.8,
+              'scales' => [
+                'x' => [
+                  'ticks' => ['precision' => 0],
+                ],
+              ],
+            ],
+          ],
+          '#attributes' => ['class' => ['makerspace-dashboard-horizontal-chart']],
+        ];
+        $ethnicityChart['workshop'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Workshops'),
+          '#data' => $ethnicityData['ethnicity']['workshop'],
+          '#color' => '#14b8a6',
+          '#settings' => [
+            'maxBarThickness' => 28,
+          ],
+        ];
+        $ethnicityChart['other'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Other events'),
+          '#data' => $ethnicityData['ethnicity']['other'],
+          '#color' => '#ef4444',
+          '#settings' => [
+            'maxBarThickness' => 28,
+          ],
+        ];
+        $ethnicityChart['xaxis'] = [
+          '#type' => 'chart_xaxis',
+          '#labels' => array_map('strval', $ethnicityData['ethnicity']['labels']),
+        ];
+        $ethnicityContent = [
+          '#type' => 'container',
+          'chart' => $ethnicityChart,
+          'info' => $this->buildChartInfo([
+            $this->t('Source: Ethnicity selections from the Demographics custom profile linked to event participants.'),
+            $this->t('Processing: Multi-select values are split across the chart; categories beyond the top ten roll into "Other".'),
+          ]),
+        ];
+        $build['demographics_ethnicity'] = $this->wrapChartWithRangeControls('demographics_ethnicity', $ethnicityContent, $demographicRanges, $ethnicityRange);
+      }
+      else {
+        $emptyEthnicity = $this->buildRangeEmptyContent($this->t('No participant ethnicity data is available for the selected time range.'));
+        $build['demographics_ethnicity'] = $this->wrapChartWithRangeControls('demographics_ethnicity', $emptyEthnicity, $demographicRanges, $ethnicityRange);
+      }
+    }
+    else {
+      $emptyEthnicity = $this->buildRangeEmptyContent($this->t('Participant ethnicity reporting is not available for this data set.'));
+      $build['demographics_ethnicity'] = $this->wrapChartWithRangeControls('demographics_ethnicity', $emptyEthnicity, $demographicRanges, $ethnicityRange);
+    }
+
+    // Age demographics.
+    $ageRange = $this->resolveSelectedRange($filters, 'demographics_age', $rangeDefault, $demographicRanges);
+    $ageBounds = $this->calculateRangeBounds($ageRange, $end_date);
+    $ageData = $this->eventsMembershipDataService->getParticipantDemographics($ageBounds['start'], $ageBounds['end']);
+    if (!empty($ageData['age']['labels'])) {
+      $ageTotal = array_sum($ageData['age']['workshop']) + array_sum($ageData['age']['other']);
+      if ($ageTotal > 0) {
+        $ageChart = [
+          '#type' => 'chart',
+          '#chart_type' => 'line',
+          '#chart_library' => 'chartjs',
+          '#title' => $this->t('Participant age distribution'),
+          '#description' => $this->t('Age buckets for counted participants, evaluated at event date and split by workshops vs other events.'),
+          '#raw_options' => [
+            'options' => [
+              'plugins' => ['legend' => ['position' => 'bottom']],
+              'scales' => [
+                'y' => ['ticks' => ['precision' => 0]],
+              ],
+            ],
+          ],
+        ];
+        $ageChart['workshop'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Workshops'),
+          '#data' => $ageData['age']['workshop'],
+          '#color' => '#2563eb',
+          '#settings' => [
+            'borderColor' => '#2563eb',
+            'backgroundColor' => 'rgba(37,99,235,0.2)',
+            'fill' => FALSE,
+            'tension' => 0.3,
+            'borderWidth' => 2,
+          ],
+        ];
+        $ageChart['other'] = [
+          '#type' => 'chart_data',
+          '#title' => $this->t('Other events'),
+          '#data' => $ageData['age']['other'],
+          '#color' => '#facc15',
+          '#settings' => [
+            'borderColor' => '#facc15',
+            'backgroundColor' => 'rgba(250,204,21,0.2)',
+            'fill' => FALSE,
+            'tension' => 0.3,
+            'borderWidth' => 2,
+            'borderDash' => [6, 4],
+          ],
+        ];
+        $ageChart['xaxis'] = [
+          '#type' => 'chart_xaxis',
+          '#labels' => array_map('strval', $ageData['age']['labels']),
+        ];
+        $ageContent = [
+          '#type' => 'container',
+          'chart' => $ageChart,
+          'info' => $this->buildChartInfo([
+            $this->t('Source: Participant birth dates from CiviCRM contacts. Age evaluated on the event start date.'),
+            $this->t('Processing: Uses fixed buckets (Under 18 through 65+); records without birth dates are skipped.'),
+          ]),
+        ];
+        $build['demographics_age'] = $this->wrapChartWithRangeControls('demographics_age', $ageContent, $demographicRanges, $ageRange);
+      }
+      else {
+        $emptyAge = $this->buildRangeEmptyContent($this->t('No participant age data is available for the selected time range.'));
+        $build['demographics_age'] = $this->wrapChartWithRangeControls('demographics_age', $emptyAge, $demographicRanges, $ageRange);
+      }
+    }
+    else {
+      $emptyAge = $this->buildRangeEmptyContent($this->t('Participant age reporting is not available for this data set.'));
+      $build['demographics_age'] = $this->wrapChartWithRangeControls('demographics_age', $emptyAge, $demographicRanges, $ageRange);
+    }
+
 
     if (!empty($capacity_placeholder['data'])) {
       $build['workshop_capacity_placeholder'] = [

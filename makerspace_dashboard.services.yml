@@ -56,6 +56,12 @@ services:
       - '@cache.default'
       - '@date.formatter'
 
+  makerspace_dashboard.infrastructure_data:
+    class: Drupal\makerspace_dashboard\Service\InfrastructureDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
     arguments:
@@ -83,6 +89,9 @@ services:
 
   makerspace_dashboard.section.infrastructure:
     class: Drupal\makerspace_dashboard\DashboardSection\InfrastructureSection
+    arguments:
+      - '@makerspace_dashboard.infrastructure_data'
+      - '@date.formatter'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

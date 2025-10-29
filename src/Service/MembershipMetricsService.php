@@ -212,22 +212,39 @@ class MembershipMetricsService {
    */
   protected function aggregateMembershipEvents(string $mode, string $startDate, string $endDate, string $granularity): array {
     $tables = [
-      'join' => ['table' => 'profile__field_member_join_date', 'alias' => 'join_date', 'column' => 'field_member_join_date_value'],
-      'end' => ['table' => 'profile__field_member_end_date', 'alias' => 'end_date', 'column' => 'field_member_end_date_value'],
+      'join' => [
+        'table' => NULL,
+        'alias' => NULL,
+        'column' => 'p.created',
+        'is_unix' => TRUE,
+      ],
+      'end' => [
+        'table' => 'profile__field_member_end_date',
+        'alias' => 'end_date',
+        'column' => 'field_member_end_date_value',
+        'is_unix' => FALSE,
+      ],
     ];
     if (!isset($tables[$mode])) {
       throw new \InvalidArgumentException(sprintf('Unsupported membership event type: %s', $mode));
     }
 
     $tableInfo = $tables[$mode];
-    $tableAlias = $tableInfo['alias'];
-    $sourceField = $tableInfo['column'];
-    $tableName = $tableInfo['table'];
-
-    $periodExpression = $this->buildPeriodExpression($tableAlias . '.' . $sourceField, $granularity);
+    $dateColumn = $tableInfo['column'];
+    $isUnix = (bool) ($tableInfo['is_unix'] ?? FALSE);
 
     $query = $this->database->select('profile', 'p');
-    $query->innerJoin($tableName, $tableAlias, "$tableAlias.entity_id = p.profile_id AND $tableAlias.deleted = 0");
+
+    if (!empty($tableInfo['table']) && !empty($tableInfo['alias'])) {
+      $tableAlias = $tableInfo['alias'];
+      $tableName = $tableInfo['table'];
+      $sourceField = $tableInfo['column'];
+      $query->innerJoin($tableName, $tableAlias, "$tableAlias.entity_id = p.profile_id AND $tableAlias.deleted = 0");
+      $dateColumn = $tableAlias . '.' . $sourceField;
+    }
+
+    $periodExpression = $this->buildPeriodExpression($dateColumn, $granularity, $isUnix);
+
     $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
     $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
 
@@ -235,10 +252,22 @@ class MembershipMetricsService {
     $query->addExpression("COALESCE(term.name, 'Unknown')", 'membership_type');
     $query->addExpression('COUNT(DISTINCT p.uid)', 'total_members');
 
-    $query->where("STR_TO_DATE($tableAlias.$sourceField, '%Y-%m-%d') BETWEEN STR_TO_DATE(:start_date, '%Y-%m-%d') AND STR_TO_DATE(:end_date, '%Y-%m-%d')", [
-      ':start_date' => $startDate,
-      ':end_date' => $endDate,
-    ]);
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+
+    if ($isUnix) {
+      $query->where("FROM_UNIXTIME($dateColumn) BETWEEN STR_TO_DATE(:start_date, '%Y-%m-%d') AND STR_TO_DATE(:end_date, '%Y-%m-%d')", [
+        ':start_date' => $startDate,
+        ':end_date' => $endDate,
+      ]);
+    }
+    else {
+      $query->where("STR_TO_DATE($dateColumn, '%Y-%m-%d') BETWEEN STR_TO_DATE(:start_date, '%Y-%m-%d') AND STR_TO_DATE(:end_date, '%Y-%m-%d')", [
+        ':start_date' => $startDate,
+        ':end_date' => $endDate,
+      ]);
+    }
 
     $query->groupBy('period_key');
     $query->groupBy('membership_type');
@@ -286,8 +315,8 @@ class MembershipMetricsService {
   /**
    * Builds SQL expression for period grouping.
    */
-  protected function buildPeriodExpression(string $column, string $granularity): string {
-    $date = "STR_TO_DATE($column, '%Y-%m-%d')";
+  protected function buildPeriodExpression(string $column, string $granularity, bool $isUnixTimestamp = FALSE): string {
+    $date = $isUnixTimestamp ? "FROM_UNIXTIME($column)" : "STR_TO_DATE($column, '%Y-%m-%d')";
     switch ($granularity) {
       case 'day':
         return "DATE_FORMAT($date, '%Y-%m-%d')";

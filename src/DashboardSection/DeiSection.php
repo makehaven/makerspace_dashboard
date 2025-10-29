@@ -205,12 +205,48 @@ class DeiSection extends DashboardSectionBase {
             'y' => ['title' => ['display' => TRUE, 'text' => (string) $this->t('Members')]],
           ],
           'elements' => ['line' => ['tension' => 0.15]],
+          'plugins' => [
+            'legend' => ['position' => 'top'],
+          ],
         ],
       ];
       $build['age_distribution']['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $age_counts,
+        '#color' => '#f97316',
+        '#settings' => [
+          'borderColor' => '#f97316',
+          'fill' => FALSE,
+          'borderWidth' => 2,
+          'pointRadius' => 2,
+        ],
+      ];
+      $windowRadius = 2;
+      $trendSeries = [];
+      $bucketCount = count($age_counts);
+      for ($i = 0; $i < $bucketCount; $i++) {
+        $start = max(0, $i - $windowRadius);
+        $end = min($bucketCount - 1, $i + $windowRadius);
+        $length = ($end - $start + 1) ?: 1;
+        $sum = 0;
+        for ($j = $start; $j <= $end; $j++) {
+          $sum += $age_counts[$j];
+        }
+        $trendSeries[] = round($sum / $length, 2);
+      }
+      $build['age_distribution']['series_trend'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Trend (5-point MA)'),
+        '#data' => $trendSeries,
+        '#color' => '#2563eb',
+        '#settings' => [
+          'borderColor' => '#2563eb',
+          'fill' => FALSE,
+          'borderWidth' => 2,
+          'borderDash' => [6, 4],
+          'pointRadius' => 0,
+        ],
       ];
       $build['age_distribution']['xaxis'] = [
         '#type' => 'chart_xaxis',
@@ -219,7 +255,7 @@ class DeiSection extends DashboardSectionBase {
       $build['age_distribution_info'] = $this->buildChartInfo([
         $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
         $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
-        $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded.'),
+        $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded. A 5-point moving average (blue dashed line) smooths the curve.'),
       ]);
     }
     else {

@@ -27,4 +27,17 @@ interface DashboardSectionInterface {
    */
   public function build(array $filters = []): array;
 
+  /**
+   * Builds and returns a single chart render array for the section.
+   *
+   * @param string $chartId
+   *   Identifier of the chart within the section render array.
+   * @param array $filters
+   *   Filters to apply when generating the chart.
+   *
+   * @return array|null
+   *   The chart render array or NULL if unavailable.
+   */
+  public function buildChart(string $chartId, array $filters = []): ?array;
+
 }
