@@ -5,6 +5,22 @@ makerspace_dashboard.dashboard:
     _title: 'Makerspace Dashboard'
   requirements:
     _permission: 'view makerspace dashboard'
+makerspace_dashboard.dashboard_legacy:
+  path: '/makehaven-dashboard'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\DashboardRedirectController::legacyRedirect'
+  requirements:
+    _permission: 'view makerspace dashboard'
+makerspace_dashboard.chart_range:
+  path: '/makerspace-dashboard/chart/{section}/{chart}/{range}'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\DashboardChartController::chart'
+    _format: 'json'
+  requirements:
+    _permission: 'view makerspace dashboard'
+    section: '[a-z0-9_]+'
+    chart: '[a-z0-9_]+'
+    range: '[a-z0-9]+'
 makerspace_dashboard.settings:
   path: '/admin/config/makerspace/dashboard'
   defaults:

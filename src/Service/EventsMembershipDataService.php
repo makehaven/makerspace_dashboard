@@ -294,6 +294,334 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Builds top-level area of interest stats for events in the range.
+   */
+  public function getEventInterestBreakdown(?\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, int $limit = 10): array {
+    $cacheKeyStart = $start_date ? $start_date->getTimestamp() : 'all';
+    $cid = sprintf('makerspace_dashboard:event_interest:%s:%d:%d', $cacheKeyStart, $end_date->getTimestamp(), $limit);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('civicrm_event__field_civi_event_area_interest')) {
+      return [];
+    }
+
+    $termHierarchy = $this->loadInterestTermHierarchy();
+    if (!$termHierarchy) {
+      return [];
+    }
+
+    $eventInterestQuery = $this->database->select('civicrm_event__field_civi_event_area_interest', 'interest');
+    $eventInterestQuery->addField('interest', 'entity_id', 'event_id');
+    $eventInterestQuery->addField('interest', 'field_civi_event_area_interest_target_id', 'term_id');
+    $eventInterestQuery->innerJoin('civicrm_event', 'e', 'e.id = interest.entity_id');
+    $eventInterestQuery->fields('e', ['event_type_id']);
+    if ($start_date) {
+      $eventInterestQuery->condition('e.start_date', [
+        $start_date->format('Y-m-d H:i:s'),
+        $end_date->format('Y-m-d H:i:s'),
+      ], 'BETWEEN');
+    }
+    else {
+      $eventInterestQuery->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<=');
+    }
+
+    $eventInterestMap = [];
+    foreach ($eventInterestQuery->execute() as $record) {
+      $eventId = (int) $record->event_id;
+      $termId = (int) $record->term_id;
+      if (!isset($termHierarchy[$termId])) {
+        continue;
+      }
+      $topTermId = $this->resolveTopInterestId($termHierarchy, $termId);
+      if ($topTermId === NULL) {
+        continue;
+      }
+      $eventInterestMap[$eventId][$topTermId] = TRUE;
+    }
+
+    if (!$eventInterestMap) {
+      $this->cache->set($cid, [], $this->buildTtl(), ['civicrm_event_list']);
+      return [];
+    }
+
+    $eventMetrics = $this->loadEventRegistrationMetrics(array_keys($eventInterestMap), $start_date, $end_date);
+
+    $interestStats = [];
+    foreach ($eventInterestMap as $eventId => $topTermSet) {
+      $metrics = $eventMetrics[$eventId] ?? [
+        'registrations' => 0,
+        'total_amount' => 0.0,
+        'paid_count' => 0,
+      ];
+      foreach (array_keys($topTermSet) as $topTid) {
+        $interestStats[$topTid]['events'][$eventId] = TRUE;
+        $interestStats[$topTid]['registrations'] = ($interestStats[$topTid]['registrations'] ?? 0) + $metrics['registrations'];
+        $interestStats[$topTid]['total_amount'] = ($interestStats[$topTid]['total_amount'] ?? 0.0) + $metrics['total_amount'];
+        $interestStats[$topTid]['paid_count'] = ($interestStats[$topTid]['paid_count'] ?? 0) + $metrics['paid_count'];
+      }
+    }
+
+    $items = [];
+    foreach ($interestStats as $tid => $data) {
+      $events = isset($data['events']) ? count($data['events']) : 0;
+      $registrations = (int) ($data['registrations'] ?? 0);
+      $totalAmount = (float) ($data['total_amount'] ?? 0.0);
+      $avgTicket = $registrations > 0 ? round($totalAmount / $registrations, 2) : 0.0;
+      $items[] = [
+        'tid' => $tid,
+        'interest' => $termHierarchy[$tid]['name'] ?? (string) $tid,
+        'events' => $events,
+        'registrations' => $registrations,
+        'avg_ticket' => $avgTicket,
+        'total_amount' => round($totalAmount, 2),
+      ];
+    }
+
+    usort($items, function (array $a, array $b) {
+      return $b['events'] <=> $a['events'] ?: $b['registrations'] <=> $a['registrations'];
+    });
+
+    if ($limit > 0 && count($items) > $limit) {
+      $items = array_slice($items, 0, $limit);
+    }
+
+    $result = [
+      'items' => $items,
+      'total_events' => array_sum(array_map(fn(array $row) => $row['events'], $items)),
+      'total_registrations' => array_sum(array_map(fn(array $row) => $row['registrations'], $items)),
+    ];
+
+    $this->cache->set($cid, $result, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+
+    return $result;
+  }
+
+  /**
+   * Returns event counts per skill level, split by workshop vs other types.
+   */
+  public function getSkillLevelBreakdown(?\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cacheKeyStart = $start_date ? $start_date->getTimestamp() : 'all';
+    $cid = sprintf('makerspace_dashboard:event_skill_levels:%s:%d', $cacheKeyStart, $end_date->getTimestamp());
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('civicrm_event__field_event_skill_level')) {
+      return [];
+    }
+
+    $eventTypeLabels = $this->getOptionValueLabels('event_type');
+    $skillLevelLabels = $this->getSkillLevelLabels();
+
+    $query = $this->database->select('civicrm_event__field_event_skill_level', 'skill');
+    $query->addField('skill', 'entity_id', 'event_id');
+    $query->addField('skill', 'field_event_skill_level_value', 'skill_value');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = skill.entity_id');
+    $query->addField('e', 'event_type_id');
+    if ($start_date) {
+      $query->condition('e.start_date', [
+        $start_date->format('Y-m-d H:i:s'),
+        $end_date->format('Y-m-d H:i:s'),
+      ], 'BETWEEN');
+    }
+    else {
+      $query->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<=');
+    }
+
+    $counts = [
+      'workshop' => [],
+      'other' => [],
+    ];
+
+    foreach ($skillLevelLabels as $key => $label) {
+      $counts['workshop'][$key] = 0;
+      $counts['other'][$key] = 0;
+    }
+
+    foreach ($query->execute() as $record) {
+      $skillKey = $record->skill_value ?: 'unknown';
+      if (!isset($skillLevelLabels[$skillKey])) {
+        $skillLevelLabels[$skillKey] = ucfirst(str_replace('_', ' ', $skillKey));
+        $counts['workshop'][$skillKey] = 0;
+        $counts['other'][$skillKey] = 0;
+      }
+      $eventTypeId = (int) $record->event_type_id;
+      $eventTypeLabel = $eventTypeLabels[$eventTypeId] ?? '';
+      $bucket = (stripos($eventTypeLabel, 'workshop') !== FALSE) ? 'workshop' : 'other';
+      $counts[$bucket][$skillKey]++;
+    }
+
+    $result = [
+      'levels' => [],
+      'workshop' => [],
+      'other' => [],
+    ];
+
+    foreach ($skillLevelLabels as $key => $label) {
+      $result['levels'][] = $label;
+      $result['workshop'][] = $counts['workshop'][$key] ?? 0;
+      $result['other'][] = $counts['other'][$key] ?? 0;
+    }
+
+    $this->cache->set($cid, $result, $this->buildTtl(), ['civicrm_event_list']);
+
+    return $result;
+  }
+
+  /**
+   * Returns participant demographics grouped by workshop/non-workshop.
+   */
+  public function getParticipantDemographics(?\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cacheKeyStart = $start_date ? $start_date->getTimestamp() : 'all';
+    $cid = sprintf('makerspace_dashboard:event_demographics:%s:%d', $cacheKeyStart, $end_date->getTimestamp());
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('civicrm_participant')) {
+      return [];
+    }
+
+    $eventTypeLabels = $this->getOptionValueLabels('event_type');
+    $genderLabels = $this->getOptionValueLabels('gender');
+    $ethnicityLabels = $this->getOptionValueLabels('ethnicity');
+
+    $demoTable = $schema->tableExists('civicrm_value_demographics_15') ? 'civicrm_value_demographics_15' : NULL;
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->addField('p', 'event_id');
+    $query->addField('p', 'id', 'participant_id');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->condition('pst.is_counted', 1);
+    if ($start_date) {
+      $query->condition('e.start_date', [
+        $start_date->format('Y-m-d H:i:s'),
+        $end_date->format('Y-m-d H:i:s'),
+      ], 'BETWEEN');
+    }
+    else {
+      $query->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<=');
+    }
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
+    $query->addField('c', 'gender_id');
+    $query->addField('c', 'birth_date');
+    $query->addField('e', 'event_type_id');
+
+    if ($demoTable) {
+      $query->leftJoin($demoTable, 'demo', 'demo.entity_id = c.id');
+      if ($schema->fieldExists($demoTable, 'ethnicity_46')) {
+        $query->addField('demo', 'ethnicity_46');
+      }
+      else {
+        $query->addExpression('NULL', 'ethnicity_46');
+      }
+    }
+    else {
+      $query->addExpression('NULL', 'ethnicity_46');
+    }
+
+    $data = [
+      'gender' => [
+        'labels' => [],
+        'workshop' => [],
+        'other' => [],
+      ],
+      'ethnicity' => [
+        'labels' => [],
+        'workshop' => [],
+        'other' => [],
+      ],
+      'age' => [
+        'labels' => [],
+        'workshop' => [],
+        'other' => [],
+      ],
+    ];
+
+    $genderBuckets = [];
+    $ethnicityBuckets = [];
+    $ageBuckets = $this->getAgeBucketDefinitions();
+    $ageCounts = [
+      'workshop' => array_fill(0, count($ageBuckets), 0),
+      'other' => array_fill(0, count($ageBuckets), 0),
+    ];
+
+    foreach ($query->execute() as $record) {
+      $eventTypeId = (int) $record->event_type_id;
+      $eventTypeLabel = $eventTypeLabels[$eventTypeId] ?? '';
+      $bucket = (stripos($eventTypeLabel, 'workshop') !== FALSE) ? 'workshop' : 'other';
+
+      $genderKey = (int) $record->gender_id;
+      $genderLabel = $genderLabels[$genderKey] ?? ($genderKey ? (string) $genderKey : 'Unspecified');
+      $genderBuckets[$genderLabel][$bucket] = ($genderBuckets[$genderLabel][$bucket] ?? 0) + 1;
+
+      $birthDate = $record->birth_date;
+      $ageIndex = $this->resolveAgeBucketIndex($ageBuckets, $birthDate, $start_date);
+      if ($ageIndex !== NULL) {
+        $ageCounts[$bucket][$ageIndex]++;
+      }
+
+      $ethnicityRaw = isset($record->ethnicity_46) ? (string) $record->ethnicity_46 : '';
+      foreach ($this->explodeMultiValue($ethnicityRaw) as $ethnicityValue) {
+        if ($ethnicityValue === '') {
+          $label = 'Unspecified';
+        }
+        elseif (ctype_digit($ethnicityValue) && isset($ethnicityLabels[(int) $ethnicityValue])) {
+          $label = $ethnicityLabels[(int) $ethnicityValue];
+        }
+        else {
+          $label = $ethnicityValue;
+        }
+        $ethnicityBuckets[$label][$bucket] = ($ethnicityBuckets[$label][$bucket] ?? 0) + 1;
+      }
+    }
+
+    ksort($genderBuckets);
+    foreach ($genderBuckets as $label => $bucketCounts) {
+      $data['gender']['labels'][] = $label;
+      $data['gender']['workshop'][] = $bucketCounts['workshop'] ?? 0;
+      $data['gender']['other'][] = $bucketCounts['other'] ?? 0;
+    }
+
+    arsort($ethnicityBuckets);
+    $ethnicityTop = array_slice($ethnicityBuckets, 0, 10, TRUE);
+    $otherWorkshop = 0;
+    $otherOther = 0;
+    foreach ($ethnicityBuckets as $label => $bucketCounts) {
+      if (!isset($ethnicityTop[$label])) {
+        $otherWorkshop += $bucketCounts['workshop'] ?? 0;
+        $otherOther += $bucketCounts['other'] ?? 0;
+      }
+    }
+    foreach ($ethnicityTop as $label => $bucketCounts) {
+      $data['ethnicity']['labels'][] = $label;
+      $data['ethnicity']['workshop'][] = $bucketCounts['workshop'] ?? 0;
+      $data['ethnicity']['other'][] = $bucketCounts['other'] ?? 0;
+    }
+    if ($otherWorkshop > 0 || $otherOther > 0) {
+      $data['ethnicity']['labels'][] = 'Other';
+      $data['ethnicity']['workshop'][] = $otherWorkshop;
+      $data['ethnicity']['other'][] = $otherOther;
+    }
+
+    foreach ($ageBuckets as $bucket) {
+      $data['age']['labels'][] = $bucket['label'];
+    }
+    $data['age']['workshop'] = $ageCounts['workshop'];
+    $data['age']['other'] = $ageCounts['other'];
+
+    $this->cache->set($cid, $data, $this->buildTtl(), ['civicrm_participant_list', 'civicrm_contact_list']);
+
+    return $data;
+  }
+
+  /**
    * Builds an array of Y-m keyed months within range.
    */
   protected function buildMonthRange(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
@@ -321,6 +649,193 @@ class EventsMembershipDataService {
     $groupId = $query->execute()->fetchField();
     $cache = $groupId ? (int) $groupId : NULL;
     return $cache;
+  }
+
+  /**
+   * Returns the TTL used for the cached aggregates in this service.
+   */
+  protected function buildTtl(): int {
+    return CacheBackendInterface::CACHE_PERMANENT;
+  }
+
+  /**
+   * Loads option value labels keyed by value for the specified group.
+   */
+  protected function getOptionValueLabels(string $groupName): array {
+    static $cache = [];
+    if (isset($cache[$groupName])) {
+      return $cache[$groupName];
+    }
+
+    $query = $this->database->select('civicrm_option_group', 'og');
+    $query->fields('ov', ['value', 'label']);
+    $query->innerJoin('civicrm_option_value', 'ov', 'ov.option_group_id = og.id');
+    $query->condition('og.name', $groupName);
+    $query->condition('ov.is_active', 1);
+    $query->orderBy('ov.weight', 'ASC');
+
+    $labels = [];
+    foreach ($query->execute() as $record) {
+      $labels[(int) $record->value] = $record->label;
+    }
+
+    $cache[$groupName] = $labels;
+    return $labels;
+  }
+
+  /**
+   * Loads taxonomy term hierarchy for the event area of interest vocabulary.
+   */
+  protected function loadInterestTermHierarchy(): array {
+    $query = $this->database->select('taxonomy_term_field_data', 't');
+    $query->fields('t', ['tid', 'name']);
+    $query->leftJoin('taxonomy_term__parent', 'tp', 'tp.entity_id = t.tid');
+    $query->addExpression('COALESCE(MAX(tp.parent_target_id), 0)', 'parent_id');
+    $query->condition('t.vid', 'area_of_interest');
+    $query->groupBy('t.tid');
+    $query->groupBy('t.name');
+
+    $map = [];
+    foreach ($query->execute() as $record) {
+      $map[(int) $record->tid] = [
+        'name' => $record->name,
+        'parent' => (int) $record->parent_id,
+      ];
+    }
+    return $map;
+  }
+
+  /**
+   * Resolves the top-most parent in the interest hierarchy.
+   */
+  protected function resolveTopInterestId(array $hierarchy, int $tid): ?int {
+    $visited = [];
+    $current = $tid;
+    while ($current && isset($hierarchy[$current])) {
+      if (isset($visited[$current])) {
+        return $current;
+      }
+      $visited[$current] = TRUE;
+      $parent = $hierarchy[$current]['parent'] ?? 0;
+      if (!$parent) {
+        return $current;
+      }
+      if (!isset($hierarchy[$parent])) {
+        return $current;
+      }
+      $current = $parent;
+    }
+    return isset($hierarchy[$tid]) ? $tid : NULL;
+  }
+
+  /**
+   * Loads registration count and revenue totals per event.
+   */
+  protected function loadEventRegistrationMetrics(array $eventIds, ?\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    if (empty($eventIds)) {
+      return [];
+    }
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->addField('p', 'event_id');
+    $query->addExpression('COUNT(DISTINCT p.id)', 'registration_count');
+    $query->addExpression('SUM(COALESCE(c.total_amount, 0))', 'total_amount');
+    $query->addExpression('COUNT(DISTINCT c.id)', 'paid_count');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->condition('pst.is_counted', 1);
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    if ($start_date) {
+      $query->condition('e.start_date', [
+        $start_date->format('Y-m-d H:i:s'),
+        $end_date->format('Y-m-d H:i:s'),
+      ], 'BETWEEN');
+    }
+    else {
+      $query->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<=');
+    }
+    $query->condition('p.event_id', $eventIds, 'IN');
+    $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
+    $query->leftJoin('civicrm_contribution', 'c', 'c.id = pp.contribution_id');
+    $query->groupBy('p.event_id');
+
+    $metrics = [];
+    foreach ($query->execute() as $record) {
+      $eventId = (int) $record->event_id;
+      $metrics[$eventId] = [
+        'registrations' => (int) $record->registration_count,
+        'total_amount' => (float) $record->total_amount,
+        'paid_count' => (int) $record->paid_count,
+      ];
+    }
+
+    return $metrics;
+  }
+
+  /**
+   * Returns known skill level labels keyed by value.
+   */
+  protected function getSkillLevelLabels(): array {
+    return [
+      'introductory' => 'Introductory - No experience required',
+      'intermediate' => 'Intermediate - Basics familiarity required',
+      'advanced' => 'Advanced -  Strong Competency required',
+    ];
+  }
+
+  /**
+   * Provides age bucket definitions.
+   */
+  protected function getAgeBucketDefinitions(): array {
+    return [
+      ['min' => NULL, 'max' => 17, 'label' => 'Under 18'],
+      ['min' => 18, 'max' => 24, 'label' => '18-24'],
+      ['min' => 25, 'max' => 34, 'label' => '25-34'],
+      ['min' => 35, 'max' => 44, 'label' => '35-44'],
+      ['min' => 45, 'max' => 54, 'label' => '45-54'],
+      ['min' => 55, 'max' => 64, 'label' => '55-64'],
+      ['min' => 65, 'max' => NULL, 'label' => '65+'],
+    ];
+  }
+
+  /**
+   * Determines the bucket index for a birth date value.
+   */
+  protected function resolveAgeBucketIndex(array $buckets, $birthDate, \DateTimeImmutable $referenceDate): ?int {
+    if (empty($birthDate)) {
+      return NULL;
+    }
+    try {
+      $birth = new \DateTimeImmutable($birthDate);
+    }
+    catch (\Exception $e) {
+      return NULL;
+    }
+    $age = (int) $referenceDate->diff($birth)->y;
+    foreach ($buckets as $index => $bucket) {
+      $min = $bucket['min'];
+      $max = $bucket['max'];
+      if (($min === NULL || $age >= $min) && ($max === NULL || $age <= $max)) {
+        return $index;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Splits a stored multi-value string into individual values.
+   */
+  protected function explodeMultiValue(?string $value): array {
+    if ($value === NULL || $value === '') {
+      return [''];
+    }
+    if (str_contains($value, chr(0))) {
+      $value = str_replace(chr(0), ',', $value);
+    }
+    $parts = preg_split('/[,|;]/', $value, -1, PREG_SPLIT_NO_EMPTY);
+    if (empty($parts)) {
+      return [$value];
+    }
+    return array_map('trim', $parts);
   }
 
 }

@@ -40,4 +40,22 @@ class DashboardSectionManager {
     return $this->sections;
   }
 
+  /**
+   * Gets a single section by ID.
+   */
+  public function getSection(string $sectionId): ?DashboardSectionInterface {
+    return $this->sections[$sectionId] ?? NULL;
+  }
+
+  /**
+   * Builds a section chart for a specific range/filter selection.
+   */
+  public function buildSectionChart(string $sectionId, string $chartId, array $filters = []): ?array {
+    $section = $this->getSection($sectionId);
+    if (!$section) {
+      return NULL;
+    }
+    return $section->buildChart($chartId, $filters);
+  }
+
 }

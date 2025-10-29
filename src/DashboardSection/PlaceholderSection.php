@@ -20,4 +20,13 @@ abstract class PlaceholderSection implements DashboardSectionInterface {
     ];
   }
 
+  /**
+   * {@inheritdoc}
+   */
+  public function buildChart(string $chartId, array $filters = []): ?array {
+    return [
+      '#markup' => $this->t('Chart @chart is not available yet.', ['@chart' => $chartId]),
+    ];
+  }
+
 }

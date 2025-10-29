@@ -7,6 +7,7 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
+use Drupal\makerspace_dashboard\Service\SnapshotDataService;
 use Drupal\makerspace_dashboard\Service\UtilizationDataService;
 
 /**
@@ -40,15 +41,21 @@ class RetentionSection extends DashboardSectionBase {
   protected ConfigFactoryInterface $configFactory;
 
   /**
+   * Snapshot data service.
+   */
+  protected SnapshotDataService $snapshotData;
+
+  /**
    * Constructs the retention section.
    */
-  public function __construct(MembershipMetricsService $membership_metrics, DateFormatterInterface $date_formatter, TimeInterface $time, UtilizationDataService $utilization_data_service, ConfigFactoryInterface $config_factory) {
+  public function __construct(MembershipMetricsService $membership_metrics, DateFormatterInterface $date_formatter, TimeInterface $time, UtilizationDataService $utilization_data_service, ConfigFactoryInterface $config_factory, SnapshotDataService $snapshot_data) {
     parent::__construct();
     $this->membershipMetrics = $membership_metrics;
     $this->dateFormatter = $date_formatter;
     $this->time = $time;
     $this->utilizationDataService = $utilization_data_service;
     $this->configFactory = $config_factory;
+    $this->snapshotData = $snapshot_data;
   }
 
   /**
@@ -75,6 +82,288 @@ class RetentionSection extends DashboardSectionBase {
       '#type' => 'markup',
       '#markup' => $this->t('Compare monthly inflow vs churn and track long-term cohort retention across membership types.'),
     ];
+
+    $dailySnapshots = $this->snapshotData->getMembershipCountSeries('day');
+    $monthlySnapshots = $this->snapshotData->getMembershipCountSeries('month');
+    $yearlySnapshots = $this->snapshotData->getMembershipCountSeries('year');
+
+    $dailySeries = $dailySnapshots ? array_slice($dailySnapshots, -120) : [];
+    $monthlySeries = $monthlySnapshots ? array_slice($monthlySnapshots, -36) : [];
+    $yearlySeries = $yearlySnapshots ? array_slice($yearlySnapshots, -12) : [];
+
+    if ($dailySeries) {
+      $dailyLabels = [];
+      $dailyCounts = [];
+      foreach ($dailySeries as $row) {
+        $dailyLabels[] = $this->dateFormatter->format($row['period_date']->getTimestamp(), 'custom', 'M j, Y');
+        $dailyCounts[] = $row['members_active'];
+      }
+
+      $dailyFirst = NULL;
+      $dailyLast = NULL;
+      if ($dailySnapshots) {
+        $firstKey = array_key_first($dailySnapshots);
+        $lastKey = array_key_last($dailySnapshots);
+        if ($firstKey !== NULL) {
+          $dailyFirst = $dailySnapshots[$firstKey];
+        }
+        if ($lastKey !== NULL) {
+          $dailyLast = $dailySnapshots[$lastKey];
+        }
+      }
+
+      $build['snapshot_daily'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'line',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Active members (daily snapshots)'),
+        '#description' => $this->t('Latest @count snapshots of active membership headcount.', ['@count' => count($dailySeries)]),
+      ];
+      $build['snapshot_daily']['#raw_options']['options'] = [
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'plugins' => [
+          'legend' => ['display' => FALSE],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return value.toLocaleString() + " active members"; }',
+            ],
+          ],
+        ],
+        'scales' => [
+          'x' => [
+            'ticks' => [
+              'autoSkip' => TRUE,
+              'maxRotation' => 0,
+              'minRotation' => 0,
+              'maxTicksLimit' => 14,
+            ],
+          ],
+          'y' => [
+            'ticks' => [
+              'precision' => 0,
+              'callback' => 'function(value){ return value.toLocaleString(); }',
+            ],
+          ],
+        ],
+      ];
+      $build['snapshot_daily']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Active members'),
+        '#data' => $dailyCounts,
+        '#color' => '#2563eb',
+        '#settings' => [
+          'borderColor' => '#2563eb',
+          'backgroundColor' => 'rgba(37,99,235,0.18)',
+          'fill' => TRUE,
+          'tension' => 0.25,
+          'pointRadius' => 3,
+          'pointHoverRadius' => 5,
+          'borderWidth' => 2,
+        ],
+      ];
+      $build['snapshot_daily']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $dailyLabels),
+      ];
+      $build['snapshot_daily']['yaxis'] = [
+        '#type' => 'chart_yaxis',
+        '#title' => $this->t('Active members'),
+      ];
+
+      $dailyNotes = [
+        $this->t('Source: makerspace_snapshot membership_totals snapshots joined with ms_fact_org_snapshot (members_active).'),
+        $this->t('Processing: Keeps the latest membership_totals snapshot captured each day; snapshots flagged as tests are excluded.'),
+      ];
+      if ($coverage = $this->formatSnapshotCoverage($dailyFirst, $dailyLast, count($dailySnapshots))) {
+        $dailyNotes[] = $coverage;
+      }
+      $build['snapshot_daily_info'] = $this->buildChartInfo($dailyNotes, $this->t('Daily snapshot notes'));
+    }
+    else {
+      $build['snapshot_daily_empty'] = [
+        '#markup' => $this->t('No membership snapshots were found. Trigger a makerspace_snapshot capture to populate this trend.'),
+        '#prefix' => '<div class="makerspace-dashboard-empty">',
+        '#suffix' => '</div>',
+      ];
+    }
+
+    if ($monthlySeries) {
+      $monthlyLabels = [];
+      $monthlyCounts = [];
+      foreach ($monthlySeries as $row) {
+        $monthlyLabels[] = $this->dateFormatter->format($row['period_date']->getTimestamp(), 'custom', 'M Y');
+        $monthlyCounts[] = $row['members_active'];
+      }
+
+      $monthlyFirst = NULL;
+      $monthlyLast = NULL;
+      if ($monthlySnapshots) {
+        $firstKey = array_key_first($monthlySnapshots);
+        $lastKey = array_key_last($monthlySnapshots);
+        if ($firstKey !== NULL) {
+          $monthlyFirst = $monthlySnapshots[$firstKey];
+        }
+        if ($lastKey !== NULL) {
+          $monthlyLast = $monthlySnapshots[$lastKey];
+        }
+      }
+
+      $build['snapshot_monthly'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'line',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Active members (monthly snapshot anchor)'),
+        '#description' => $this->t('Collapses snapshots to one point per month using the latest capture inside each month (max @count months).', ['@count' => count($monthlySeries)]),
+      ];
+      $build['snapshot_monthly']['#raw_options']['options'] = [
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'plugins' => [
+          'legend' => ['display' => FALSE],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return value.toLocaleString() + " active members"; }',
+            ],
+          ],
+        ],
+        'scales' => [
+          'x' => [
+            'ticks' => [
+              'autoSkip' => TRUE,
+              'maxRotation' => 0,
+              'minRotation' => 0,
+              'padding' => 8,
+              'maxTicksLimit' => 18,
+            ],
+          ],
+          'y' => [
+            'ticks' => [
+              'precision' => 0,
+              'callback' => 'function(value){ return value.toLocaleString(); }',
+            ],
+          ],
+        ],
+      ];
+      $build['snapshot_monthly']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Active members'),
+        '#data' => $monthlyCounts,
+        '#color' => '#4338ca',
+        '#settings' => [
+          'borderColor' => '#4338ca',
+          'backgroundColor' => 'rgba(67,56,202,0.18)',
+          'fill' => TRUE,
+          'tension' => 0.25,
+          'pointRadius' => 4,
+          'pointHoverRadius' => 6,
+          'borderWidth' => 2,
+        ],
+      ];
+      $build['snapshot_monthly']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $monthlyLabels),
+      ];
+      $build['snapshot_monthly']['yaxis'] = [
+        '#type' => 'chart_yaxis',
+        '#title' => $this->t('Active members'),
+      ];
+
+      $monthlyNotes = [
+        $this->t('Source: makerspace_snapshot membership_totals snapshots joined with ms_fact_org_snapshot (members_active).'),
+        $this->t('Processing: Groups snapshots by calendar month and keeps the most recent capture in each month to smooth overlapping manual runs or scheduled captures.'),
+      ];
+      if ($coverage = $this->formatSnapshotCoverage($monthlyFirst, $monthlyLast, count($monthlySnapshots))) {
+        $monthlyNotes[] = $coverage;
+      }
+      $build['snapshot_monthly_info'] = $this->buildChartInfo($monthlyNotes, $this->t('Monthly snapshot notes'));
+    }
+
+    if ($yearlySeries) {
+      $yearlyLabels = [];
+      $yearlyCounts = [];
+      foreach ($yearlySeries as $row) {
+        $yearlyLabels[] = $this->dateFormatter->format($row['period_date']->getTimestamp(), 'custom', 'Y');
+        $yearlyCounts[] = $row['members_active'];
+      }
+
+      $yearlyFirst = NULL;
+      $yearlyLast = NULL;
+      if ($yearlySnapshots) {
+        $firstKey = array_key_first($yearlySnapshots);
+        $lastKey = array_key_last($yearlySnapshots);
+        if ($firstKey !== NULL) {
+          $yearlyFirst = $yearlySnapshots[$firstKey];
+        }
+        if ($lastKey !== NULL) {
+          $yearlyLast = $yearlySnapshots[$lastKey];
+        }
+      }
+
+      $build['snapshot_yearly'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'line',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Active members (year-end snapshot anchor)'),
+        '#description' => $this->t('Uses the latest snapshot per calendar year to show longitudinal membership scale.'),
+      ];
+      $build['snapshot_yearly']['#raw_options']['options'] = [
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'plugins' => [
+          'legend' => ['display' => FALSE],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return value.toLocaleString() + " active members"; }',
+            ],
+          ],
+        ],
+        'scales' => [
+          'x' => [
+            'ticks' => [
+              'autoSkip' => FALSE,
+              'maxRotation' => 0,
+              'minRotation' => 0,
+            ],
+          ],
+          'y' => [
+            'ticks' => [
+              'precision' => 0,
+              'callback' => 'function(value){ return value.toLocaleString(); }',
+            ],
+          ],
+        ],
+      ];
+      $build['snapshot_yearly']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Active members'),
+        '#data' => $yearlyCounts,
+        '#color' => '#0f172a',
+        '#settings' => [
+          'borderColor' => '#0f172a',
+          'backgroundColor' => 'rgba(15,23,42,0.15)',
+          'fill' => TRUE,
+          'tension' => 0.15,
+          'pointRadius' => 4,
+          'pointHoverRadius' => 6,
+          'borderWidth' => 2,
+        ],
+      ];
+      $build['snapshot_yearly']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $yearlyLabels),
+      ];
+      $build['snapshot_yearly']['yaxis'] = [
+        '#type' => 'chart_yaxis',
+        '#title' => $this->t('Active members'),
+      ];
+
+      $yearlyNotes = [
+        $this->t('Source: makerspace_snapshot membership_totals snapshots joined with ms_fact_org_snapshot (members_active).'),
+        $this->t('Processing: Keeps the last snapshot logged in each calendar year to highlight long-term growth.'),
+      ];
+      if ($coverage = $this->formatSnapshotCoverage($yearlyFirst, $yearlyLast, count($yearlySnapshots))) {
+        $yearlyNotes[] = $coverage;
+      }
+      $build['snapshot_yearly_info'] = $this->buildChartInfo($yearlyNotes, $this->t('Yearly snapshot notes'));
+    }
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
       ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
@@ -149,9 +438,9 @@ class RetentionSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $monthLabels),
       ];
       $build['net_membership_info'] = $this->buildChartInfo([
-        $this->t('Source: MembershipMetricsService::getFlow aggregates profile member join (field_member_join_date) and end (field_member_end_date) dates for users with active membership roles.'),
+        $this->t('Source: MembershipMetricsService::getFlow aggregates main member profile creation timestamps (treated as join dates) alongside recorded end dates (field_member_end_date) for published users.'),
         $this->t('Processing: Distinct members are grouped by calendar month; if the most recent 12 months are empty the query expands to 24 months.'),
-        $this->t('Definitions: "Joined" counts unique users whose join date falls in that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
+        $this->t('Definitions: "Joined" counts unique users whose default member profile was created that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
       ]);
 
       $build['net_balance'] = [
@@ -159,13 +448,72 @@ class RetentionSection extends DashboardSectionBase {
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Net membership change'),
-        '#description' => $this->t('Joined minus ended members per month.'),
+        '#description' => $this->t('Joined minus ended members per month with join/end overlays for context.'),
       ];
-      $build['net_balance']['series'] = [
+      $build['net_balance']['#raw_options']['options'] = [
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'plugins' => [
+          'legend' => ['position' => 'bottom'],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return context.dataset.label + \': \' + value.toLocaleString(); }',
+            ],
+          ],
+        ],
+        'scales' => [
+          'y' => [
+            'ticks' => [
+              'precision' => 0,
+              'callback' => 'function(value){ return value.toLocaleString(); }',
+            ],
+          ],
+        ],
+      ];
+      $build['net_balance']['series_joined'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Joined'),
+        '#data' => $incomingSeries,
+        '#color' => '#2563eb',
+        '#settings' => [
+          'borderColor' => '#2563eb',
+          'backgroundColor' => 'rgba(37,99,235,0.15)',
+          'fill' => FALSE,
+          'tension' => 0.2,
+          'borderWidth' => 2,
+          'pointRadius' => 3,
+          'pointHoverRadius' => 5,
+        ],
+      ];
+      $build['net_balance']['series_ended'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Ended'),
+        '#data' => $endingSeries,
+        '#color' => '#f97316',
+        '#settings' => [
+          'borderColor' => '#f97316',
+          'backgroundColor' => 'rgba(249,115,22,0.15)',
+          'fill' => FALSE,
+          'tension' => 0.2,
+          'borderWidth' => 2,
+          'pointRadius' => 3,
+          'pointHoverRadius' => 5,
+        ],
+      ];
+      $build['net_balance']['series_net'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Net change'),
         '#data' => $netSeries,
         '#color' => '#0f172a',
+        '#settings' => [
+          'borderColor' => '#0f172a',
+          'backgroundColor' => 'rgba(15,23,42,0.1)',
+          'fill' => FALSE,
+          'tension' => 0.25,
+          'borderWidth' => 2,
+          'borderDash' => [6, 4],
+          'pointRadius' => 0,
+          'pointHoverRadius' => 4,
+        ],
       ];
       $build['net_balance']['xaxis'] = [
         '#type' => 'chart_xaxis',
@@ -173,7 +521,7 @@ class RetentionSection extends DashboardSectionBase {
       ];
       $build['net_balance_info'] = $this->buildChartInfo([
         $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
-        $this->t('Processing: Calculates joined minus ended members for each month to highlight net growth or contraction.'),
+        $this->t('Processing: Calculates joined minus ended members for each month and overlays raw join/end totals so spikes are easy to attribute.'),
         $this->t('Definitions: Positive values indicate net growth in headcount that month; negative values indicate attrition exceeded recruitment.'),
       ]);
 
@@ -689,6 +1037,42 @@ class RetentionSection extends DashboardSectionBase {
       ]);
     }
 
+    $hourlyAverages = $this->utilizationDataService->getAverageEntriesByHour($startAll->getTimestamp(), $end_of_day->getTimestamp());
+    $hourlyData = $hourlyAverages['averages'] ?? [];
+    if (!empty($hourlyData)) {
+      $hourLabels = [];
+      foreach (array_keys($hourlyData) as $hour) {
+        $hourLabels[] = sprintf('%02d:00', (int) $hour);
+      }
+
+      $build['hourly_entry_profile'] = [
+        '#type' => 'chart',
+        '#chart_type' => 'bar',
+        '#chart_library' => 'chartjs',
+        '#title' => $this->t('Average entries per hour of day'),
+        '#description' => $this->t('Average access-control requests in each hour, averaged across @days days.', ['@days' => $hourlyAverages['days'] ?? count($rollingDates)]),
+      ];
+      $build['hourly_entry_profile']['series'] = [
+        '#type' => 'chart_data',
+        '#title' => $this->t('Average entries'),
+        '#data' => array_values($hourlyData),
+        '#color' => '#3b82f6',
+      ];
+      $build['hourly_entry_profile']['xaxis'] = [
+        '#type' => 'chart_xaxis',
+        '#labels' => array_map('strval', $hourLabels),
+      ];
+      $build['hourly_entry_profile']['yaxis'] = [
+        '#type' => 'chart_yaxis',
+        '#title' => $this->t('Average entries / day'),
+      ];
+      $build['hourly_entry_profile_info'] = $this->buildChartInfo([
+        $this->t('Source: Raw access_control_request logs for the same window as the utilization charts.'),
+        $this->t('Processing: Counts every entry event per hour, sums across the window, and divides by the number of days to produce an hourly average.'),
+        $this->t('Definitions: Includes repeat entries; filter above charts for unique-member analysis.'),
+      ]);
+    }
+
     $timeOfDayLabels = $this->utilizationDataService->getTimeOfDayBucketLabels();
     $firstEntryBuckets = $this->utilizationDataService->getFirstEntryBucketsByWeekday($rollingStartDate->getTimestamp(), $end_of_day->getTimestamp());
     $weekdayOrder = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -739,6 +1123,30 @@ class RetentionSection extends DashboardSectionBase {
     ];
 
     return $build;
+  }
+
+  /**
+   * Builds a friendly coverage string for snapshot-based charts.
+   */
+  protected function formatSnapshotCoverage(?array $first, ?array $last, int $total): ?TranslatableMarkup {
+    if (!$first || !$last || $total < 1) {
+      return NULL;
+    }
+
+    $start = $first['snapshot_date'] ?? NULL;
+    $end = $last['snapshot_date'] ?? NULL;
+    if (!$start instanceof \DateTimeImmutable || !$end instanceof \DateTimeImmutable) {
+      return NULL;
+    }
+
+    $startLabel = $this->dateFormatter->format($start->getTimestamp(), 'custom', 'M j, Y');
+    $endLabel = $this->dateFormatter->format($end->getTimestamp(), 'custom', 'M j, Y');
+
+    return $this->t('Coverage: @start — @end (@count snapshots).', [
+      '@start' => $startLabel,
+      '@end' => $endLabel,
+      '@count' => $total,
+    ]);
   }
 
   /**

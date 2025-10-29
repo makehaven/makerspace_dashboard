@@ -22,6 +22,75 @@
   margin-bottom: 1rem;
 }
 
+.makerspace-dashboard-range-chart {
+  margin-bottom: 1.75rem;
+  position: relative;
+}
+
+.makerspace-dashboard-range-chart.is-loading::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.65);
+  border-radius: 8px;
+  z-index: 2;
+}
+
+.makerspace-dashboard-range-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  align-items: center;
+}
+
+.makerspace-dashboard-range-button {
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5f5;
+  border-radius: 14px;
+  color: #1f2937;
+  cursor: pointer;
+  font-size: 0.875rem;
+  line-height: 1.2;
+  padding: 0.35rem 0.85rem;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.makerspace-dashboard-range-button:hover {
+  background-color: #e2e8f0;
+}
+
+.makerspace-dashboard-range-button.is-active {
+  background-color: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #ffffff;
+  cursor: default;
+}
+
+.makerspace-dashboard-range-button[aria-busy="true"] {
+  position: relative;
+}
+
+.makerspace-dashboard-range-button[aria-busy="true"]::after {
+  content: '';
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  width: 14px;
+  height: 14px;
+  position: absolute;
+  top: 50%;
+  right: -22px;
+  transform: translateY(-50%);
+  animation: makerspace-dashboard-spin 0.6s linear infinite;
+}
+
+@keyframes makerspace-dashboard-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
 .makerspace-dashboard-section canvas {
   display: block;
   width: 100% !important;

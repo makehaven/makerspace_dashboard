@@ -147,11 +147,36 @@ class FinanceSection extends DashboardSectionBase {
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Average recorded monthly payment by membership type'),
         '#description' => $this->t('Uses field_member_payment_monthly to estimate typical recurring revenue by membership category.'),
+        '#raw_options' => [
+          'options' => [
+            'plugins' => [
+              'legend' => ['display' => FALSE],
+              'tooltip' => [
+                'callbacks' => [
+                  'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return "$" + Number(value ?? 0).toFixed(2); }',
+                ],
+              ],
+            ],
+            'scales' => [
+              'y' => [
+                'ticks' => [
+                  'callback' => 'function(value){ return "$" + Number(value ?? 0).toFixed(0); }',
+                ],
+              ],
+            ],
+          ],
+        ],
       ];
       $build['average_payment']['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Average $ / month'),
         '#data' => $averageValues,
+        '#color' => '#2563eb',
+        '#settings' => [
+          'backgroundColor' => 'rgba(37,99,235,0.25)',
+          'borderColor' => '#2563eb',
+          'borderWidth' => 1,
+        ],
       ];
       $build['average_payment']['xaxis'] = [
         '#type' => 'chart_xaxis',

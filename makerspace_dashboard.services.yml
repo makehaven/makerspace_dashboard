@@ -29,6 +29,13 @@ services:
       - '@cache.default'
       - '@datetime.time'
 
+  makerspace_dashboard.snapshot_data:
+    class: Drupal\makerspace_dashboard\Service\SnapshotDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+
   makerspace_dashboard.engagement_data:
     class: Drupal\makerspace_dashboard\Service\EngagementDataService
     arguments:
@@ -48,6 +55,12 @@ services:
       - '@database'
       - '@cache.default'
       - '@date.formatter'
+
+  makerspace_dashboard.infrastructure_data:
+    class: Drupal\makerspace_dashboard\Service\InfrastructureDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
 
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
@@ -76,6 +89,9 @@ services:
 
   makerspace_dashboard.section.infrastructure:
     class: Drupal\makerspace_dashboard\DashboardSection\InfrastructureSection
+    arguments:
+      - '@makerspace_dashboard.infrastructure_data'
+      - '@date.formatter'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -98,6 +114,7 @@ services:
       - '@datetime.time'
       - '@makerspace_dashboard.utilization_data'
       - '@config.factory'
+      - '@makerspace_dashboard.snapshot_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

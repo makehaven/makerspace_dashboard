@@ -163,6 +163,70 @@ class UtilizationDataService {
   }
 
   /**
+   * Computes average entry counts per hour of day across a time window.
+   *
+   * @return array
+   *   Array with averages keyed by hour, plus metadata.
+   */
+  public function getAverageEntriesByHour(int $startTimestamp, int $endTimestamp): array {
+    $cid = sprintf('makerspace_dashboard:utilization:hourly_average:%d:%d', $startTimestamp, $endTimestamp);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('access_control_log_field_data', 'acl');
+    $query->addExpression("DATE(FROM_UNIXTIME(acl.created))", 'day_key');
+    $query->addExpression('HOUR(FROM_UNIXTIME(acl.created))', 'hour_key');
+    $query->addExpression('COUNT(*)', 'entry_count');
+    $query->condition('acl.type', 'access_control_request');
+    $query->condition('acl.created', $startTimestamp, '>=');
+    $query->condition('acl.created', $endTimestamp, '<=');
+
+    $query->innerJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.entity_id = acl.id AND user_ref.deleted = 0');
+    $query->innerJoin('user__roles', 'user_roles', 'user_roles.entity_id = user_ref.field_access_request_user_target_id');
+    $query->condition('user_roles.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = user_ref.field_access_request_user_target_id');
+    $query->condition('u.status', 1);
+
+    $query->groupBy('day_key');
+    $query->groupBy('hour_key');
+    $query->orderBy('day_key', 'ASC');
+    $query->orderBy('hour_key', 'ASC');
+
+    $results = $query->execute();
+
+    $hourTotals = array_fill(0, 24, 0.0);
+    $daysWithActivity = [];
+    foreach ($results as $record) {
+      $hour = (int) $record->hour_key;
+      if ($hour < 0 || $hour > 23) {
+        continue;
+      }
+      $count = (int) $record->entry_count;
+      $hourTotals[$hour] += $count;
+      $daysWithActivity[$record->day_key] = TRUE;
+    }
+
+    $rangeDays = max(1, (int) floor(max(0, $endTimestamp - $startTimestamp) / 86400) + 1);
+    $averages = [];
+    foreach ($hourTotals as $hour => $total) {
+      $averages[$hour] = round($total / $rangeDays, 2);
+    }
+
+    $data = [
+      'averages' => $averages,
+      'days' => $rangeDays,
+      'active_days' => count($daysWithActivity),
+      'total_entries' => array_sum($hourTotals),
+    ];
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cid, $data, $expire, ['access_control_log_list', 'user_list']);
+
+    return $data;
+  }
+
+  /**
    * Builds weekday/time-of-day buckets for first entries.
    */
   public function getFirstEntryBucketsByWeekday(int $startTimestamp, int $endTimestamp): array {
