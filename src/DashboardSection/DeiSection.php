@@ -43,37 +43,52 @@ class DeiSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
+    // This build method follows several steps:
+    // 1. Fetch data for all demographic metrics.
+    // 2. Build the Locality Distribution metric.
+    // 3. Build the Gender Identity Mix metric.
+    // 4. Build the Member Interests metric.
+    // 5. Build the Age Distribution metric.
+    // 6. Set cache metadata.
+
     $build['intro'] = [
       '#type' => 'markup',
-      '#markup' => $this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'),
+      '#markup' => '<p>' . $this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.') . '</p>',
     ];
 
+    // Metric 1: Locality Distribution.
     $locality_rows = $this->dataService->getLocalityDistribution();
     if (!empty($locality_rows)) {
       $locality_labels = array_map(fn(array $row) => $row['label'], $locality_rows);
       $locality_counts = array_map(fn(array $row) => $row['count'], $locality_rows);
 
-      $build['town_distribution'] = [
+      $town_distribution_chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Members by town'),
-        '#description' => $this->t('Top hometowns for active members; smaller groups are aggregated into “Other”.'),
       ];
-      $build['town_distribution']['series'] = [
+      $town_distribution_chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $locality_counts,
       ];
-      $build['town_distribution']['xaxis'] = [
+      $town_distribution_chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $locality_labels),
       ];
-      $build['town_distribution_info'] = $this->buildChartInfo([
-        $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
-        $this->t('Processing: Counts distinct members per town and collapses values under the minimum threshold into "Other (< 5)".'),
-        $this->t('Definitions: Only published users with a default profile are included; blank addresses appear as "Unknown / not provided".'),
-      ]);
+      $build['town_distribution_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('Members by Town') . '</h2><p>' . $this->t('Top hometowns for active members; smaller groups are aggregated into “Other”.') . '</p>',
+        ],
+        'chart' => $town_distribution_chart,
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+          $this->t('Processing: Counts distinct members per town and collapses values under the minimum threshold into "Other (< 5)".'),
+          $this->t('Definitions: Only published users with a default profile are included; blank addresses appear as "Unknown / not provided".'),
+        ]),
+      ];
     }
     else {
       $build['town_distribution_empty'] = [
@@ -81,6 +96,7 @@ class DeiSection extends DashboardSectionBase {
       ];
     }
 
+    // Metric 2: Gender Identity Mix.
     $gender_rows = $this->dataService->getGenderDistribution();
     if (!empty($gender_rows)) {
       $gender_labels = array_map(fn(array $row) => $row['label'], $gender_rows);
@@ -105,12 +121,10 @@ class DeiSection extends DashboardSectionBase {
         $excluded = [];
       }
 
-      $build['gender_mix'] = [
+      $gender_mix_chart = [
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Gender identity mix'),
-        '#description' => $this->t('Aggregated from primary member profile gender selections.'),
         '#data_labels' => TRUE,
         '#raw_options' => [
           'plugins' => [
@@ -125,12 +139,12 @@ class DeiSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['gender_mix']['series'] = [
+      $gender_mix_chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $filteredCounts,
       ];
-      $build['gender_mix']['xaxis'] = [
+      $gender_mix_chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $filteredLabels),
       ];
@@ -147,7 +161,16 @@ class DeiSection extends DashboardSectionBase {
         }
         $genderInfoItems[] = $this->t('Excluded from chart (shown below for reference): @list', ['@list' => implode(', ', $notes)]);
       }
-      $build['gender_mix_info'] = $this->buildChartInfo($genderInfoItems);
+
+      $build['gender_mix_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('Gender Identity Mix') . '</h2><p>' . $this->t('Aggregated from primary member profile gender selections.') . '</p>',
+        ],
+        'chart' => $gender_mix_chart,
+        'info' => $this->buildChartInfo($genderInfoItems),
+      ];
     }
     else {
       $build['gender_mix_empty'] = [
@@ -155,32 +178,40 @@ class DeiSection extends DashboardSectionBase {
       ];
     }
 
+    // Metric 3: Member Interests.
     $interest_rows = $this->dataService->getInterestDistribution();
     if (!empty($interest_rows)) {
       $interest_labels = array_map(fn(array $row) => $row['label'], $interest_rows);
       $interest_counts = array_map(fn(array $row) => $row['count'], $interest_rows);
 
-      $build['interest_distribution'] = [
+      $interest_distribution_chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Member interests'),
-        '#description' => $this->t('Top member interests, based on profile selections.'),
       ];
-      $build['interest_distribution']['series'] = [
+      $interest_distribution_chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $interest_counts,
       ];
-      $build['interest_distribution']['xaxis'] = [
+      $interest_distribution_chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $interest_labels),
       ];
-      $build['interest_distribution_info'] = $this->buildChartInfo([
-        $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
-        $this->t('Processing: Aggregates distinct members per interest, returns the top ten values, and respects the configured minimum count. Unknowns display as "Not provided".'),
-        $this->t('Definitions: Only published accounts with a default profile and status = 1 are considered.'),
-      ]);
+
+      $build['interest_distribution_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('Member Interests') . '</h2><p>' . $this->t('Top member interests, based on profile selections.') . '</p>',
+        ],
+        'chart' => $interest_distribution_chart,
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+          $this->t('Processing: Aggregates distinct members per interest, returns the top ten values, and respects the configured minimum count. Unknowns display as "Not provided".'),
+          $this->t('Definitions: Only published accounts with a default profile and status = 1 are considered.'),
+        ]),
+      ];
     }
     else {
       $build['interest_distribution_empty'] = [
@@ -188,17 +219,16 @@ class DeiSection extends DashboardSectionBase {
       ];
     }
 
+    // Metric 4: Age Distribution.
     $age_rows = $this->dataService->getAgeDistribution(13, 100);
     if (!empty($age_rows)) {
       $age_labels = array_map(fn(array $row) => $row['label'], $age_rows);
       $age_counts = array_map(fn(array $row) => $row['count'], $age_rows);
 
-      $build['age_distribution'] = [
+      $age_distribution_chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Age distribution of active members'),
-        '#description' => $this->t('Counts members by age based on field_member_birthday.'),
         '#raw_options' => [
           'scales' => [
             'x' => ['title' => ['display' => TRUE, 'text' => (string) $this->t('Age')]],
@@ -210,7 +240,7 @@ class DeiSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['age_distribution']['series'] = [
+      $age_distribution_chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $age_counts,
@@ -235,7 +265,7 @@ class DeiSection extends DashboardSectionBase {
         }
         $trendSeries[] = round($sum / $length, 2);
       }
-      $build['age_distribution']['series_trend'] = [
+      $age_distribution_chart['series_trend'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Trend (5-point MA)'),
         '#data' => $trendSeries,
@@ -248,15 +278,24 @@ class DeiSection extends DashboardSectionBase {
           'pointRadius' => 0,
         ],
       ];
-      $build['age_distribution']['xaxis'] = [
+      $age_distribution_chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $age_labels),
       ];
-      $build['age_distribution_info'] = $this->buildChartInfo([
-        $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
-        $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
-        $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded. A 5-point moving average (blue dashed line) smooths the curve.'),
-      ]);
+
+      $build['age_distribution_metric'] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'heading' => [
+          '#markup' => '<h2>' . $this->t('Age Distribution of Active Members') . '</h2><p>' . $this->t('Counts members by age based on field_member_birthday.') . '</p>',
+        ],
+        'chart' => $age_distribution_chart,
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
+          $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
+          $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded. A 5-point moving average (blue dashed line) smooths the curve.'),
+        ]),
+      ];
     }
     else {
       $build['age_distribution_empty'] = [
