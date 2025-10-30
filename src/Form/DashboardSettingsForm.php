@@ -75,76 +75,25 @@ class DashboardSettingsForm extends ConfigFormBase {
   public function buildForm(array $form, FormStateInterface $form_state): array {
     $config = $this->config('makerspace_dashboard.settings');
 
-    $form['utilization'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Utilization settings'),
-      '#open' => TRUE,
-    ];
-
-    $form['utilization']['daily_window_days'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Daily chart window (days)'),
-      '#default_value' => $config->get('utilization.daily_window_days') ?? 90,
-      '#min' => 7,
-      '#description' => $this->t('Number of days to include in the daily unique members chart.'),
-    ];
-
-    $form['utilization']['rolling_window_days'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Rolling-average window (days)'),
-      '#default_value' => $config->get('utilization.rolling_window_days') ?? 365,
-      '#min' => 30,
-      '#description' => $this->t('Number of days to include when plotting the 7-day rolling average trend.'),
-    ];
-
-    $form['engagement'] = [
-      '#type' => 'details',
-      '#title' => $this->t('Engagement settings'),
-      '#open' => FALSE,
-    ];
-
-    $form['engagement']['engagement_cohort_window_days'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Cohort lookback window (days)'),
-      '#default_value' => $config->get('engagement.cohort_window_days') ?? 90,
-      '#min' => 7,
-      '#description' => $this->t('How many days of new-member joins to include when building engagement cohorts.'),
-    ];
-
-    $form['engagement']['engagement_activation_window_days'] = [
-      '#type' => 'number',
-      '#title' => $this->t('Activation window (days)'),
-      '#default_value' => $config->get('engagement.activation_window_days') ?? 90,
-      '#min' => 7,
-      '#description' => $this->t('Number of days after joining to consider for orientation and badge activation metrics.'),
-    ];
-
-    $orientationDefault = $config->get('engagement.orientation_badge_ids') ?? [270];
-    $form['engagement']['engagement_orientation_badge_ids'] = [
-      '#type' => 'textfield',
-      '#title' => $this->t('Orientation badge term IDs'),
-      '#default_value' => implode(', ', array_map('intval', (array) $orientationDefault)),
-      '#description' => $this->t('Comma-separated taxonomy term IDs that represent orientation prerequisites (e.g. Maker Safety).'),
-    ];
-
     $form['notes'] = [
       '#type' => 'details',
-      '#title' => $this->t('Tab notes'),
-      '#description' => $this->t('Add contextual notes for each dashboard tab. Notes are visible to all viewers.'),
+      '#title' => $this->t('Section intros'),
+      '#description' => $this->t('Add introductory text for each dashboard section.'),
       '#open' => TRUE,
       '#tree' => TRUE,
       '#attributes' => ['id' => 'edit-notes'],
     ];
 
     $notes = $config->get('tab_notes') ?? [];
-    $tabs = [
-      'utilization' => $this->t('Utilization'),
-      'demographics' => $this->t('Demographics'),
-      'engagement' => $this->t('New Member Engagement'),
-      'events_membership' => $this->t('Events ➜ Membership'),
-      'retention' => $this->t('Recruitment & Retention'),
-      'financial' => $this->t('Financial Snapshot'),
-    ];
+    $sections = $this->googleSheetChartManager->getSections();
+    foreach ($sections as $section) {
+      $form['notes'][$section->getId()] = [
+        '#type' => 'textarea',
+        '#title' => $section->getLabel(),
+        '#default_value' => $notes[$section->getId()] ?? '',
+        '#rows' => 4,
+      ];
+    }
 
     $form['google_sheets'] = [
       '#type' => 'details',
@@ -240,37 +189,6 @@ class DashboardSettingsForm extends ConfigFormBase {
    */
   public function validateForm(array &$form, FormStateInterface $form_state): void {
     parent::validateForm($form, $form_state);
-    $daily = (int) $form_state->getValue('daily_window_days');
-    $rolling = (int) $form_state->getValue('rolling_window_days');
-    if ($daily < 7) {
-      $form_state->setErrorByName('daily_window_days', $this->t('The daily chart window must be at least 7 days.'));
-    }
-    if ($rolling < $daily) {
-      $form_state->setErrorByName('rolling_window_days', $this->t('The rolling-average window must be greater than or equal to the daily chart window.'));
-    }
-
-    $cohort = (int) $form_state->getValue('engagement_cohort_window_days');
-    $activation = (int) $form_state->getValue('engagement_activation_window_days');
-    if ($cohort < 1) {
-      $form_state->setErrorByName('engagement_cohort_window_days', $this->t('The cohort window must be at least 1 day.'));
-    }
-    if ($activation < 1) {
-      $form_state->setErrorByName('engagement_activation_window_days', $this->t('The activation window must be at least 1 day.'));
-    }
-
-    $orientationInput = (string) $form_state->getValue('engagement_orientation_badge_ids');
-    if ($orientationInput !== '') {
-      $ids = $this->parseIdList($orientationInput);
-      if (empty($ids)) {
-        $form_state->setErrorByName('engagement_orientation_badge_ids', $this->t('Provide at least one numeric taxonomy term ID.'));
-      }
-      else {
-        $form_state->setValue('engagement_orientation_badge_ids', $ids);
-      }
-    }
-    else {
-      $form_state->setValue('engagement_orientation_badge_ids', []);
-    }
   }
 
   /**
@@ -281,11 +199,6 @@ class DashboardSettingsForm extends ConfigFormBase {
     $config = $this->configFactory->getEditable('makerspace_dashboard.settings');
 
     $config
-      ->set('utilization.daily_window_days', (int) $form_state->getValue('daily_window_days'))
-      ->set('utilization.rolling_window_days', (int) $form_state->getValue('rolling_window_days'))
-      ->set('engagement.cohort_window_days', (int) $form_state->getValue('engagement_cohort_window_days'))
-      ->set('engagement.activation_window_days', (int) $form_state->getValue('engagement_activation_window_days'))
-      ->set('engagement.orientation_badge_ids', $form_state->getValue('engagement_orientation_badge_ids'))
       ->set('google_sheet_url', $form_state->getValue('google_sheet_url'))
       ->set('google_api_key', $form_state->getValue('google_api_key'));
 
