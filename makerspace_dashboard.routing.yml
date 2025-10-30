@@ -29,7 +29,7 @@ makerspace_dashboard.settings:
   requirements:
     _permission: 'administer site configuration'
 
-makerspace_dashboard.download_csv:
+makerspace_dashboard.download_chart_csv:
   path: '/makerspace-dashboard/download-csv/{section_id}/{chart_id}'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\CsvDownloadController::downloadCsv'
