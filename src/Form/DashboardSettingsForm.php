@@ -6,7 +6,7 @@ use Drupal\Core\Form\ConfigFormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\makerspace_dashboard\Service\GoogleSheetClientService;
-use Drupal\makerspace_dashboard\Service\GoogleSheetChartManager;
+use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 
 /**
@@ -22,11 +22,11 @@ class DashboardSettingsForm extends ConfigFormBase {
   protected $googleSheetClientService;
 
   /**
-   * The Google Sheet Chart Manager service.
+   * The Dashboard Section Manager service.
    *
-   * @var \Drupal\makerspace_dashboard\Service\GoogleSheetChartManager
+   * @var \Drupal\makerspace_dashboard\Service\DashboardSectionManager
    */
-  protected $googleSheetChartManager;
+  protected $dashboardSectionManager;
 
   /**
    * Constructs a new DashboardSettingsForm object.
@@ -35,13 +35,13 @@ class DashboardSettingsForm extends ConfigFormBase {
    *   The factory for configuration objects.
    * @param \Drupal\makerspace_dashboard\Service\GoogleSheetClientService $google_sheet_client_service
    *   The Google Sheet Client service.
-   * @param \Drupal\makerspace_dashboard\Service\GoogleSheetChartManager $google_sheet_chart_manager
-   *   The Google Sheet Chart Manager service.
+   * @param \Drupal\makerspace_dashboard\Service\DashboardSectionManager $dashboard_section_manager
+   *   The Dashboard Section Manager service.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, GoogleSheetClientService $google_sheet_client_service, GoogleSheetChartManager $google_sheet_chart_manager) {
+  public function __construct(ConfigFactoryInterface $config_factory, GoogleSheetClientService $google_sheet_client_service, DashboardSectionManager $dashboard_section_manager) {
     parent::__construct($config_factory);
     $this->googleSheetClientService = $google_sheet_client_service;
-    $this->googleSheetChartManager = $google_sheet_chart_manager;
+    $this->dashboardSectionManager = $dashboard_section_manager;
   }
 
   /**
@@ -51,7 +51,7 @@ class DashboardSettingsForm extends ConfigFormBase {
     return new static(
       $container->get('config.factory'),
       $container->get('makerspace_dashboard.google_sheet_client'),
-      $container->get('makerspace_dashboard.google_sheet_chart_manager')
+      $container->get('makerspace_dashboard.section_manager')
     );
   }
 
@@ -85,7 +85,7 @@ class DashboardSettingsForm extends ConfigFormBase {
     ];
 
     $notes = $config->get('tab_notes') ?? [];
-    $sections = $this->googleSheetChartManager->getSections();
+    $sections = $this->dashboardSectionManager->getSections();
     foreach ($sections as $section) {
       $form['notes'][$section->getId()] = [
         '#type' => 'textarea',
@@ -171,15 +171,6 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#items' => $items,
       '#title' => $this->t('Chart Data Status'),
     ];
-
-    foreach ($tabs as $key => $label) {
-      $form['notes'][$key] = [
-        '#type' => 'textarea',
-        '#title' => $label,
-        '#default_value' => $notes[$key] ?? '',
-        '#rows' => 4,
-      ];
-    }
 
     return parent::buildForm($form, $form_state);
   }
