@@ -59,12 +59,6 @@ class EducationSection extends DashboardSectionBase {
     $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
     $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
 
-      '@start' => $cohortStart,
-      '@end' => $cohortEnd,
-      '@days' => $activationDays,
-    ]));
-    $build['intro']['#weight'] = $weight++;
-
     $build['kpi_table'] = $this->buildKpiTable();
     $build['kpi_table']['#weight'] = $weight++;
 

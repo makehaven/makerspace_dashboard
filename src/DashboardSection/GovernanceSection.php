@@ -304,7 +304,6 @@ class GovernanceSection extends DashboardSectionBase {
     // Use #weight to control the rendering order of the elements.
     $weight = 0;
 
-    $build['intro']['#weight'] = $weight++;
 
     $build['kpi_table'] = $this->buildKpiTable();
     $build['kpi_table']['#weight'] = $weight++;

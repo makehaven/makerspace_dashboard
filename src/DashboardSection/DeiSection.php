@@ -44,8 +44,6 @@ class DeiSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['intro']['#weight'] = $weight++;
-
     $build['kpi_table'] = $this->buildKpiTable();
     $build['kpi_table']['#weight'] = $weight++;
 
