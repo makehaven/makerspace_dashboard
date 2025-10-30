@@ -53,27 +53,35 @@ class OutreachSection extends DashboardSectionBase {
       $discoveryLabels = array_map(fn(array $row) => $row['label'], $discoveryRows);
       $discoveryCounts = array_map(fn(array $row) => $row['count'], $discoveryRows);
 
-      $build['discovery_sources'] = [
+      $chart_id = 'discovery_sources';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('How members discovered us'),
         '#description' => $this->t('Self-reported discovery sources from member profiles.'),
       ];
-      $build['discovery_sources']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $discoveryCounts,
       ];
-      $build['discovery_sources']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $discoveryLabels),
       ];
-      $build['discovery_sources_info'] = $this->buildChartInfo([
-        $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
-        $this->t('Processing: Aggregates responses and rolls options with fewer than five members into "Other".'),
-        $this->t('Definitions: Missing responses surface as "Not captured"; encourage staff to populate this field for richer recruitment insights.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
+          $this->t('Processing: Aggregates responses and rolls options with fewer than five members into "Other".'),
+          $this->t('Definitions: Missing responses surface as "Not captured"; encourage staff to populate this field for richer recruitment insights.'),
+        ]),
+      ];
     }
 
     $recentWindowEnd = new \DateTimeImmutable('now', new \DateTimeZone(date_default_timezone_get()));
@@ -85,7 +93,8 @@ class OutreachSection extends DashboardSectionBase {
       $startLabel = $recentWindowStart->format('M j, Y');
       $endLabel = $recentWindowEnd->format('M j, Y');
 
-      $build['recent_member_interests'] = [
+      $chart_id = 'recent_member_interests';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
@@ -95,20 +104,27 @@ class OutreachSection extends DashboardSectionBase {
           '@end' => $endLabel,
         ]),
       ];
-      $build['recent_member_interests']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $interestCounts,
       ];
-      $build['recent_member_interests']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $interestLabels),
       ];
-      $build['recent_member_interests_info'] = $this->buildChartInfo([
-        $this->t('Source: Default "main" member profiles created in the last 3 months with interest selections (field_member_interest).'),
-        $this->t('Processing: Filters to published users, active membership roles, and aggregates distinct members per interest.'),
-        $this->t('Definitions: Bins with fewer than two members roll into "Other" to avoid displaying sensitive counts.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Default "main" member profiles created in the last 3 months with interest selections (field_member_interest).'),
+          $this->t('Processing: Filters to published users, active membership roles, and aggregates distinct members per interest.'),
+          $this->t('Definitions: Bins with fewer than two members roll into "Other" to avoid displaying sensitive counts.'),
+        ]),
+      ];
     }
     else {
       $build['recent_member_interests_empty'] = [

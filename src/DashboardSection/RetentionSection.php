@@ -112,14 +112,15 @@ class RetentionSection extends DashboardSectionBase {
         }
       }
 
-      $build['snapshot_daily'] = [
+      $chart_id = 'snapshot_daily';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Active members (daily snapshots)'),
         '#description' => $this->t('Latest @count snapshots of active membership headcount.', ['@count' => count($dailySeries)]),
       ];
-      $build['snapshot_daily']['#raw_options']['options'] = [
+      $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
         'plugins' => [
           'legend' => ['display' => FALSE],
@@ -146,7 +147,7 @@ class RetentionSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['snapshot_daily']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Active members'),
         '#data' => $dailyCounts,
@@ -161,11 +162,11 @@ class RetentionSection extends DashboardSectionBase {
           'borderWidth' => 2,
         ],
       ];
-      $build['snapshot_daily']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $dailyLabels),
       ];
-      $build['snapshot_daily']['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Active members'),
       ];
@@ -177,7 +178,13 @@ class RetentionSection extends DashboardSectionBase {
       if ($coverage = $this->formatSnapshotCoverage($dailyFirst, $dailyLast, count($dailySnapshots))) {
         $dailyNotes[] = $coverage;
       }
-      $build['snapshot_daily_info'] = $this->buildChartInfo($dailyNotes, $this->t('Daily snapshot notes'));
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo($dailyNotes, $this->t('Daily snapshot notes')),
+      ];
     }
     else {
       $build['snapshot_daily_empty'] = [
@@ -208,14 +215,15 @@ class RetentionSection extends DashboardSectionBase {
         }
       }
 
-      $build['snapshot_monthly'] = [
+      $chart_id = 'snapshot_monthly';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Active members (monthly snapshot anchor)'),
         '#description' => $this->t('Collapses snapshots to one point per month using the latest capture inside each month (max @count months).', ['@count' => count($monthlySeries)]),
       ];
-      $build['snapshot_monthly']['#raw_options']['options'] = [
+      $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
         'plugins' => [
           'legend' => ['display' => FALSE],
@@ -243,7 +251,7 @@ class RetentionSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['snapshot_monthly']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Active members'),
         '#data' => $monthlyCounts,
@@ -258,11 +266,11 @@ class RetentionSection extends DashboardSectionBase {
           'borderWidth' => 2,
         ],
       ];
-      $build['snapshot_monthly']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $monthlyLabels),
       ];
-      $build['snapshot_monthly']['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Active members'),
       ];
@@ -274,7 +282,13 @@ class RetentionSection extends DashboardSectionBase {
       if ($coverage = $this->formatSnapshotCoverage($monthlyFirst, $monthlyLast, count($monthlySnapshots))) {
         $monthlyNotes[] = $coverage;
       }
-      $build['snapshot_monthly_info'] = $this->buildChartInfo($monthlyNotes, $this->t('Monthly snapshot notes'));
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo($monthlyNotes, $this->t('Monthly snapshot notes')),
+      ];
     }
 
     if ($yearlySeries) {
@@ -298,14 +312,15 @@ class RetentionSection extends DashboardSectionBase {
         }
       }
 
-      $build['snapshot_yearly'] = [
+      $chart_id = 'snapshot_yearly';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Active members (year-end snapshot anchor)'),
         '#description' => $this->t('Uses the latest snapshot per calendar year to show longitudinal membership scale.'),
       ];
-      $build['snapshot_yearly']['#raw_options']['options'] = [
+      $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
         'plugins' => [
           'legend' => ['display' => FALSE],
@@ -331,7 +346,7 @@ class RetentionSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['snapshot_yearly']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Active members'),
         '#data' => $yearlyCounts,
@@ -346,11 +361,11 @@ class RetentionSection extends DashboardSectionBase {
           'borderWidth' => 2,
         ],
       ];
-      $build['snapshot_yearly']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $yearlyLabels),
       ];
-      $build['snapshot_yearly']['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Active members'),
       ];
@@ -362,7 +377,13 @@ class RetentionSection extends DashboardSectionBase {
       if ($coverage = $this->formatSnapshotCoverage($yearlyFirst, $yearlyLast, count($yearlySnapshots))) {
         $yearlyNotes[] = $coverage;
       }
-      $build['snapshot_yearly_info'] = $this->buildChartInfo($yearlyNotes, $this->t('Yearly snapshot notes'));
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo($yearlyNotes, $this->t('Yearly snapshot notes')),
+      ];
     }
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
@@ -414,43 +435,52 @@ class RetentionSection extends DashboardSectionBase {
         $netSeries[] = $incomingValue - $endingValue;
       }
 
-      $build['net_membership'] = [
+      $chart_id = 'net_membership';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Monthly recruitment vs churn'),
         '#description' => $this->t('Total members who joined or ended each month (all membership types).'),
       ];
-      $build['net_membership']['joined'] = [
+      $chart['joined'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Joined'),
         '#data' => $incomingSeries,
         '#color' => '#2563eb',
       ];
-      $build['net_membership']['ended'] = [
+      $chart['ended'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Ended'),
         '#data' => $endingSeries,
         '#color' => '#f97316',
       ];
-      $build['net_membership']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $monthLabels),
       ];
-      $build['net_membership_info'] = $this->buildChartInfo([
-        $this->t('Source: MembershipMetricsService::getFlow aggregates main member profile creation timestamps (treated as join dates) alongside recorded end dates (field_member_end_date) for published users.'),
-        $this->t('Processing: Distinct members are grouped by calendar month; if the most recent 12 months are empty the query expands to 24 months.'),
-        $this->t('Definitions: "Joined" counts unique users whose default member profile was created that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
-      ]);
 
-      $build['net_balance'] = [
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: MembershipMetricsService::getFlow aggregates main member profile creation timestamps (treated as join dates) alongside recorded end dates (field_member_end_date) for published users.'),
+          $this->t('Processing: Distinct members are grouped by calendar month; if the most recent 12 months are empty the query expands to 24 months.'),
+          $this->t('Definitions: "Joined" counts unique users whose default member profile was created that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
+        ]),
+      ];
+
+      $chart_id = 'net_balance';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Net membership change'),
         '#description' => $this->t('Joined minus ended members per month with join/end overlays for context.'),
       ];
-      $build['net_balance']['#raw_options']['options'] = [
+      $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
         'plugins' => [
           'legend' => ['position' => 'bottom'],
@@ -469,7 +499,7 @@ class RetentionSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['net_balance']['series_joined'] = [
+      $chart['series_joined'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Joined'),
         '#data' => $incomingSeries,
@@ -484,7 +514,7 @@ class RetentionSection extends DashboardSectionBase {
           'pointHoverRadius' => 5,
         ],
       ];
-      $build['net_balance']['series_ended'] = [
+      $chart['series_ended'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Ended'),
         '#data' => $endingSeries,
@@ -499,7 +529,7 @@ class RetentionSection extends DashboardSectionBase {
           'pointHoverRadius' => 5,
         ],
       ];
-      $build['net_balance']['series_net'] = [
+      $chart['series_net'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Net change'),
         '#data' => $netSeries,
@@ -515,15 +545,22 @@ class RetentionSection extends DashboardSectionBase {
           'pointHoverRadius' => 4,
         ],
       ];
-      $build['net_balance']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $monthLabels),
       ];
-      $build['net_balance_info'] = $this->buildChartInfo([
-        $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
-        $this->t('Processing: Calculates joined minus ended members for each month and overlays raw join/end totals so spikes are easy to attribute.'),
-        $this->t('Definitions: Positive values indicate net growth in headcount that month; negative values indicate attrition exceeded recruitment.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
+          $this->t('Processing: Calculates joined minus ended members for each month and overlays raw join/end totals so spikes are easy to attribute.'),
+          $this->t('Definitions: Positive values indicate net growth in headcount that month; negative values indicate attrition exceeded recruitment.'),
+        ]),
+      ];
 
       if ($totals) {
         $recent = array_slice($totals, -6);
@@ -547,17 +584,24 @@ class RetentionSection extends DashboardSectionBase {
       }
 
       // Membership type breakdown (incoming).
-      $build['type_incoming'] = $this->buildTypeChart(
+      $chart_id = 'type_incoming';
+      $chart = $this->buildTypeChart(
         $this->t('Recruitment by membership type'),
         $monthLabels,
         $incomingByType,
         $periodKeys
       );
-      $build['type_incoming_info'] = $this->buildChartInfo([
-        $this->t('Source: Same join-date dataset as the recruitment totals, segmented by membership type taxonomy terms (profile__field_membership_type).'),
-        $this->t('Processing: Counts distinct members per type per month based on the taxonomy term active at join time.'),
-        $this->t('Definitions: Type names come from taxonomy terms; unknown or missing terms appear as "Unclassified".'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Same join-date dataset as the recruitment totals, segmented by membership type taxonomy terms (profile__field_membership_type).'),
+          $this->t('Processing: Counts distinct members per type per month based on the taxonomy term active at join time.'),
+          $this->t('Definitions: Type names come from taxonomy terms; unknown or missing terms appear as "Unclassified".'),
+        ]),
+      ];
 
       if (!empty($endingByReason)) {
         $recentPeriods = array_slice($periodKeys, -6);
@@ -568,7 +612,8 @@ class RetentionSection extends DashboardSectionBase {
         });
         $colors = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#6366f1', '#a855f7', '#ec4899'];
 
-        $endingChart = [
+        $chart_id = 'ending_reasons';
+        $chart = [
           '#type' => 'chart',
           '#chart_type' => 'bar',
           '#chart_library' => 'chartjs',
@@ -588,7 +633,7 @@ class RetentionSection extends DashboardSectionBase {
           foreach ($recentPeriods as $period) {
             $series[] = $endingByReason[$reason][$period] ?? 0;
           }
-          $endingChart['reason_' . $index] = [
+          $chart['reason_' . $index] = [
             '#type' => 'chart_data',
             '#title' => ucwords(str_replace('_', ' ', $reason)),
             '#data' => $series,
@@ -596,21 +641,26 @@ class RetentionSection extends DashboardSectionBase {
           ];
         }
 
-        $endingChart['xaxis'] = [
+        $chart['xaxis'] = [
           '#type' => 'chart_xaxis',
           '#labels' => array_map('strval', $periodLabels),
         ];
-        $endingChart['yaxis'] = [
+        $chart['yaxis'] = [
           '#type' => 'chart_yaxis',
           '#title' => $this->t('Members ending'),
         ];
 
-        $build['ending_reasons'] = $endingChart;
-        $build['ending_reasons_info'] = $this->buildChartInfo([
-          $this->t('Source: Membership end-date events joined to field_member_end_reason values.'),
-          $this->t('Processing: Distinct members per reason per month; stacked bars show the contribution of each reason to total churn.'),
-          $this->t('Definitions: Reasons reflect list-string options configured on member profiles when ending access.'),
-        ]);
+        $build[$chart_id] = [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['metric-container']],
+          'chart' => $chart,
+          'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+          'info' => $this->buildChartInfo([
+            $this->t('Source: Membership end-date events joined to field_member_end_reason values.'),
+            $this->t('Processing: Distinct members per reason per month; stacked bars show the contribution of each reason to total churn.'),
+            $this->t('Definitions: Reasons reflect list-string options configured on member profiles when ending access.'),
+          ]),
+        ];
       }
     }
     else {
@@ -635,7 +685,8 @@ class RetentionSection extends DashboardSectionBase {
     }
 
     if ($cohortLabels && array_sum($retentionSeries) > 0) {
-      $build['annual_cohorts'] = [
+      $chart_id = 'annual_cohorts';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
@@ -652,50 +703,63 @@ class RetentionSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['annual_cohorts']['active'] = [
+      $chart['active'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Still active'),
         '#data' => $activeSeries,
         '#color' => '#ef4444',
       ];
-      $build['annual_cohorts']['inactive'] = [
+      $chart['inactive'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('No longer active'),
         '#data' => $inactiveSeries,
         '#color' => '#94a3b8',
       ];
-      $build['annual_cohorts']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $cohortLabels),
       ];
-      $build['annual_cohorts_info'] = $this->buildChartInfo([
-        $this->t('Source: Members with join dates in profile__field_member_join_date grouped by calendar year.'),
-        $this->t('Processing: Counts total members per cohort and marks a member as active when they hold an active membership role (defaults: current_member, member).'),
-        $this->t('Definitions: "Still active" reflects active role assignment today; "No longer active" covers members without those roles.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Members with join dates in profile__field_member_join_date grouped by calendar year.'),
+          $this->t('Processing: Counts total members per cohort and marks a member as active when they hold an active membership role (defaults: current_member, member).'),
+          $this->t('Definitions: "Still active" reflects active role assignment today; "No longer active" covers members without those roles.'),
+        ]),
+      ];
 
-      $build['annual_retention'] = [
+      $chart_id = 'annual_retention';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Average annual retention by cohort'),
         '#description' => $this->t('Annualized retention rate estimating the average share of members retained each year since joining.'),
       ];
-      $build['annual_retention']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Avg annual retention %'),
         '#data' => $retentionSeries,
         '#color' => '#ef4444',
       ];
-      $build['annual_retention']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $cohortLabels),
       ];
-      $build['annual_retention_info'] = $this->buildChartInfo([
-        $this->t('Source: Same cohort dataset as the composition chart, using join dates from profile__field_member_join_date.'),
-        $this->t('Processing: Converts the share of members still active into an annualized retention rate (geometric mean) to normalize for cohort age.'),
-        $this->t('Definitions: Active roles default to current_member/member; cohorts without active members report 0% annualized retention.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Same cohort dataset as the composition chart, using join dates from profile__field_member_join_date.'),
+          $this->t('Processing: Converts the share of members still active into an annualized retention rate (geometric mean) to normalize for cohort age.'),
+          $this->t('Definitions: Active roles default to current_member/member; cohorts without active members report 0% annualized retention.'),
+        ]),
+      ];
     }
     else {
       $build['annual_cohorts_empty'] = [
@@ -880,14 +944,15 @@ class RetentionSection extends DashboardSectionBase {
       '#suffix' => '</div>',
     ];
 
-    $build['daily_unique_entries'] = [
+    $chart_id = 'daily_unique_entries';
+    $chart = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
       '#title' => $this->t('Monthly member entries (unique visits)'),
       '#description' => $this->t('Sums the number of unique members badging in per day into monthly totals.'),
     ];
-    $build['daily_unique_entries']['#raw_options']['options']['scales']['x']['ticks'] = [
+    $chart['#raw_options']['options']['scales']['x']['ticks'] = [
       'autoSkip' => FALSE,
       'maxRotation' => 0,
       'minRotation' => 0,
@@ -895,44 +960,52 @@ class RetentionSection extends DashboardSectionBase {
       'callback' => 'function(value){ return value || ""; }',
     ];
 
-    $build['daily_unique_entries']['series'] = [
+    $chart['series'] = [
       '#type' => 'chart_data',
       '#title' => $this->t('Unique entries'),
       '#data' => $monthlyData,
     ];
 
-    $build['daily_unique_entries']['xaxis'] = [
+    $chart['xaxis'] = [
       '#type' => 'chart_xaxis',
       '#title' => $this->t('Month'),
       '#labels' => array_map('strval', $monthlyLabels),
     ];
 
-    $build['daily_unique_entries']['yaxis'] = [
+    $chart['yaxis'] = [
       '#type' => 'chart_yaxis',
       '#title' => $this->t('Unique members'),
     ];
-    $build['daily_unique_entries_info'] = $this->buildChartInfo([
-      $this->t('Source: Access-control request logs (type = access_control_request) joined to the requesting user.'),
-      $this->t('Processing: Counts distinct members per day within the configured window, then aggregates those counts into monthly totals (latest 12 months).'),
-      $this->t('Definitions: Only users with active membership roles (defaults: current_member, member) are included.'),
-    ]);
+
+    $build[$chart_id] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'chart' => $chart,
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+      'info' => $this->buildChartInfo([
+        $this->t('Source: Access-control request logs (type = access_control_request) joined to the requesting user.'),
+        $this->t('Processing: Counts distinct members per day within the configured window, then aggregates those counts into monthly totals (latest 12 months).'),
+        $this->t('Definitions: Only users with active membership roles (defaults: current_member, member) are included.'),
+      ]),
+    ];
 
     if (!empty($rollingAverage)) {
-      $build['rolling_average_chart'] = [
+      $chart_id = 'rolling_average_chart';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('7 day rolling average of unique entries'),
         '#description' => $this->t('Smooths daily fluctuations to highlight longer-term trends over the last @days days.', ['@days' => $rollingWindow]),
       ];
-      $build['rolling_average_chart']['#raw_options']['options']['scales']['x']['ticks'] = [
+      $chart['#raw_options']['options']['scales']['x']['ticks'] = [
         'autoSkip' => FALSE,
         'maxRotation' => 0,
         'minRotation' => 0,
         'padding' => 8,
         'callback' => 'function(value){ return value || ""; }',
       ];
-      $build['rolling_average_chart']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Rolling average'),
         '#data' => $rollingAverage,
@@ -946,7 +1019,7 @@ class RetentionSection extends DashboardSectionBase {
         ],
       ];
       if (!empty($trendLine)) {
-        $build['rolling_average_chart']['trend'] = [
+        $chart['trend'] = [
           '#type' => 'chart_data',
           '#title' => $this->t('Trend'),
           '#data' => $trendLine,
@@ -959,19 +1032,26 @@ class RetentionSection extends DashboardSectionBase {
           ],
         ];
       }
-      $build['rolling_average_chart']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $rollingLabels),
       ];
-      $build['rolling_average_chart']['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Average unique members'),
       ];
-      $build['rolling_average_chart_info'] = $this->buildChartInfo([
-        $this->t('Source: Seven-day rolling average derived from the daily unique member counts.'),
-        $this->t('Processing: Uses a sliding seven-day window (or shorter for the first few points) and overlays a least-squares trendline.'),
-        $this->t('Definitions: Positive slope indicates growing average traffic; negative slope signals declining activity.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Seven-day rolling average derived from the daily unique member counts.'),
+          $this->t('Processing: Uses a sliding seven-day window (or shorter for the first few points) and overlays a least-squares trendline.'),
+          $this->t('Definitions: Positive slope indicates growing average traffic; negative slope signals declining activity.'),
+        ]),
+      ];
     }
 
     $frequency_buckets = $this->utilizationDataService->getVisitFrequencyBuckets($rollingStartDate->getTimestamp(), $end_of_day->getTimestamp());
@@ -990,7 +1070,8 @@ class RetentionSection extends DashboardSectionBase {
       $frequency_label_values[] = $label;
     }
 
-    $build['frequency_buckets'] = [
+    $chart_id = 'frequency_buckets';
+    $chart = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
@@ -998,43 +1079,57 @@ class RetentionSection extends DashboardSectionBase {
       '#description' => $this->t('Distribution of member visit frequency based on distinct check-in days over the last @days days.', ['@days' => $rollingWindow]),
     ];
 
-    $build['frequency_buckets']['series'] = [
+    $chart['series'] = [
       '#type' => 'chart_data',
       '#title' => $this->t('Share of members'),
       '#data' => $frequency_data,
     ];
-    $build['frequency_buckets']['xaxis'] = [
+    $chart['xaxis'] = [
       '#type' => 'chart_xaxis',
       '#labels' => array_map('strval', $frequency_label_values),
     ];
-    $build['frequency_buckets_info'] = $this->buildChartInfo([
-      $this->t('Source: Distinct visit days per member calculated from access-control logs over the rolling window.'),
-      $this->t('Processing: Normalizes visits to a 30-day window before bucketing (none, 1, 2-3, 4-6, 7-12, 13+ per month equivalent).'),
-      $this->t('Definitions: Each active member appears in exactly one bucket; members with no visits during the window are counted explicitly.'),
-    ]);
+
+    $build[$chart_id] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'chart' => $chart,
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+      'info' => $this->buildChartInfo([
+        $this->t('Source: Distinct visit days per member calculated from access-control logs over the rolling window.'),
+        $this->t('Processing: Normalizes visits to a 30-day window before bucketing (none, 1, 2-3, 4-6, 7-12, 13+ per month equivalent).'),
+        $this->t('Definitions: Each active member appears in exactly one bucket; members with no visits during the window are counted explicitly.'),
+      ]),
+    ];
 
     if (!empty($rollingDates)) {
-      $build['weekday_profile'] = [
+      $chart_id = 'weekday_profile';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Average members by day of week'),
         '#description' => $this->t('Average unique members badging in on each weekday over the last @days days.', ['@days' => $rollingWindow]),
       ];
-      $build['weekday_profile']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Average members'),
         '#data' => $weekdayAverages,
       ];
-      $build['weekday_profile']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $weekdayLabels),
       ];
-      $build['weekday_profile_info'] = $this->buildChartInfo([
-        $this->t('Source: Same daily unique member dataset used for the rolling average chart.'),
-        $this->t('Processing: Totals unique members per weekday over the configured window and divides by the number of occurrences.'),
-        $this->t('Definitions: Values represent average unique members per weekday; blank weekdays indicate no data within the window.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Same daily unique member dataset used for the rolling average chart.'),
+          $this->t('Processing: Totals unique members per weekday over the configured window and divides by the number of occurrences.'),
+          $this->t('Definitions: Values represent average unique members per weekday; blank weekdays indicate no data within the window.'),
+        ]),
+      ];
     }
 
     $hourlyAverages = $this->utilizationDataService->getAverageEntriesByHour($startAll->getTimestamp(), $end_of_day->getTimestamp());
@@ -1045,32 +1140,39 @@ class RetentionSection extends DashboardSectionBase {
         $hourLabels[] = sprintf('%02d:00', (int) $hour);
       }
 
-      $build['hourly_entry_profile'] = [
+      $chart_id = 'hourly_entry_profile';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Average entries per hour of day'),
         '#description' => $this->t('Average access-control requests in each hour, averaged across @days days.', ['@days' => $hourlyAverages['days'] ?? count($rollingDates)]),
       ];
-      $build['hourly_entry_profile']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Average entries'),
         '#data' => array_values($hourlyData),
         '#color' => '#3b82f6',
       ];
-      $build['hourly_entry_profile']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $hourLabels),
       ];
-      $build['hourly_entry_profile']['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Average entries / day'),
       ];
-      $build['hourly_entry_profile_info'] = $this->buildChartInfo([
-        $this->t('Source: Raw access_control_request logs for the same window as the utilization charts.'),
-        $this->t('Processing: Counts every entry event per hour, sums across the window, and divides by the number of days to produce an hourly average.'),
-        $this->t('Definitions: Includes repeat entries; filter above charts for unique-member analysis.'),
-      ]);
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Raw access_control_request logs for the same window as the utilization charts.'),
+          $this->t('Processing: Counts every entry event per hour, sums across the window, and divides by the number of days to produce an hourly average.'),
+          $this->t('Definitions: Includes repeat entries; filter above charts for unique-member analysis.'),
+        ]),
+      ];
     }
 
     $timeOfDayLabels = $this->utilizationDataService->getTimeOfDayBucketLabels();
@@ -1079,7 +1181,8 @@ class RetentionSection extends DashboardSectionBase {
     $bucketOrder = array_keys($timeOfDayLabels);
     $firstEntryLabels = array_map(fn($day) => $this->t($day), $weekdayOrder);
 
-    $firstEntryChart = [
+    $chart_id = 'weekday_first_entry';
+    $chart = [
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
@@ -1093,28 +1196,33 @@ class RetentionSection extends DashboardSectionBase {
       foreach (range(0, 6) as $weekdayIndex) {
         $series[] = $firstEntryBuckets[$weekdayIndex][$bucketId] ?? 0;
       }
-      $firstEntryChart['series_' . $index] = [
+      $chart['series_' . $index] = [
         '#type' => 'chart_data',
         '#title' => $timeOfDayLabels[$bucketId],
         '#data' => $series,
       ];
     }
 
-    $firstEntryChart['xaxis'] = [
+    $chart['xaxis'] = [
       '#type' => 'chart_xaxis',
       '#labels' => array_map('strval', $firstEntryLabels),
     ];
-    $firstEntryChart['yaxis'] = [
+    $chart['yaxis'] = [
       '#type' => 'chart_yaxis',
       '#title' => $this->t('Members (first entry)'),
     ];
 
-    $build['weekday_first_entry'] = $firstEntryChart;
-    $build['weekday_first_entry_info'] = $this->buildChartInfo([
-      $this->t('Source: Access-control requests within the rolling window grouped by member, day, and time of day.'),
-      $this->t('Processing: Members are counted once per weekday/time bucket (early morning, morning, midday, afternoon, evening, night) for each day they badge in that range.'),
-      $this->t('Definitions: Buckets use 24-hour ranges; night spans 22:00-04:59 and rolls across midnight.'),
-    ]);
+    $build[$chart_id] = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'chart' => $chart,
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+      'info' => $this->buildChartInfo([
+        $this->t('Source: Access-control requests within the rolling window grouped by member, day, and time of day.'),
+        $this->t('Processing: Members are counted once per weekday/time bucket (early morning, morning, midday, afternoon, evening, night) for each day they badge in that range.'),
+        $this->t('Definitions: Buckets use 24-hour ranges; night spans 22:00-04:59 and rolls across midnight.'),
+      ]),
+    ];
 
     $build['#cache'] = [
       'max-age' => 3600,

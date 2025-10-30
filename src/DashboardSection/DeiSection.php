@@ -53,27 +53,35 @@ class DeiSection extends DashboardSectionBase {
       $locality_labels = array_map(fn(array $row) => $row['label'], $locality_rows);
       $locality_counts = array_map(fn(array $row) => $row['count'], $locality_rows);
 
-      $build['town_distribution'] = [
+      $chart_id = 'town_distribution';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Members by town'),
         '#description' => $this->t('Top hometowns for active members; smaller groups are aggregated into “Other”.'),
       ];
-      $build['town_distribution']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $locality_counts,
       ];
-      $build['town_distribution']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $locality_labels),
       ];
-      $build['town_distribution_info'] = $this->buildChartInfo([
-        $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
-        $this->t('Processing: Counts distinct members per town and collapses values under the minimum threshold into "Other (< 5)".'),
-        $this->t('Definitions: Only published users with a default profile are included; blank addresses appear as "Unknown / not provided".'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+          $this->t('Processing: Counts distinct members per town and collapses values under the minimum threshold into "Other (< 5)".'),
+          $this->t('Definitions: Only published users with a default profile are included; blank addresses appear as "Unknown / not provided".'),
+        ]),
+      ];
     }
     else {
       $build['town_distribution_empty'] = [
@@ -105,7 +113,8 @@ class DeiSection extends DashboardSectionBase {
         $excluded = [];
       }
 
-      $build['gender_mix'] = [
+      $chart_id = 'gender_mix';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
@@ -125,12 +134,12 @@ class DeiSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['gender_mix']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $filteredCounts,
       ];
-      $build['gender_mix']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $filteredLabels),
       ];
@@ -147,7 +156,14 @@ class DeiSection extends DashboardSectionBase {
         }
         $genderInfoItems[] = $this->t('Excluded from chart (shown below for reference): @list', ['@list' => implode(', ', $notes)]);
       }
-      $build['gender_mix_info'] = $this->buildChartInfo($genderInfoItems);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo($genderInfoItems),
+      ];
     }
     else {
       $build['gender_mix_empty'] = [
@@ -160,27 +176,35 @@ class DeiSection extends DashboardSectionBase {
       $interest_labels = array_map(fn(array $row) => $row['label'], $interest_rows);
       $interest_counts = array_map(fn(array $row) => $row['count'], $interest_rows);
 
-      $build['interest_distribution'] = [
+      $chart_id = 'interest_distribution';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
         '#title' => $this->t('Member interests'),
         '#description' => $this->t('Top member interests, based on profile selections.'),
       ];
-      $build['interest_distribution']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $interest_counts,
       ];
-      $build['interest_distribution']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $interest_labels),
       ];
-      $build['interest_distribution_info'] = $this->buildChartInfo([
-        $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
-        $this->t('Processing: Aggregates distinct members per interest, returns the top ten values, and respects the configured minimum count. Unknowns display as "Not provided".'),
-        $this->t('Definitions: Only published accounts with a default profile and status = 1 are considered.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
+          $this->t('Processing: Aggregates distinct members per interest, returns the top ten values, and respects the configured minimum count. Unknowns display as "Not provided".'),
+          $this->t('Definitions: Only published accounts with a default profile and status = 1 are considered.'),
+        ]),
+      ];
     }
     else {
       $build['interest_distribution_empty'] = [
@@ -193,7 +217,8 @@ class DeiSection extends DashboardSectionBase {
       $age_labels = array_map(fn(array $row) => $row['label'], $age_rows);
       $age_counts = array_map(fn(array $row) => $row['count'], $age_rows);
 
-      $build['age_distribution'] = [
+      $chart_id = 'age_distribution';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
@@ -210,7 +235,7 @@ class DeiSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['age_distribution']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Members'),
         '#data' => $age_counts,
@@ -235,7 +260,7 @@ class DeiSection extends DashboardSectionBase {
         }
         $trendSeries[] = round($sum / $length, 2);
       }
-      $build['age_distribution']['series_trend'] = [
+      $chart['series_trend'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Trend (5-point MA)'),
         '#data' => $trendSeries,
@@ -248,15 +273,22 @@ class DeiSection extends DashboardSectionBase {
           'pointRadius' => 0,
         ],
       ];
-      $build['age_distribution']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $age_labels),
       ];
-      $build['age_distribution_info'] = $this->buildChartInfo([
-        $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
-        $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
-        $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded. A 5-point moving average (blue dashed line) smooths the curve.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
+          $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
+          $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded. A 5-point moving average (blue dashed line) smooths the curve.'),
+        ]),
+      ];
     }
     else {
       $build['age_distribution_empty'] = [

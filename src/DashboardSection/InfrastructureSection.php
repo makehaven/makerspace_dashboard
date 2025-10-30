@@ -66,7 +66,8 @@ class InfrastructureSection extends DashboardSectionBase {
       $labels = array_keys($statusCounts);
       $counts = array_values($statusCounts);
 
-      $build['tool_status_breakdown'] = [
+      $chart_id = 'tool_status_breakdown';
+      $chart = [
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
@@ -93,25 +94,32 @@ class InfrastructureSection extends DashboardSectionBase {
           ],
         ],
       ];
-      $build['tool_status_breakdown']['series'] = [
+      $chart['series'] = [
         '#type' => 'chart_data',
         '#title' => $this->t('Tools'),
         '#data' => $counts,
         '#color' => '#0ea5e9',
       ];
-      $build['tool_status_breakdown']['xaxis'] = [
+      $chart['xaxis'] = [
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $labels),
       ];
-      $build['tool_status_breakdown']['yaxis'] = [
+      $chart['yaxis'] = [
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Count of tools'),
       ];
-      $build['tool_status_breakdown_info'] = $this->buildChartInfo([
-        $this->t('Source: Published item nodes joined to field_item_status and taxonomy term labels.'),
-        $this->t('Processing: Counts each tool once regardless of category; status “Unspecified” captures items missing a taxonomy assignment.'),
-        $this->t('Definitions: Status vocabulary is maintained in taxonomy.vocabulary.item_status—align naming conventions to keep the legend concise.'),
-      ]);
+
+      $build[$chart_id] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['metric-container']],
+        'chart' => $chart,
+        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+        'info' => $this->buildChartInfo([
+          $this->t('Source: Published item nodes joined to field_item_status and taxonomy term labels.'),
+          $this->t('Processing: Counts each tool once regardless of category; status “Unspecified” captures items missing a taxonomy assignment.'),
+          $this->t('Definitions: Status vocabulary is maintained in taxonomy.vocabulary.item_status—align naming conventions to keep the legend concise.'),
+        ]),
+      ];
     }
     else {
       $build['tool_status_breakdown_empty'] = [
