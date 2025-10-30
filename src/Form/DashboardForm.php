@@ -122,22 +122,26 @@ class DashboardForm extends FormBase {
    */
   protected function buildTabs(string $active_section_id): array {
     $tabs = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['makerspace-dashboard-tabs']],
+      '#theme' => 'links',
+      '#links' => [],
+      '#attributes' => [
+        'class' => ['nav', 'nav-pills'],
+      ],
     ];
 
     $sections = $this->sectionManager->getSections();
     foreach ($sections as $section) {
       $section_id = $section->getId();
-      $is_active = $section_id === $active_section_id;
-      $tabs[$section_id] = [
-        '#type' => 'link',
-        '#title' => $section->getLabel(),
-        '#url' => Url::fromRoute('makerspace_dashboard.dashboard', ['section_id' => $section_id]),
-        '#attributes' => [
-          'class' => ['makerspace-dashboard-tab', $is_active ? 'is-active' : ''],
+      $tabs['#links'][$section_id] = [
+        'title' => $section->getLabel(),
+        'url' => Url::fromRoute('makerspace_dashboard.dashboard_section', ['section_id' => $section_id]),
+        'attributes' => [
+          'class' => ['nav-link'],
         ],
       ];
+      if ($section_id === $active_section_id) {
+        $tabs['#links'][$section_id]['attributes']['class'][] = 'active';
+      }
     }
 
     return $tabs;
