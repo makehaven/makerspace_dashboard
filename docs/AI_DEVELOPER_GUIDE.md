@@ -42,6 +42,27 @@ This is where you build the chart itself.
         5. Add the appropriate cache tags from your data service.
         6. Return the render array.
 
+## Standardized Dashboard Structure
+
+To ensure a consistent user experience, all dashboard sections should follow a standardized structure. The `DashboardSectionBase` class provides helper methods to build these standard elements.
+
+The standard structure is as follows:
+
+1.  **Introduction:** A brief text block that explains the purpose of the section.
+2.  **Key Performance Indicators (KPIs):** A table that displays the most important metrics for the section.
+3.  **Data Tables:** Additional data tables that provide more detailed information.
+4.  **Charts:** A collection of charts that visualize the data.
+
+The `build()` method in each section should be organized in this order, using the `#weight` property to ensure the correct rendering order.
+
+### Helper Methods
+
+The `DashboardSectionBase` class provides the following helper methods to build the standardized elements:
+
+-   `buildIntro(TranslatableMarkup $intro_text): array`: Builds the introductory text block.
+-   `buildKpiTable(array $rows = []): array`: Builds the KPI table.
+-   `buildChartContainer(string $chart_id, TranslatableMarkup $title, TranslatableMarkup $description, array $chart, array $info): array`: Builds a container for a chart, including a title, description, the chart itself, data source information, and a CSV download link.
+
 ### 4. Add Custom JavaScript (If Necessary)
 If your chart requires client-side interactivity beyond what the `charts` module provides:
 

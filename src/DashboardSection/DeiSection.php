@@ -42,10 +42,17 @@ class DeiSection extends DashboardSectionBase {
    */
   public function build(array $filters = []): array {
     $build = [];
+    $weight = 0;
 
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'),
+    $build['intro'] = $this->buildIntro($this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'));
+    $build['intro']['#weight'] = $weight++;
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
     ];
 
     $locality_rows = $this->dataService->getLocalityDistribution();
@@ -58,8 +65,6 @@ class DeiSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Members by town'),
-        '#description' => $this->t('Top hometowns for active members; smaller groups are aggregated into “Other”.'),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -71,21 +76,23 @@ class DeiSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $locality_labels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Members by Town'),
+        $this->t('Top hometowns for active members; smaller groups are aggregated into “Other”.'),
+        $chart,
+        [
           $this->t('Source: Active "main" member profiles joined to the address locality field for users holding active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
           $this->t('Processing: Counts distinct members per town and collapses values under the minimum threshold into "Other (< 5)".'),
           $this->t('Definitions: Only published users with a default profile are included; blank addresses appear as "Unknown / not provided".'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['town_distribution_empty'] = [
         '#markup' => $this->t('No address data available for current members.'),
+        '#weight' => $weight++,
       ];
     }
 
@@ -118,8 +125,6 @@ class DeiSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Gender identity mix'),
-        '#description' => $this->t('Aggregated from primary member profile gender selections.'),
         '#data_labels' => TRUE,
         '#raw_options' => [
           'plugins' => [
@@ -157,17 +162,19 @@ class DeiSection extends DashboardSectionBase {
         $genderInfoItems[] = $this->t('Excluded from chart (shown below for reference): @list', ['@list' => implode(', ', $notes)]);
       }
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo($genderInfoItems),
-      ];
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Gender Identity Mix'),
+        $this->t('Aggregated from primary member profile gender selections.'),
+        $chart,
+        $genderInfoItems
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['gender_mix_empty'] = [
         '#markup' => $this->t('No gender data available for current members.'),
+        '#weight' => $weight++,
       ];
     }
 
@@ -181,8 +188,6 @@ class DeiSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Member interests'),
-        '#description' => $this->t('Top member interests, based on profile selections.'),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -194,21 +199,23 @@ class DeiSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $interest_labels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Member Interests'),
+        $this->t('Top member interests, based on profile selections.'),
+        $chart,
+        [
           $this->t('Source: Active "main" member profiles joined to field_member_interest for users with active membership roles (defaults: @roles).', ['@roles' => 'current_member, member']),
           $this->t('Processing: Aggregates distinct members per interest, returns the top ten values, and respects the configured minimum count. Unknowns display as "Not provided".'),
           $this->t('Definitions: Only published accounts with a default profile and status = 1 are considered.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['interest_distribution_empty'] = [
         '#markup' => $this->t('No member interest data available.'),
+        '#weight' => $weight++,
       ];
     }
 
@@ -222,8 +229,6 @@ class DeiSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Age distribution of active members'),
-        '#description' => $this->t('Counts members by age based on field_member_birthday.'),
         '#raw_options' => [
           'scales' => [
             'x' => ['title' => ['display' => TRUE, 'text' => (string) $this->t('Age')]],
@@ -278,21 +283,23 @@ class DeiSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $age_labels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Age Distribution of Active Members'),
+        $this->t('Counts members by age based on field_member_birthday.'),
+        $chart,
+        [
           $this->t('Source: Birthdays recorded on active, default member profiles with valid dates.'),
           $this->t('Processing: Calculates age as of today in the site timezone and filters to ages 13–100.'),
           $this->t('Definitions: Age buckets reflect completed years; records with missing or out-of-range birthdays are excluded. A 5-point moving average (blue dashed line) smooths the curve.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['age_distribution_empty'] = [
         '#markup' => $this->t('No birthday data available to chart ages.'),
+        '#weight' => $weight++,
       ];
     }
 

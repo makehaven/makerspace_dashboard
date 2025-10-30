@@ -82,6 +82,79 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   }
 
   /**
+   * Builds the intro text block for a section.
+   *
+   * @param \Drupal\Core\StringTranslation\TranslatableMarkup $intro_text
+   *   The introductory text to display.
+   *
+   * @return array
+   *   A render array for the intro block.
+   */
+  protected function buildIntro(TranslatableMarkup $intro_text): array {
+    return [
+      '#markup' => '<p>' . $intro_text . '</p>',
+    ];
+  }
+
+  /**
+   * Builds the KPI table for a section.
+   *
+   * @param array $rows
+   *   An array of rows to populate the table with.
+   *
+   * @return array
+   *   A render array for the KPI table.
+   */
+  protected function buildKpiTable(array $rows = []): array {
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['kpi-table-container']],
+      'heading' => ['#markup' => '<h2>' . $this->t('Key Performance Indicators') . '</h2>'],
+      'table' => [
+        '#type' => 'table',
+        '#header' => [
+          $this->t('KPI Name'),
+          $this->t('2025 Baseline'),
+          $this->t('2030 Goal'),
+          $this->t('Current'),
+        ],
+        '#rows' => $rows,
+        '#empty' => $this->t('KPI data is not yet available.'),
+        '#attributes' => ['class' => ['kpi-table']],
+      ],
+    ];
+  }
+
+  /**
+   * Builds a container for a chart.
+   *
+   * @param string $chart_id
+   *   The ID of the chart.
+   * @param \Drupal\Core\StringTranslation\TranslatableMarkup $title
+   *   The title of the chart.
+   * @param \Drupal\Core\StringTranslation\TranslatableMarkup $description
+   *   The description of the chart.
+   * @param array $chart
+   *   The chart render array.
+   * @param array $info
+   *   An array of items for the chart info block.
+   *
+   * @return array
+   *   A render array for the chart container.
+   */
+  protected function buildChartContainer(string $chart_id, TranslatableMarkup $title, TranslatableMarkup $description, array $chart, array $info): array {
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      'title' => ['#markup' => '<h3>' . $title . '</h3>'],
+      'description' => ['#markup' => '<p>' . $description . '</p>'],
+      'chart' => $chart,
+      'info' => $this->buildChartInfo($info),
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
+    ];
+  }
+
+  /**
    * {@inheritdoc}
    */
   public function getGoogleSheetChartMetadata(): array {

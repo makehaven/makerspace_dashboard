@@ -48,6 +48,31 @@ class EducationSection extends DashboardSectionBase {
    */
   public function build(array $filters = []): array {
     $build = [];
+    $weight = 0;
+
+    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+    $range = $this->dataService->getDefaultRange($now);
+    $snapshot = $this->dataService->getEngagementSnapshot($range['start'], $range['end']);
+
+    $activationDays = $this->dataService->getActivationWindowDays();
+    $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
+    $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
+
+    $build['intro'] = $this->buildIntro($this->t('Tracking new members who joined between @start and @end. Activation window: @days days from join date.', [
+      '@start' => $cohortStart,
+      '@end' => $cohortEnd,
+      '@days' => $activationDays,
+    ]));
+    $build['intro']['#weight'] = $weight++;
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
+    ];
 
     $end_date = new \DateTimeImmutable();
     $start_date = $end_date->modify('-1 year');
@@ -63,8 +88,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Event-to-membership conversion'),
-        '#description' => $this->t('Aggregate attendees by cohort month and show how many activate a membership within 30/60/90 days.'),
       ];
 
       $chart['series'] = [
@@ -96,19 +119,21 @@ class EducationSection extends DashboardSectionBase {
       else {
         $conversionInfo[] = $this->t('Observation: @count attendees converted within 90 days of attending an event.', ['@count' => $joinTotal]);
       }
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo($conversionInfo),
-      ];
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Event-to-Membership Conversion'),
+        $this->t('Aggregate attendees by cohort month and show how many activate a membership within 30/60/90 days.'),
+        $chart,
+        $conversionInfo
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['conversion_empty'] = [
         '#markup' => $this->t('Event conversion metrics require CiviCRM event participation data. No activity found for the selected window.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -118,8 +143,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Average days from event to membership'),
-        '#description' => $this->t('Visualize rolling averages for conversion velocity by program type.'),
       ];
 
       $chart['series'] = [
@@ -139,17 +162,18 @@ class EducationSection extends DashboardSectionBase {
           $this->t('Jun'),
         ]),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Average Days from Event to Membership'),
+        $this->t('Visualize rolling averages for conversion velocity by program type.'),
+        $chart,
+        [
           $this->t('Source: Same participant dataset as the conversion funnel with membership join dates from profile__field_member_join_date.'),
           $this->t('Processing: Calculates the average days between an attended event and the member\'s recorded join date, grouped by the month of the event.'),
           $this->t('Definitions: Only participants with a join date contribute to the average; events without follow-on joins plot as zero.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     if (!empty($registrations_by_type['types'])) {
@@ -158,8 +182,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Event registrations by type'),
-        '#description' => $this->t('Counts counted registrations per month, grouped by event type.'),
         '#stacking' => 1,
       ];
       $colorPalette = ['#2563eb', '#f97316', '#22c55e', '#a855f7', '#eab308', '#14b8a6', '#f43f5e'];
@@ -181,17 +203,18 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Registrations'),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Event Registrations by Type'),
+        $this->t('Counts counted registrations per month, grouped by event type.'),
+        $chart,
+        [
           $this->t('Source: CiviCRM participants joined to events where the participant status “is counted”.'),
           $this->t('Processing: Grouped by event start month and event type; canceled/pending statuses are excluded automatically.'),
           $this->t('Definitions: Event type labels come from the CiviCRM event type option list.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     if (!empty($avg_revenue_by_type['types'])) {
@@ -200,8 +223,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Average revenue per registration'),
-        '#description' => $this->t('Average paid amount (from CiviCRM contributions) per counted registration, by event type.'),
         '#raw_options' => [
           'options' => [
             'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -256,17 +277,18 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Average $ per registration'),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Average Revenue per Registration'),
+        $this->t('Average paid amount (from CiviCRM contributions) per counted registration, by event type.'),
+        $chart,
+        [
           $this->t('Source: CiviCRM participant payments joined to contributions for counted registrations.'),
           $this->t('Processing: Sums paid contributions per month and divides by the number of counted registrations for each event type.'),
           $this->t('Definitions: Registrations without payments contribute $0; refunded amounts are not excluded presently. Use the legend to toggle individual event types.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $rangeDefault = '1y';
@@ -285,8 +307,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Events by area of interest (top @limit)', ['@limit' => count($interestLabels)]),
-        '#description' => $this->t('Highlights the busiest interest areas by event count, with average ticket revenue as a secondary axis.'),
         '#raw_options' => [
           'options' => [
             'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -364,11 +384,19 @@ class EducationSection extends DashboardSectionBase {
           '#attributes' => ['class' => ['makerspace-dashboard-summary']],
         ],
       ];
-      $build['interest_breakdown'] = $this->wrapChartWithRangeControls('interest_breakdown', $interestContent, $interestRanges, $interestRange);
+      $build['interest_breakdown'] = $this->wrapChartWithRangeControls('interest_breakdown', $this->buildChartContainer(
+        'interest_breakdown',
+        $this->t('Events by Area of Interest (Top @limit)', ['@limit' => count($interestLabels)]),
+        $this->t('Highlights the busiest interest areas by event count, with average ticket revenue as a secondary axis.'),
+        $interestContent['chart'],
+        $interestContent['info']['list']['#items']
+      ), $interestRanges, $interestRange);
+      $build['interest_breakdown']['#weight'] = $weight++;
     }
     else {
       $emptyInterest = $this->buildRangeEmptyContent($this->t('No events tagged with areas of interest were found for the selected time range.'));
       $build['interest_breakdown'] = $this->wrapChartWithRangeControls('interest_breakdown', $emptyInterest, $interestRanges, $interestRange);
+      $build['interest_breakdown']['#weight'] = $weight++;
     }
 
     // Skill level split chart.
@@ -383,8 +411,6 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart',
           '#chart_type' => 'bar',
           '#chart_library' => 'chartjs',
-          '#title' => $this->t('Events by skill level'),
-          '#description' => $this->t('Compare workshop offerings to other event types across advertised skill levels.'),
           '#raw_options' => [
             'options' => [
               'plugins' => [
@@ -414,25 +440,30 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart_xaxis',
           '#labels' => array_map('strval', $skillData['levels']),
         ];
-        $skillContent = [
-          '#type' => 'container',
-          'chart' => $skillChart,
-          'info' => $this->buildChartInfo([
+        $skillContent = $this->buildChartContainer(
+          'skill_levels',
+          $this->t('Events by Skill Level'),
+          $this->t('Compare workshop offerings to other event types across advertised skill levels.'),
+          $skillChart,
+          [
             $this->t('Source: CiviCRM event field_event_skill_level for events in the selected range.'),
             $this->t('Processing: Counts each event once; workshops identified via event type labels containing "workshop".'),
             $this->t('Definitions: Skill level labels follow the configured taxonomy in Drupal (Introductory, Intermediate, Advanced).'),
-          ]),
-        ];
+          ]
+        );
         $build['skill_levels'] = $this->wrapChartWithRangeControls('skill_levels', $skillContent, $skillRanges, $skillRange);
+        $build['skill_levels']['#weight'] = $weight++;
       }
       else {
         $emptySkill = $this->buildRangeEmptyContent($this->t('No events with skill level classifications were recorded for the selected time range.'));
         $build['skill_levels'] = $this->wrapChartWithRangeControls('skill_levels', $emptySkill, $skillRanges, $skillRange);
+        $build['skill_levels']['#weight'] = $weight++;
       }
     }
     else {
       $emptySkill = $this->buildRangeEmptyContent($this->t('Skill level tracking is not available for this data set.'));
       $build['skill_levels'] = $this->wrapChartWithRangeControls('skill_levels', $emptySkill, $skillRanges, $skillRange);
+      $build['skill_levels']['#weight'] = $weight++;
     }
 
     $demographicRanges = ['3m', '1y', '2y', 'all'];
@@ -448,8 +479,6 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart',
           '#chart_type' => 'bar',
           '#chart_library' => 'chartjs',
-          '#title' => $this->t('Participant gender by event type'),
-          '#description' => $this->t('Counted participants grouped by gender across workshops and other events.'),
           '#raw_options' => [
             'options' => [
               'plugins' => ['legend' => ['position' => 'bottom']],
@@ -473,24 +502,29 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart_xaxis',
           '#labels' => array_map('strval', $genderData['gender']['labels']),
         ];
-        $genderContent = [
-          '#type' => 'container',
-          'chart' => $genderChart,
-          'info' => $this->buildChartInfo([
+        $genderContent = $this->buildChartContainer(
+          'demographics_gender',
+          $this->t('Participant Gender by Event Type'),
+          $this->t('Counted participants grouped by gender across workshops and other events.'),
+          $genderChart,
+          [
             $this->t('Source: Participant gender from CiviCRM contacts linked to workshop and other event registrations.'),
             $this->t('Processing: Includes counted participant statuses only; unspecified genders are shown explicitly.'),
-          ]),
-        ];
+          ]
+        );
         $build['demographics_gender'] = $this->wrapChartWithRangeControls('demographics_gender', $genderContent, $demographicRanges, $genderRange);
+        $build['demographics_gender']['#weight'] = $weight++;
       }
       else {
         $emptyGender = $this->buildRangeEmptyContent($this->t('No participant gender data is available for the selected time range.'));
         $build['demographics_gender'] = $this->wrapChartWithRangeControls('demographics_gender', $emptyGender, $demographicRanges, $genderRange);
+        $build['demographics_gender']['#weight'] = $weight++;
       }
     }
     else {
       $emptyGender = $this->buildRangeEmptyContent($this->t('Participant gender reporting is not available for this data set.'));
       $build['demographics_gender'] = $this->wrapChartWithRangeControls('demographics_gender', $emptyGender, $demographicRanges, $genderRange);
+      $build['demographics_gender']['#weight'] = $weight++;
     }
 
     // Ethnicity demographics.
@@ -504,8 +538,6 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart',
           '#chart_type' => 'bar',
           '#chart_library' => 'chartjs',
-          '#title' => $this->t('Participant ethnicity (top 10)'),
-          '#description' => $this->t('Top reported ethnicities for counted participants, comparing workshops to other events.'),
           '#raw_options' => [
             'options' => [
               'indexAxis' => 'y',
@@ -544,24 +576,29 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart_xaxis',
           '#labels' => array_map('strval', $ethnicityData['ethnicity']['labels']),
         ];
-        $ethnicityContent = [
-          '#type' => 'container',
-          'chart' => $ethnicityChart,
-          'info' => $this->buildChartInfo([
+        $ethnicityContent = $this->buildChartContainer(
+          'demographics_ethnicity',
+          $this->t('Participant Ethnicity (Top 10)'),
+          $this->t('Top reported ethnicities for counted participants, comparing workshops to other events.'),
+          $ethnicityChart,
+          [
             $this->t('Source: Ethnicity selections from the Demographics custom profile linked to event participants.'),
             $this->t('Processing: Multi-select values are split across the chart; categories beyond the top ten roll into "Other".'),
-          ]),
-        ];
+          ]
+        );
         $build['demographics_ethnicity'] = $this->wrapChartWithRangeControls('demographics_ethnicity', $ethnicityContent, $demographicRanges, $ethnicityRange);
+        $build['demographics_ethnicity']['#weight'] = $weight++;
       }
       else {
         $emptyEthnicity = $this->buildRangeEmptyContent($this->t('No participant ethnicity data is available for the selected time range.'));
         $build['demographics_ethnicity'] = $this->wrapChartWithRangeControls('demographics_ethnicity', $emptyEthnicity, $demographicRanges, $ethnicityRange);
+        $build['demographics_ethnicity']['#weight'] = $weight++;
       }
     }
     else {
       $emptyEthnicity = $this->buildRangeEmptyContent($this->t('Participant ethnicity reporting is not available for this data set.'));
       $build['demographics_ethnicity'] = $this->wrapChartWithRangeControls('demographics_ethnicity', $emptyEthnicity, $demographicRanges, $ethnicityRange);
+      $build['demographics_ethnicity']['#weight'] = $weight++;
     }
 
     // Age demographics.
@@ -575,8 +612,6 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart',
           '#chart_type' => 'line',
           '#chart_library' => 'chartjs',
-          '#title' => $this->t('Participant age distribution'),
-          '#description' => $this->t('Age buckets for counted participants, evaluated at event date and split by workshops vs other events.'),
           '#raw_options' => [
             'options' => [
               'plugins' => ['legend' => ['position' => 'bottom']],
@@ -617,24 +652,29 @@ class EducationSection extends DashboardSectionBase {
           '#type' => 'chart_xaxis',
           '#labels' => array_map('strval', $ageData['age']['labels']),
         ];
-        $ageContent = [
-          '#type' => 'container',
-          'chart' => $ageChart,
-          'info' => $this->buildChartInfo([
+        $ageContent = $this->buildChartContainer(
+          'demographics_age',
+          $this->t('Participant Age Distribution'),
+          $this->t('Age buckets for counted participants, evaluated at event date and split by workshops vs other events.'),
+          $ageChart,
+          [
             $this->t('Source: Participant birth dates from CiviCRM contacts. Age evaluated on the event start date.'),
             $this->t('Processing: Uses fixed buckets (Under 18 through 65+); records without birth dates are skipped.'),
-          ]),
-        ];
+          ]
+        );
         $build['demographics_age'] = $this->wrapChartWithRangeControls('demographics_age', $ageContent, $demographicRanges, $ageRange);
+        $build['demographics_age']['#weight'] = $weight++;
       }
       else {
         $emptyAge = $this->buildRangeEmptyContent($this->t('No participant age data is available for the selected time range.'));
         $build['demographics_age'] = $this->wrapChartWithRangeControls('demographics_age', $emptyAge, $demographicRanges, $ageRange);
+        $build['demographics_age']['#weight'] = $weight++;
       }
     }
     else {
       $emptyAge = $this->buildRangeEmptyContent($this->t('Participant age reporting is not available for this data set.'));
       $build['demographics_age'] = $this->wrapChartWithRangeControls('demographics_age', $emptyAge, $demographicRanges, $ageRange);
+      $build['demographics_age']['#weight'] = $weight++;
     }
 
 
@@ -644,8 +684,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Workshop capacity utilization (sample)'),
-        '#description' => $this->t('Placeholder illustrating capacity tracking. Replace with actual utilization logic.'),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -656,36 +694,19 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $capacity_placeholder['months']),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Workshop Capacity Utilization (Sample)'),
+        $this->t('Placeholder illustrating capacity tracking. Replace with actual utilization logic.'),
+        $chart,
+        [
           $this->t('Placeholder: Replace with actual capacity metrics. Currently showing illustrative values only.'),
           $this->t('Next steps: join CiviCRM or scheduling data to calculate registrations as a share of capacity.'),
           $this->t('Observation: @note', ['@note' => $capacity_placeholder['note']]),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
-
-    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
-      ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
-    $range = $this->dataService->getDefaultRange($now);
-    $snapshot = $this->dataService->getEngagementSnapshot($range['start'], $range['end']);
-
-    $activationDays = $this->dataService->getActivationWindowDays();
-    $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
-    $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
-
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Tracking new members who joined between @start and @end. Activation window: @days days from join date.', [
-        '@start' => $cohortStart,
-        '@end' => $cohortEnd,
-        '@days' => $activationDays,
-      ]),
-    ];
 
     $funnel = $snapshot['funnel'];
     if (empty($funnel['totals']['joined'])) {
@@ -693,6 +714,7 @@ class EducationSection extends DashboardSectionBase {
         '#markup' => $this->t('No new members joined within the configured cohort window. Adjust the engagement settings or check recent member activity.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
       return $build;
     }
@@ -703,8 +725,6 @@ class EducationSection extends DashboardSectionBase {
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('Badge activation funnel'),
-      '#description' => $this->t('Progression of new members through orientation, first badge, and tool-enabled badges.'),
     ];
     $chart['series'] = [
       '#type' => 'chart_data',
@@ -715,17 +735,18 @@ class EducationSection extends DashboardSectionBase {
       '#type' => 'chart_xaxis',
       '#labels' => array_map('strval', $labels),
     ];
-    $build[$chart_id] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'chart' => $chart,
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-      'info' => $this->buildChartInfo([
+    $build[$chart_id] = $this->buildChartContainer(
+      $chart_id,
+      $this->t('Badge Activation Funnel'),
+      $this->t('Progression of new members through orientation, first badge, and tool-enabled badges.'),
+      $chart,
+      [
         $this->t('Source: Badge request nodes completed within the activation window for members who joined during the cohort range.'),
         $this->t('Processing: Orientation completion is keyed off configured orientation badge term IDs; first/tool-enabled badges use the earliest qualifying badge within the activation window (default 90 days).'),
         $this->t('Definitions: Members without any qualifying badge remain at the "Joined" stage; tool-enabled requires the taxonomy flag field_badge_access_control.'),
-      ]),
-    ];
+      ]
+    );
+    $build[$chart_id]['#weight'] = $weight++;
 
     $velocity = $snapshot['velocity'];
     $velocityLabels = array_map(fn($label) => $this->t($label), $velocity['labels']);
@@ -735,8 +756,6 @@ class EducationSection extends DashboardSectionBase {
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('Days to first badge'),
-      '#description' => $this->t('Distribution of days elapsed from join date to first non-orientation badge.'),
     ];
     $chart['series'] = [
       '#type' => 'chart_data',
@@ -747,17 +766,18 @@ class EducationSection extends DashboardSectionBase {
       '#type' => 'chart_xaxis',
       '#labels' => array_map('strval', $velocityLabels),
     ];
-    $build[$chart_id] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'chart' => $chart,
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-      'info' => $this->buildChartInfo([
+    $build[$chart_id] = $this->buildChartContainer(
+      $chart_id,
+      $this->t('Days to First Badge'),
+      $this->t('Distribution of days elapsed from join date to first non-orientation badge.'),
+      $chart,
+      [
         $this->t('Source: First non-orientation badge timestamps pulled from badge requests for the same cohort used in the funnel chart.'),
         $this->t('Processing: Calculates elapsed days between join date and first badge award, then buckets into ranges (0-3, 4-7, 8-14, 15-30, 31-60, 60+, no badge).'),
         $this->t('Definitions: Members without a qualifying badge fall into the "No badge yet" bucket; orientation-only completions do not count toward the distribution.'),
-      ]),
-    ];
+      ]
+    );
+    $build[$chart_id]['#weight'] = $weight++;
 
     $badgeVolume = $snapshot['badge_volume'];
     if (!empty($badgeVolume['counts']) && array_sum($badgeVolume['counts']) > 0) {
@@ -766,8 +786,6 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Badge awards by time since join'),
-        '#description' => $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.'),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -778,17 +796,18 @@ class EducationSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map(fn($label) => (string) $this->t($label), $badgeVolume['labels']),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Badge Awards by Time Since Join'),
+        $this->t('Counts all badges (including orientation) earned within the activation window, grouped by days from join date.'),
+        $chart,
+        [
           $this->t('Source: All active badge requests tied to cohort members within the activation window.'),
           $this->t('Processing: For each badge completion, calculates days from join and increments the corresponding bucket (0-3, 4-7, 8-14, 15-30, 31-60, 60+).'),
           $this->t('Definitions: Members can contribute multiple badges across buckets; orientation badges are included for full workload context.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $joined = (int) $funnel['totals']['joined'];
@@ -807,6 +826,7 @@ class EducationSection extends DashboardSectionBase {
         $toolEnabled ? $this->t('@count members earn a tool-enabled badge', ['@count' => $toolEnabled]) : NULL,
       ]),
       '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+      '#weight' => $weight++,
     ];
 
 

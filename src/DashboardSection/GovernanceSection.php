@@ -301,41 +301,62 @@ class GovernanceSection extends DashboardSectionBase {
       ];
     };
 
-    // --- Charts 1 & 2: Gender Identity (Pie Charts) ---
-    $build['gender_metric'] = [
+    // Use #weight to control the rendering order of the elements.
+    $weight = 0;
+
+    $build['intro'] = $this->buildIntro($this->t('This section provides an overview of the board composition and diversity, tracking our progress against strategic goals.'));
+    $build['intro']['#weight'] = $weight++;
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['data_section'] = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'heading' => ['#markup' => '<h2>Board Gender Identity</h2>'],
-      'charts' => [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['pie-chart-pair-container']],
-        'goal' => $build_pie_chart('Goal %', $goal_gender_pct),
-        'actual' => $build_pie_chart('Actual %', $actual_gender_pct),
-      ],
-      'table' => $build_table('Gender', $goal_gender_pct, $actual_gender_pct),
-      'source' => [
-        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
-      ],
+      '#attributes' => ['class' => ['data-section-container']],
+      'heading' => ['#markup' => '<h2>' . $this->t('Data Tables') . '</h2>'],
+      'gender_table' => $build_table('Gender', $goal_gender_pct, $actual_gender_pct),
+      'age_table' => $build_table('Age Range', $goal_age_pct, $actual_age_pct),
+      '#weight' => $weight++,
     ];
 
-    // --- Charts 3 & 4: Age Range (Pie Charts) ---
-    $build['age_metric'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'heading' => ['#markup' => '<h2>Board Age Range</h2>'],
-      'charts' => [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['pie-chart-pair-container']],
-        'goal' => $build_pie_chart('Goal %', $goal_age_pct),
-        'actual' => $build_pie_chart('Actual %', $actual_age_pct),
-      ],
-      'table' => $build_table('Age Range', $goal_age_pct, $actual_age_pct),
-      'source' => [
-        '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
-      ],
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
     ];
 
-    // --- Chart 5: Ethnicity (Grouped Bar) ---
+    // Chart: Gender Identity.
+    $gender_chart = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['pie-chart-pair-container']],
+      'goal' => $build_pie_chart('Goal %', $goal_gender_pct),
+      'actual' => $build_pie_chart('Actual %', $actual_gender_pct),
+    ];
+    $build['board_gender_identity'] = $this->buildChartContainer(
+      'board_gender_identity',
+      $this->t('Board Gender Identity'),
+      $this->t('This chart shows the breakdown of board members by gender identity, comparing our current composition to our diversity goals.'),
+      $gender_chart,
+      [['#markup' => $this->t('Data Source: <a href=":url" target="_blank">Board Roster & Goals (Google Sheet)</a>', [':url' => $this->googleSheetClient->getGoogleSheetUrl()])]]
+    );
+    $build['board_gender_identity']['#weight'] = $weight++;
+
+    // Chart: Age Range.
+    $age_chart = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['pie-chart-pair-container']],
+      'goal' => $build_pie_chart('Goal %', $goal_age_pct),
+      'actual' => $build_pie_chart('Actual %', $actual_age_pct),
+    ];
+    $build['board_age_range'] = $this->buildChartContainer(
+      'board_age_range',
+      $this->t('Board Age Range'),
+      $this->t('This chart shows the age distribution of the board, comparing our current composition to our diversity goals.'),
+      $age_chart,
+      [['#markup' => $this->t('Data Source: <a href=":url" target="_blank">Board Roster & Goals (Google Sheet)</a>', [':url' => $this->googleSheetClient->getGoogleSheetUrl()])]]
+    );
+    $build['board_age_range']['#weight'] = $weight++;
+
+    // Chart: Ethnicity.
     $ethnicity_data = [['Ethnicity', 'Goal %', 'Actual %']];
     foreach ($actual_ethnicity_pct as $label => $actual_pct) {
       $goal_pct = $goal_ethnicity_pct[$label] ?? 0;
@@ -343,19 +364,18 @@ class GovernanceSection extends DashboardSectionBase {
         $ethnicity_data[] = [$label, $goal_pct, $actual_pct];
       }
     }
-
-    $build['ethnicity_heading'] = [
-      '#markup' => '<h3>Board Ethnicity</h3><p><em>Note: Members can select multiple categories, so "Actual %" can total over 100%.</em></p>',
-    ];
-    $build['ethnicity_chart'] = $build_grouped_bar_chart(
+    $ethnicity_chart = $build_grouped_bar_chart(
       'Board Ethnicity (Goal vs. Actual)',
       $ethnicity_data
     );
-
-    $build['ethnicity_source'] = [
-      '#markup' => '<div class="data-source">Data Source: <a href="' . $this->googleSheetClient->getGoogleSheetUrl() . '" target="_blank">Board Roster & Goals</a></div>',
-    ];
-
+    $build['board_ethnicity'] = $this->buildChartContainer(
+      'board_ethnicity',
+      $this->t('Board Ethnicity'),
+      $this->t('This chart shows the ethnic diversity of the board. Members can select multiple categories, so "Actual %" can total over 100%.'),
+      $ethnicity_chart,
+      [['#markup' => $this->t('Data Source: <a href=":url" target="_blank">Board Roster & Goals (Google Sheet)</a>', [':url' => $this->googleSheetClient->getGoogleSheetUrl()])]]
+    );
+    $build['board_ethnicity']['#weight'] = $weight++;
 
     // Attach the main charts library.
     $build['#attached']['library'][] = 'charts/chart';

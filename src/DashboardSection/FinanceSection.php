@@ -52,10 +52,17 @@ class FinanceSection extends DashboardSectionBase {
 
   public function build(array $filters = []): array {
     $build = [];
+    $weight = 0;
 
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Blend Chargebee, Stripe storage rentals, and PayPal revenue to highlight recurring health without exposing individual payments.'),
+    $build['intro'] = $this->buildIntro($this->t('Blend Chargebee, Stripe storage rentals, and PayPal revenue to highlight recurring health without exposing individual payments.'));
+    $build['intro']['#weight'] = $weight++;
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
     ];
 
     $end_date = new \DateTimeImmutable();
@@ -71,8 +78,6 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Monthly recurring revenue trend'),
-        '#description' => $this->t('Aggregate by billing source to highlight sustainability of recruitment/retention efforts.'),
       ];
 
       $chart['series'] = [
@@ -85,23 +90,25 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $mrr_data['labels']),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Monthly Recurring Revenue Trend'),
+        $this->t('Aggregate by billing source to highlight sustainability of recruitment/retention efforts.'),
+        $chart,
+        [
           $this->t('Source: Member join dates (profile__field_member_join_date) paired with membership type taxonomy terms.'),
           $this->t('Processing: Includes joins within the selected six-month window and multiplies counts by assumed monthly values ($50 individual, $75 family).'),
           $this->t('Definitions: Other membership types currently use a zero value and therefore will not contribute until pricing is modeled.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['mrr_empty'] = [
         '#markup' => $this->t('Recurring revenue trend data is not available. Connect financial exports to populate this chart.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -111,8 +118,6 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Payment mix'),
-        '#description' => $this->t('Show contribution of memberships, storage, donations, and education revenue streams.'),
         '#raw_options' => [
           'plugins' => [
             'legend' => [
@@ -131,23 +136,25 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', array_keys($payment_mix_data)),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Payment Mix'),
+        $this->t('Show contribution of memberships, storage, donations, and education revenue streams.'),
+        $chart,
+        [
           $this->t('Source: Membership type assignments from profile__field_membership_type for active member profiles.'),
           $this->t('Processing: Counts distinct profile records per membership type without applying revenue assumptions.'),
           $this->t('Definitions: Represents share of members by type, not dollars; taxonomy term labels surface directly in the chart.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['payment_mix_empty'] = [
         '#markup' => $this->t('Payment mix data is not available. Connect billing sources to populate this chart.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -160,8 +167,6 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Average recorded monthly payment by membership type'),
-        '#description' => $this->t('Uses field_member_payment_monthly to estimate typical recurring revenue by membership category.'),
         '#raw_options' => [
           'options' => [
             'plugins' => [
@@ -198,17 +203,18 @@ class FinanceSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $averageLabels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Average Recorded Monthly Payment by Membership Type'),
+        $this->t('Uses field_member_payment_monthly to estimate typical recurring revenue by membership category.'),
+        $chart,
+        [
           $this->t('Source: field_member_payment_monthly on active default member profiles with status = 1.'),
           $this->t('Processing: Averages monthly payment values per membership type; entries with blank or zero values are excluded.'),
           $this->t('Definitions: Provides directional insight only—confirm with billing exports before financial reporting.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
 
       $summaryLines = [
         $this->t('Overall average recorded payment: <strong>$@amount</strong> per month', ['@amount' => number_format($average_payment_data['overall_average'] ?? 0, 2)]),
@@ -221,6 +227,7 @@ class FinanceSection extends DashboardSectionBase {
         '#markup' => implode('<br>', array_map('strval', $summaryLines)),
         '#prefix' => '<div class="makerspace-dashboard-definition">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -230,8 +237,6 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'pie',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Chargebee plan distribution'),
-        '#description' => $this->t('Active users grouped by Chargebee plan assignment.'),
         '#data_labels' => TRUE,
         '#raw_options' => [
           'plugins' => [
@@ -253,17 +258,18 @@ class FinanceSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', array_keys($chargebee_plan_data)),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Chargebee Plan Distribution'),
+        $this->t('Active users grouped by Chargebee plan assignment.'),
+        $chart,
+        [
           $this->t('Source: user profile field_user_chargebee_plan for published users.'),
           $this->t('Processing: Counts distinct users per plan value; empty values are labeled "Unassigned".'),
           $this->t('Definitions: Reflects CRM state only—verify against Chargebee before billing changes.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $build['#cache'] = [

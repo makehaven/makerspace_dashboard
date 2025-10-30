@@ -42,10 +42,17 @@ class OutreachSection extends DashboardSectionBase {
    */
   public function build(array $filters = []): array {
     $build = [];
+    $weight = 0;
 
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'),
+    $build['intro'] = $this->buildIntro($this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'));
+    $build['intro']['#weight'] = $weight++;
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
     ];
 
     $discoveryRows = $this->dataService->getDiscoveryDistribution();
@@ -58,8 +65,6 @@ class OutreachSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('How members discovered us'),
-        '#description' => $this->t('Self-reported discovery sources from member profiles.'),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -71,17 +76,18 @@ class OutreachSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $discoveryLabels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('How Members Discovered Us'),
+        $this->t('Self-reported discovery sources from member profiles.'),
+        $chart,
+        [
           $this->t('Source: field_member_discovery on active default member profiles with membership roles (defaults: current_member, member).'),
           $this->t('Processing: Aggregates responses and rolls options with fewer than five members into "Other".'),
           $this->t('Definitions: Missing responses surface as "Not captured"; encourage staff to populate this field for richer recruitment insights.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $recentWindowEnd = new \DateTimeImmutable('now', new \DateTimeZone(date_default_timezone_get()));
@@ -98,11 +104,6 @@ class OutreachSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('New member interests (last 3 months)'),
-        '#description' => $this->t('Interest areas selected on member profiles created between @start and @end.', [
-          '@start' => $startLabel,
-          '@end' => $endLabel,
-        ]),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -114,23 +115,28 @@ class OutreachSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $interestLabels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('New Member Interests (Last 3 Months)'),
+        $this->t('Interest areas selected on member profiles created between @start and @end.', [
+          '@start' => $startLabel,
+          '@end' => $endLabel,
+        ]),
+        $chart,
+        [
           $this->t('Source: Default "main" member profiles created in the last 3 months with interest selections (field_member_interest).'),
           $this->t('Processing: Filters to published users, active membership roles, and aggregates distinct members per interest.'),
           $this->t('Definitions: Bins with fewer than two members roll into "Other" to avoid displaying sensitive counts.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['recent_member_interests_empty'] = [
         '#markup' => $this->t('No interest data captured for new members in the last three months.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
