@@ -56,10 +56,6 @@ class InfrastructureSection extends DashboardSectionBase {
     $statusCounts = $this->dataService->getToolStatusCounts();
     $totalTools = array_sum($statusCounts);
 
-      '@count' => $totalTools,
-    ]));
-    $build['intro']['#weight'] = $weight++;
-
     $build['kpi_table'] = $this->buildKpiTable();
     $build['kpi_table']['#weight'] = $weight++;
 
