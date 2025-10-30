@@ -142,16 +142,23 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    * @return array
    *   A render array for the chart container.
    */
-  protected function buildChartContainer(string $chart_id, \Drupal\Core\StringTranslation\TranslatableMarkup $title, \Drupal\Core\StringTranslation\TranslatableMarkup $description, array $chart, array $info): array {
-    return [
+  protected function buildChartContainer(string $chart_id, \Drupal\Core\StringTranslation\TranslatableMarkup $title, \Drupal\Core\StringTranslation\TranslatableMarkup $description, array $chart, array $info, array $rangeControls = []): array {
+    $container = [
       '#type' => 'container',
       '#attributes' => ['class' => ['metric-container']],
       'title' => ['#markup' => '<h3>' . $title . '</h3>'],
       'description' => ['#markup' => '<p>' . $description . '</p>'],
-      'chart' => $chart,
-      'info' => $this->buildChartInfo($info),
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
     ];
+
+    if (!empty($rangeControls)) {
+      $container['range_controls'] = $rangeControls;
+    }
+
+    $container['chart'] = $chart;
+    $container['info'] = $this->buildChartInfo($info);
+    $container['download'] = $this->buildCsvDownloadLink($this->getId(), $chart_id);
+
+    return $container;
   }
 
   /**
@@ -236,35 +243,13 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       return $chartContent;
     }
 
-    $content = $chartContent;
-    if (!isset($content['#type'])) {
-      $content = [
-        '#type' => 'container',
-        '#attributes' => [],
-      ] + $chartContent;
-    }
-    if (!isset($content['#attributes']) || !is_array($content['#attributes'])) {
-      $content['#attributes'] = [];
-    }
-    if (empty($content['#attributes']['class']) || !is_array($content['#attributes']['class'])) {
-      $content['#attributes']['class'] = [];
-    }
-    $content['#attributes']['class'][] = 'makerspace-dashboard-range-content';
+    $chartContent['range_controls'] = $this->buildRangeControls($allowed, $activeRange);
+    $chartContent['#attached']['library'][] = 'makerspace_dashboard/dashboard';
+    $chartContent['#attributes']['data-section'] = $this->getId();
+    $chartContent['#attributes']['data-chart-id'] = $chartId;
+    $chartContent['#attributes']['data-active-range'] = $activeRange;
 
-    return [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => ['makerspace-dashboard-range-chart'],
-        'data-section' => $this->getId(),
-        'data-chart-id' => $chartId,
-        'data-active-range' => $activeRange,
-      ],
-      'controls' => $this->buildRangeControls($allowed, $activeRange),
-      'content' => $content,
-      '#attached' => [
-        'library' => ['makerspace_dashboard/dashboard'],
-      ],
-    ];
+    return $chartContent;
   }
 
   /**

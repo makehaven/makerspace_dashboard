@@ -1,8 +1,9 @@
 makerspace_dashboard.dashboard:
-  path: '/makerspace-dashboard'
+  path: '/makerspace-dashboard/{section_id}'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
     _title: 'Makerspace Dashboard'
+    section_id: 'overview'
   requirements:
     _permission: 'view makerspace dashboard'
 makerspace_dashboard.dashboard_legacy:
