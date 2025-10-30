@@ -56,7 +56,6 @@ class InfrastructureSection extends DashboardSectionBase {
     $statusCounts = $this->dataService->getToolStatusCounts();
     $totalTools = array_sum($statusCounts);
 
-    $build['intro'] = $this->buildIntro($this->t('Monitor tool availability by status and surface assets needing attention. Total tracked tools: @count.', [
       '@count' => $totalTools,
     ]));
     $build['intro']['#weight'] = $weight++;

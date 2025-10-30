@@ -304,7 +304,6 @@ class GovernanceSection extends DashboardSectionBase {
     // Use #weight to control the rendering order of the elements.
     $weight = 0;
 
-    $build['intro'] = $this->buildIntro($this->t('This section provides an overview of the board composition and diversity, tracking our progress against strategic goals.'));
     $build['intro']['#weight'] = $weight++;
 
     $build['kpi_table'] = $this->buildKpiTable();

@@ -86,7 +86,7 @@ class DashboardForm extends FormBase {
         '#type' => 'container',
         '#attributes' => ['class' => ['makerspace-dashboard-tab-note']],
         'text' => [
-          '#markup' => nl2br(Html::escape($note_value)),
+          '#markup' => $note_value,
         ],
         'edit' => $edit_link,
       ];
@@ -128,6 +128,17 @@ class DashboardForm extends FormBase {
         'class' => ['nav', 'nav-pills'],
       ],
     ];
+
+    $tabs['#links']['overview'] = [
+      'title' => $this->t('Overview'),
+      'url' => Url::fromRoute('makerspace_dashboard.dashboard'),
+      'attributes' => [
+        'class' => ['nav-link'],
+      ],
+    ];
+    if ('overview' === $active_section_id) {
+      $tabs['#links']['overview']['attributes']['class'][] = 'active';
+    }
 
     $sections = $this->sectionManager->getSections();
     foreach ($sections as $section) {

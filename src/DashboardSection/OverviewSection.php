@@ -50,9 +50,6 @@ class OverviewSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['intro'] = $this->buildIntro($this->t('This section provides a high-level overview of the makerspace health.'));
-    $build['intro']['#weight'] = $weight++;
-
     $build['kpi_table'] = $this->buildKpiTable();
     $build['kpi_table']['#weight'] = $weight++;
 

@@ -79,7 +79,6 @@ class RetentionSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['intro'] = $this->buildIntro($this->t('Compare monthly inflow vs churn and track long-term cohort retention across membership types.'));
     $build['intro']['#weight'] = $weight++;
 
     $build['kpi_table'] = $this->buildKpiTable();

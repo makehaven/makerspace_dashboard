@@ -54,7 +54,6 @@ class FinanceSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['intro'] = $this->buildIntro($this->t('Blend Chargebee, Stripe storage rentals, and PayPal revenue to highlight recurring health without exposing individual payments.'));
     $build['intro']['#weight'] = $weight++;
 
     $build['kpi_table'] = $this->buildKpiTable();

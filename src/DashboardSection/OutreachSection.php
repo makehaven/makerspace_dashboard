@@ -44,7 +44,6 @@ class OutreachSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['intro'] = $this->buildIntro($this->t('Summarizes member demographics sourced from profile fields today, with hooks to migrate to CiviCRM contact data later.'));
     $build['intro']['#weight'] = $weight++;
 
     $build['kpi_table'] = $this->buildKpiTable();

@@ -59,7 +59,6 @@ class EducationSection extends DashboardSectionBase {
     $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
     $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
 
-    $build['intro'] = $this->buildIntro($this->t('Tracking new members who joined between @start and @end. Activation window: @days days from join date.', [
       '@start' => $cohortStart,
       '@end' => $cohortEnd,
       '@days' => $activationDays,

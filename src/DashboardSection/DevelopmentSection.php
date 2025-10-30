@@ -16,7 +16,6 @@ class DevelopmentSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['intro'] = $this->buildIntro($this->t('This section is under development.'));
     $build['intro']['#weight'] = $weight++;
 
     $build['kpi_table'] = $this->buildKpiTable();
