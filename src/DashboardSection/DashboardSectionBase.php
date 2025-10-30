@@ -90,7 +90,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    * @return array
    *   A render array for the intro block.
    */
-  protected function buildIntro(TranslatableMarkup $intro_text): array {
+  protected function buildIntro(\Drupal\Core\StringTranslation\TranslatableMarkup $intro_text): array {
     return [
       '#markup' => '<p>' . $intro_text . '</p>',
     ];
@@ -142,7 +142,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    * @return array
    *   A render array for the chart container.
    */
-  protected function buildChartContainer(string $chart_id, TranslatableMarkup $title, TranslatableMarkup $description, array $chart, array $info): array {
+  protected function buildChartContainer(string $chart_id, \Drupal\Core\StringTranslation\TranslatableMarkup $title, \Drupal\Core\StringTranslation\TranslatableMarkup $description, array $chart, array $info): array {
     return [
       '#type' => 'container',
       '#attributes' => ['class' => ['metric-container']],
