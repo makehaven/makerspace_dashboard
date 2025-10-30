@@ -77,10 +77,15 @@ class RetentionSection extends DashboardSectionBase {
    */
   public function build(array $filters = []): array {
     $build = [];
+    $weight = 0;
 
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Compare monthly inflow vs churn and track long-term cohort retention across membership types.'),
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
     ];
 
     $dailySnapshots = $this->snapshotData->getMembershipCountSeries('day');
@@ -117,8 +122,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Active members (daily snapshots)'),
-        '#description' => $this->t('Latest @count snapshots of active membership headcount.', ['@count' => count($dailySeries)]),
       ];
       $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -178,19 +181,21 @@ class RetentionSection extends DashboardSectionBase {
       if ($coverage = $this->formatSnapshotCoverage($dailyFirst, $dailyLast, count($dailySnapshots))) {
         $dailyNotes[] = $coverage;
       }
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo($dailyNotes, $this->t('Daily snapshot notes')),
-      ];
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Active Members (Daily Snapshots)'),
+        $this->t('Latest @count snapshots of active membership headcount.', ['@count' => count($dailySeries)]),
+        $chart,
+        $dailyNotes
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['snapshot_daily_empty'] = [
         '#markup' => $this->t('No membership snapshots were found. Trigger a makerspace_snapshot capture to populate this trend.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -220,8 +225,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Active members (monthly snapshot anchor)'),
-        '#description' => $this->t('Collapses snapshots to one point per month using the latest capture inside each month (max @count months).', ['@count' => count($monthlySeries)]),
       ];
       $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -282,13 +285,14 @@ class RetentionSection extends DashboardSectionBase {
       if ($coverage = $this->formatSnapshotCoverage($monthlyFirst, $monthlyLast, count($monthlySnapshots))) {
         $monthlyNotes[] = $coverage;
       }
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo($monthlyNotes, $this->t('Monthly snapshot notes')),
-      ];
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Active Members (Monthly Snapshot Anchor)'),
+        $this->t('Collapses snapshots to one point per month using the latest capture inside each month (max @count months).', ['@count' => count($monthlySeries)]),
+        $chart,
+        $monthlyNotes
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     if ($yearlySeries) {
@@ -317,8 +321,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Active members (year-end snapshot anchor)'),
-        '#description' => $this->t('Uses the latest snapshot per calendar year to show longitudinal membership scale.'),
       ];
       $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -377,13 +379,14 @@ class RetentionSection extends DashboardSectionBase {
       if ($coverage = $this->formatSnapshotCoverage($yearlyFirst, $yearlyLast, count($yearlySnapshots))) {
         $yearlyNotes[] = $coverage;
       }
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo($yearlyNotes, $this->t('Yearly snapshot notes')),
-      ];
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Active Members (Year-End Snapshot Anchor)'),
+        $this->t('Uses the latest snapshot per calendar year to show longitudinal membership scale.'),
+        $chart,
+        $yearlyNotes
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
@@ -440,8 +443,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Monthly recruitment vs churn'),
-        '#description' => $this->t('Total members who joined or ended each month (all membership types).'),
       ];
       $chart['joined'] = [
         '#type' => 'chart_data',
@@ -460,25 +461,24 @@ class RetentionSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $monthLabels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Monthly Recruitment vs Churn'),
+        $this->t('Total members who joined or ended each month (all membership types).'),
+        $chart,
+        [
           $this->t('Source: MembershipMetricsService::getFlow aggregates main member profile creation timestamps (treated as join dates) alongside recorded end dates (field_member_end_date) for published users.'),
           $this->t('Processing: Distinct members are grouped by calendar month; if the most recent 12 months are empty the query expands to 24 months.'),
           $this->t('Definitions: "Joined" counts unique users whose default member profile was created that month; "Ended" counts unique users whose end date falls in that month regardless of membership type.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
 
       $chart_id = 'net_balance';
       $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Net membership change'),
-        '#description' => $this->t('Joined minus ended members per month with join/end overlays for context.'),
       ];
       $chart['#raw_options']['options'] = [
         'interaction' => ['mode' => 'index', 'intersect' => FALSE],
@@ -550,17 +550,18 @@ class RetentionSection extends DashboardSectionBase {
         '#labels' => array_map('strval', $monthLabels),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Net Membership Change'),
+        $this->t('Joined minus ended members per month with join/end overlays for context.'),
+        $chart,
+        [
           $this->t('Source: Derived from the same monthly join and end counts used in the recruitment vs churn chart.'),
           $this->t('Processing: Calculates joined minus ended members for each month and overlays raw join/end totals so spikes are easy to attribute.'),
           $this->t('Definitions: Positive values indicate net growth in headcount that month; negative values indicate attrition exceeded recruitment.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
 
       if ($totals) {
         $recent = array_slice($totals, -6);
@@ -580,28 +581,29 @@ class RetentionSection extends DashboardSectionBase {
             $this->t('Net change: @net', ['@net' => $net]),
           ],
           '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+          '#weight' => $weight++,
         ];
       }
 
       // Membership type breakdown (incoming).
       $chart_id = 'type_incoming';
       $chart = $this->buildTypeChart(
-        $this->t('Recruitment by membership type'),
         $monthLabels,
         $incomingByType,
         $periodKeys
       );
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Recruitment by Membership Type'),
+        $this->t('Breakdown by membership type across the selected periods.'),
+        $chart,
+        [
           $this->t('Source: Same join-date dataset as the recruitment totals, segmented by membership type taxonomy terms (profile__field_membership_type).'),
           $this->t('Processing: Counts distinct members per type per month based on the taxonomy term active at join time.'),
           $this->t('Definitions: Type names come from taxonomy terms; unknown or missing terms appear as "Unclassified".'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
 
       if (!empty($endingByReason)) {
         $recentPeriods = array_slice($periodKeys, -6);
@@ -617,8 +619,6 @@ class RetentionSection extends DashboardSectionBase {
           '#type' => 'chart',
           '#chart_type' => 'bar',
           '#chart_library' => 'chartjs',
-          '#title' => $this->t('Ending memberships by reason'),
-          '#description' => $this->t('Monthly churn totals stacked by recorded end reason (latest 6 months).'),
           '#stacking' => 1,
           '#raw_options' => [
             'scales' => [
@@ -650,17 +650,18 @@ class RetentionSection extends DashboardSectionBase {
           '#title' => $this->t('Members ending'),
         ];
 
-        $build[$chart_id] = [
-          '#type' => 'container',
-          '#attributes' => ['class' => ['metric-container']],
-          'chart' => $chart,
-          'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-          'info' => $this->buildChartInfo([
+        $build[$chart_id] = $this->buildChartContainer(
+          $chart_id,
+          $this->t('Ending Memberships by Reason'),
+          $this->t('Monthly churn totals stacked by recorded end reason (latest 6 months).'),
+          $chart,
+          [
             $this->t('Source: Membership end-date events joined to field_member_end_reason values.'),
             $this->t('Processing: Distinct members per reason per month; stacked bars show the contribution of each reason to total churn.'),
             $this->t('Definitions: Reasons reflect list-string options configured on member profiles when ending access.'),
-          ]),
-        ];
+          ]
+        );
+        $build[$chart_id]['#weight'] = $weight++;
       }
     }
     else {
@@ -668,6 +669,7 @@ class RetentionSection extends DashboardSectionBase {
         '#markup' => $this->t('No membership inflow data available in the selected window. Expand the date range or verify join/end dates.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -690,8 +692,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Cohort composition by join year'),
-        '#description' => $this->t('Active vs inactive members for each join year cohort.'),
         '#stacking' => 1,
         '#raw_options' => [
           'plugins' => [
@@ -719,25 +719,24 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $cohortLabels),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Cohort Composition by Join Year'),
+        $this->t('Active vs inactive members for each join year cohort.'),
+        $chart,
+        [
           $this->t('Source: Members with join dates in profile__field_member_join_date grouped by calendar year.'),
           $this->t('Processing: Counts total members per cohort and marks a member as active when they hold an active membership role (defaults: current_member, member).'),
           $this->t('Definitions: "Still active" reflects active role assignment today; "No longer active" covers members without those roles.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
 
       $chart_id = 'annual_retention';
       $chart = [
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Average annual retention by cohort'),
-        '#description' => $this->t('Annualized retention rate estimating the average share of members retained each year since joining.'),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -749,23 +748,25 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $cohortLabels),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Average Annual Retention by Cohort'),
+        $this->t('Annualized retention rate estimating the average share of members retained each year since joining.'),
+        $chart,
+        [
           $this->t('Source: Same cohort dataset as the composition chart, using join dates from profile__field_member_join_date.'),
           $this->t('Processing: Converts the share of members still active into an annualized retention rate (geometric mean) to normalize for cohort age.'),
           $this->t('Definitions: Active roles default to current_member/member; cohorts without active members report 0% annualized retention.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['annual_cohorts_empty'] = [
         '#markup' => $this->t('No cohort data available for the selected years.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -907,13 +908,11 @@ class RetentionSection extends DashboardSectionBase {
     $range_start_label = $this->dateFormatter->format($rollingStartDate->getTimestamp(), 'custom', 'M j, Y');
     $range_end_label = $this->dateFormatter->format($end_of_day->getTimestamp(), 'custom', 'M j, Y');
 
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Aggregates door access requests into unique members per day to highlight peak usage windows. Showing @start – @end.', [
+    $build['utilization_intro'] = $this->buildIntro($this->t('Aggregates door access requests into unique members per day to highlight peak usage windows. Showing @start – @end.', [
         '@start' => $range_start_label,
         '@end' => $range_end_label,
-      ]),
-    ];
+      ]));
+    $build['utilization_intro']['#weight'] = $weight++;
 
     $summary = [
       $this->t('Total entries in last @days days: @total', ['@days' => $dailyWindow, '@total' => $total_entries]),
@@ -935,6 +934,7 @@ class RetentionSection extends DashboardSectionBase {
       '#theme' => 'item_list',
       '#items' => array_filter($summary),
       '#attributes' => ['class' => ['makerspace-dashboard-summary']],
+      '#weight' => $weight++,
     ];
 
     $build['definition_note'] = [
@@ -942,6 +942,7 @@ class RetentionSection extends DashboardSectionBase {
       '#markup' => $this->t('An entry counts every access-control request. A unique entry counts each member once per day, even if they badge multiple times.'),
       '#prefix' => '<div class="makerspace-dashboard-definition">',
       '#suffix' => '</div>',
+      '#weight' => $weight++,
     ];
 
     $chart_id = 'daily_unique_entries';
@@ -949,8 +950,6 @@ class RetentionSection extends DashboardSectionBase {
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('Monthly member entries (unique visits)'),
-      '#description' => $this->t('Sums the number of unique members badging in per day into monthly totals.'),
     ];
     $chart['#raw_options']['options']['scales']['x']['ticks'] = [
       'autoSkip' => FALSE,
@@ -977,17 +976,18 @@ class RetentionSection extends DashboardSectionBase {
       '#title' => $this->t('Unique members'),
     ];
 
-    $build[$chart_id] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'chart' => $chart,
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-      'info' => $this->buildChartInfo([
-        $this->t('Source: Access-control request logs (type = access_control_request) joined to the requesting user.'),
-        $this->t('Processing: Counts distinct members per day within the configured window, then aggregates those counts into monthly totals (latest 12 months).'),
-        $this->t('Definitions: Only users with active membership roles (defaults: current_member, member) are included.'),
-      ]),
-    ];
+    $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Monthly Member Entries (Unique Visits)'),
+        $this->t('Sums the number of unique members badging in per day into monthly totals.'),
+        $chart,
+        [
+          $this->t('Source: Access-control request logs (type = access_control_request) joined to the requesting user.'),
+          $this->t('Processing: Counts distinct members per day within the configured window, then aggregates those counts into monthly totals (latest 12 months).'),
+          $this->t('Definitions: Only users with active membership roles (defaults: current_member, member) are included.'),
+        ]
+      );
+    $build[$chart_id]['#weight'] = $weight++;
 
     if (!empty($rollingAverage)) {
       $chart_id = 'rolling_average_chart';
@@ -995,8 +995,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'line',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('7 day rolling average of unique entries'),
-        '#description' => $this->t('Smooths daily fluctuations to highlight longer-term trends over the last @days days.', ['@days' => $rollingWindow]),
       ];
       $chart['#raw_options']['options']['scales']['x']['ticks'] = [
         'autoSkip' => FALSE,
@@ -1041,17 +1039,18 @@ class RetentionSection extends DashboardSectionBase {
         '#title' => $this->t('Average unique members'),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('7-Day Rolling Average of Unique Entries'),
+        $this->t('Smooths daily fluctuations to highlight longer-term trends over the last @days days.', ['@days' => $rollingWindow]),
+        $chart,
+        [
           $this->t('Source: Seven-day rolling average derived from the daily unique member counts.'),
           $this->t('Processing: Uses a sliding seven-day window (or shorter for the first few points) and overlays a least-squares trendline.'),
           $this->t('Definitions: Positive slope indicates growing average traffic; negative slope signals declining activity.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $frequency_buckets = $this->utilizationDataService->getVisitFrequencyBuckets($rollingStartDate->getTimestamp(), $end_of_day->getTimestamp());
@@ -1075,8 +1074,6 @@ class RetentionSection extends DashboardSectionBase {
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('Visit frequency distribution'),
-      '#description' => $this->t('Distribution of member visit frequency based on distinct check-in days over the last @days days.', ['@days' => $rollingWindow]),
     ];
 
     $chart['series'] = [
@@ -1089,17 +1086,18 @@ class RetentionSection extends DashboardSectionBase {
       '#labels' => array_map('strval', $frequency_label_values),
     ];
 
-    $build[$chart_id] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'chart' => $chart,
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-      'info' => $this->buildChartInfo([
+    $build[$chart_id] = $this->buildChartContainer(
+      $chart_id,
+      $this->t('Visit Frequency Distribution'),
+      $this->t('Distribution of member visit frequency based on distinct check-in days over the last @days days.', ['@days' => $rollingWindow]),
+      $chart,
+      [
         $this->t('Source: Distinct visit days per member calculated from access-control logs over the rolling window.'),
         $this->t('Processing: Normalizes visits to a 30-day window before bucketing (none, 1, 2-3, 4-6, 7-12, 13+ per month equivalent).'),
         $this->t('Definitions: Each active member appears in exactly one bucket; members with no visits during the window are counted explicitly.'),
-      ]),
-    ];
+      ]
+    );
+    $build[$chart_id]['#weight'] = $weight++;
 
     if (!empty($rollingDates)) {
       $chart_id = 'weekday_profile';
@@ -1107,8 +1105,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Average members by day of week'),
-        '#description' => $this->t('Average unique members badging in on each weekday over the last @days days.', ['@days' => $rollingWindow]),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -1119,17 +1115,18 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_xaxis',
         '#labels' => array_map('strval', $weekdayLabels),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Average Members by Day of Week'),
+        $this->t('Average unique members badging in on each weekday over the last @days days.', ['@days' => $rollingWindow]),
+        $chart,
+        [
           $this->t('Source: Same daily unique member dataset used for the rolling average chart.'),
           $this->t('Processing: Totals unique members per weekday over the configured window and divides by the number of occurrences.'),
           $this->t('Definitions: Values represent average unique members per weekday; blank weekdays indicate no data within the window.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $hourlyAverages = $this->utilizationDataService->getAverageEntriesByHour($startAll->getTimestamp(), $end_of_day->getTimestamp());
@@ -1145,8 +1142,6 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Average entries per hour of day'),
-        '#description' => $this->t('Average access-control requests in each hour, averaged across @days days.', ['@days' => $hourlyAverages['days'] ?? count($rollingDates)]),
       ];
       $chart['series'] = [
         '#type' => 'chart_data',
@@ -1162,17 +1157,18 @@ class RetentionSection extends DashboardSectionBase {
         '#type' => 'chart_yaxis',
         '#title' => $this->t('Average entries / day'),
       ];
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Average Entries per Hour of Day'),
+        $this->t('Average access-control requests in each hour, averaged across @days days.', ['@days' => $hourlyAverages['days'] ?? count($rollingDates)]),
+        $chart,
+        [
           $this->t('Source: Raw access_control_request logs for the same window as the utilization charts.'),
           $this->t('Processing: Counts every entry event per hour, sums across the window, and divides by the number of days to produce an hourly average.'),
           $this->t('Definitions: Includes repeat entries; filter above charts for unique-member analysis.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
 
     $timeOfDayLabels = $this->utilizationDataService->getTimeOfDayBucketLabels();
@@ -1186,8 +1182,6 @@ class RetentionSection extends DashboardSectionBase {
       '#type' => 'chart',
       '#chart_type' => 'bar',
       '#chart_library' => 'chartjs',
-      '#title' => $this->t('First entry time by weekday (stacked)'),
-      '#description' => $this->t('Shows when members first badge in each day, grouped by weekday and time-of-day bucket.'),
       '#stacking' => 1,
     ];
 
@@ -1212,22 +1206,67 @@ class RetentionSection extends DashboardSectionBase {
       '#title' => $this->t('Members (first entry)'),
     ];
 
-    $build[$chart_id] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['metric-container']],
-      'chart' => $chart,
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-      'info' => $this->buildChartInfo([
+    $build[$chart_id] = $this->buildChartContainer(
+      $chart_id,
+      $this->t('First Entry Time by Weekday (Stacked)'),
+      $this->t('Shows when members first badge in each day, grouped by weekday and time-of-day bucket.'),
+      $chart,
+      [
         $this->t('Source: Access-control requests within the rolling window grouped by member, day, and time of day.'),
         $this->t('Processing: Members are counted once per weekday/time bucket (early morning, morning, midday, afternoon, evening, night) for each day they badge in that range.'),
         $this->t('Definitions: Buckets use 24-hour ranges; night spans 22:00-04:59 and rolls across midnight.'),
-      ]),
-    ];
+      ]
+    );
+    $build[$chart_id]['#weight'] = $weight++;
 
     $build['#cache'] = [
       'max-age' => 3600,
       'contexts' => ['timezone'],
       'tags' => ['access_control_log_list', 'user_list', 'config:makerspace_dashboard.settings'],
+    ];
+
+    return $build;
+  }
+  /**
+   * Builds a chart showing membership type distribution per period.
+   */
+  protected function buildTypeChart(array $labels, array $seriesMap, array $periodKeys, string $chartType = 'bar'): array {
+    if (empty($seriesMap)) {
+      return [
+        '#markup' => $this->t('No membership type data available for this window.'),
+      ];
+    }
+
+    $datasets = [];
+    $seriesIndex = 0;
+    foreach ($seriesMap as $membershipType => $dataPerPeriod) {
+      $series = [];
+      foreach ($periodKeys as $period) {
+        $series[] = (int) ($dataPerPeriod[$period] ?? 0);
+      }
+      $datasets['series_' . $seriesIndex] = [
+        '#type' => 'chart_data',
+        '#title' => $membershipType ?: $this->t('Unclassified'),
+        '#data' => $series,
+      ];
+      $seriesIndex++;
+    }
+
+    $build = [
+      '#type' => 'chart',
+      '#chart_type' => $chartType,
+      '#chart_library' => 'chartjs',
+      '#cache' => [
+        'max-age' => 3600,
+        'tags' => ['profile_list', 'user_list'],
+      ],
+    ];
+
+    $build += $datasets;
+
+    $build['xaxis'] = [
+      '#type' => 'chart_xaxis',
+      '#labels' => array_map('strval', $labels),
     ];
 
     return $build;
@@ -1255,53 +1294,6 @@ class RetentionSection extends DashboardSectionBase {
       '@end' => $endLabel,
       '@count' => $total,
     ]);
-  }
-
-  /**
-   * Builds a chart showing membership type distribution per period.
-   */
-  protected function buildTypeChart(string $title, array $labels, array $seriesMap, array $periodKeys, string $chartType = 'bar'): array {
-    if (empty($seriesMap)) {
-      return [
-        '#markup' => $this->t('No membership type data available for this window.'),
-      ];
-    }
-
-    $datasets = [];
-    $seriesIndex = 0;
-    foreach ($seriesMap as $membershipType => $dataPerPeriod) {
-      $series = [];
-      foreach ($periodKeys as $period) {
-        $series[] = (int) ($dataPerPeriod[$period] ?? 0);
-      }
-      $datasets['series_' . $seriesIndex] = [
-        '#type' => 'chart_data',
-        '#title' => $membershipType ?: $this->t('Unclassified'),
-        '#data' => $series,
-      ];
-      $seriesIndex++;
-    }
-
-    $build = [
-      '#type' => 'chart',
-      '#chart_type' => $chartType,
-      '#chart_library' => 'chartjs',
-      '#title' => $title,
-      '#description' => $this->t('Breakdown by membership type across the selected periods.'),
-      '#cache' => [
-        'max-age' => 3600,
-        'tags' => ['profile_list', 'user_list'],
-      ],
-    ];
-
-    $build += $datasets;
-
-    $build['xaxis'] = [
-      '#type' => 'chart_xaxis',
-      '#labels' => array_map('strval', $labels),
-    ];
-
-    return $build;
   }
 
 }

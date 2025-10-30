@@ -13,8 +13,8 @@ class DashboardController extends ControllerBase {
   /**
    * Displays the dashboard with vertical tabs.
    */
-  public function dashboard(): array {
-    return $this->formBuilder()->getForm(DashboardForm::class);
+  public function dashboard(string $section_id = 'overview'): array {
+    return $this->formBuilder()->getForm(DashboardForm::class, $section_id);
   }
 
 }

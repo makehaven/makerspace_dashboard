@@ -51,15 +51,17 @@ class InfrastructureSection extends DashboardSectionBase {
    */
   public function build(array $filters = []): array {
     $build = [];
+    $weight = 0;
 
     $statusCounts = $this->dataService->getToolStatusCounts();
     $totalTools = array_sum($statusCounts);
 
-    $build['intro'] = [
-      '#type' => 'markup',
-      '#markup' => $this->t('Monitor tool availability by status and surface assets needing attention. Total tracked tools: @count.', [
-        '@count' => $totalTools,
-      ]),
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    $build['charts_section_heading'] = [
+      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+      '#weight' => $weight++,
     ];
 
     if (!empty($statusCounts)) {
@@ -71,8 +73,6 @@ class InfrastructureSection extends DashboardSectionBase {
         '#type' => 'chart',
         '#chart_type' => 'bar',
         '#chart_library' => 'chartjs',
-        '#title' => $this->t('Tools by status'),
-        '#description' => $this->t('Counts published equipment records by their current status taxonomy term.'),
         '#raw_options' => [
           'options' => [
             'plugins' => [
@@ -109,23 +109,25 @@ class InfrastructureSection extends DashboardSectionBase {
         '#title' => $this->t('Count of tools'),
       ];
 
-      $build[$chart_id] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['metric-container']],
-        'chart' => $chart,
-        'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
-        'info' => $this->buildChartInfo([
+      $build[$chart_id] = $this->buildChartContainer(
+        $chart_id,
+        $this->t('Tools by Status'),
+        $this->t('Counts published equipment records by their current status taxonomy term.'),
+        $chart,
+        [
           $this->t('Source: Published item nodes joined to field_item_status and taxonomy term labels.'),
           $this->t('Processing: Counts each tool once regardless of category; status “Unspecified” captures items missing a taxonomy assignment.'),
           $this->t('Definitions: Status vocabulary is maintained in taxonomy.vocabulary.item_status—align naming conventions to keep the legend concise.'),
-        ]),
-      ];
+        ]
+      );
+      $build[$chart_id]['#weight'] = $weight++;
     }
     else {
       $build['tool_status_breakdown_empty'] = [
         '#markup' => $this->t('No tool records were found. Populate item nodes with status assignments to enable this chart.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 
@@ -162,18 +164,21 @@ class InfrastructureSection extends DashboardSectionBase {
         ],
         '#rows' => $rows,
         '#attributes' => ['class' => ['makerspace-dashboard-table']],
+        '#weight' => $weight++,
       ];
       $build['attention_table_info'] = $this->buildChartInfo([
         $this->t('Source: Same item dataset limited to non-operational statuses (maintenance, down, retired, etc.).'),
         $this->t('Processing: Sorts by latest update timestamp and trims to the most recent assets needing attention.'),
         $this->t('Definitions: Operational statuses are detected heuristically—ensure the taxonomy uses consistent wording for “Operational” vs “Down”.'),
       ], $this->t('Maintenance notes'));
+      $build['attention_table_info']['#weight'] = $weight++;
     }
     else {
       $build['attention_empty'] = [
         '#markup' => $this->t('All tracked tools are currently marked operational.'),
         '#prefix' => '<div class="makerspace-dashboard-empty">',
         '#suffix' => '</div>',
+        '#weight' => $weight++,
       ];
     }
 

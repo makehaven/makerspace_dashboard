@@ -7,7 +7,21 @@ use Drupal\Core\StringTranslation\TranslatableMarkup;
 /**
  * Placeholder for Development dashboard section.
  */
-class DevelopmentSection extends PlaceholderSection {
+class DevelopmentSection extends DashboardSectionBase {
+
+  /**
+   * {@inheritdoc}
+   */
+  public function build(array $filters = []): array {
+    $build = [];
+    $weight = 0;
+
+
+    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table']['#weight'] = $weight++;
+
+    return $build;
+  }
 
   /**
    * {@inheritdoc}

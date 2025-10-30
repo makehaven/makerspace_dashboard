@@ -97,6 +97,18 @@ services:
     calls:
       - [setStringTranslation, ['@string_translation']]
 
+  makerspace_dashboard.section.overview:
+    class: Drupal\makerspace_dashboard\DashboardSection\OverviewSection
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@makerspace_dashboard.snapshot_data'
+      - '@makerspace_dashboard.infrastructure_data'
+      - '@date.formatter'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
   makerspace_dashboard.section.outreach:
     class: Drupal\makerspace_dashboard\DashboardSection\OutreachSection
     arguments:
