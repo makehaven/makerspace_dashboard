@@ -145,7 +145,7 @@ class DashboardForm extends FormBase {
       $section_id = $section->getId();
       $tabs['#links'][$section_id] = [
         'title' => $section->getLabel(),
-        'url' => Url::fromRoute('makerspace_dashboard.dashboard_section', ['section_id' => $section_id]),
+        'url' => Url::fromRoute('makerspace_dashboard.section_page', ['section_id' => $section_id]),
         'attributes' => [
           'class' => ['nav-link'],
         ],
