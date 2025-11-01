@@ -121,6 +121,15 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       ];
     }
 
+    $notes = [];
+    foreach ($kpi_data as $kpi) {
+      if (!empty($kpi['description'])) {
+        $notes[] = [
+          '#markup' => '<strong>' . $kpi['label'] . ':</strong> ' . $kpi['description'],
+        ];
+      }
+    }
+
     return [
       '#type' => 'container',
       '#attributes' => ['class' => ['kpi-table-container']],
@@ -141,6 +150,14 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
         '#rows' => $rows,
         '#empty' => $this->t('KPI data is not yet available.'),
         '#attributes' => ['class' => ['kpi-table']],
+      ],
+      'notes' => [
+        '#type' => 'details',
+        '#title' => $this->t('KPI Calculation Notes'),
+        'list' => [
+          '#theme' => 'item_list',
+          '#items' => $notes,
+        ],
       ],
     ];
   }
