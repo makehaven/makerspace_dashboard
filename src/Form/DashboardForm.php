@@ -54,35 +54,35 @@ class DashboardForm extends FormBase {
   /**
    * {@inheritdoc}
    */
-  public function buildForm(array $form, FormStateInterface $form_state, string $section_id = 'overview'): array {
+  public function buildForm(array $form, FormStateInterface $form_state, string $sid = 'overview'): array {
     $form['#attributes']['class'][] = 'makerspace-dashboard-wrapper';
     $form['#method'] = 'get';
     $form['#attached']['library'][] = 'makerspace_dashboard/dashboard';
     $form['#attached']['library'][] = 'makerspace_dashboard/tabs';
 
-    $form['tabs'] = $this->buildTabs($section_id);
+    $form['tabs'] = $this->buildTabs($sid);
 
     $filters = [];
-    $section = $this->sectionManager->getSection($section_id);
+    $section = $this->sectionManager->getSection($sid);
 
     if (!$section) {
       throw new \Symfony\Component\HttpKernel\Exception\NotFoundHttpException();
     }
 
-    $form[$section_id] = [
+    $form[$sid] = [
       '#type' => 'container',
       '#attributes' => ['class' => ['makerspace-dashboard-section']],
     ];
 
     $tab_notes = $this->config('makerspace_dashboard.settings')->get('tab_notes') ?? [];
-    $note_raw = $tab_notes[$section_id] ?? '';
+    $note_raw = $tab_notes[$sid] ?? '';
     $note_value = trim((string) $note_raw);
     if ($note_value !== '') {
       $edit_link = Link::fromTextAndUrl(
         $this->t('Edit notes'),
         Url::fromRoute('makerspace_dashboard.settings', [], ['fragment' => 'edit-notes'])
       )->toRenderable();
-      $form[$section_id]['note'] = [
+      $form[$sid]['note'] = [
         '#type' => 'container',
         '#attributes' => ['class' => ['makerspace-dashboard-tab-note']],
         'text' => [
@@ -92,7 +92,7 @@ class DashboardForm extends FormBase {
       ];
     }
 
-    $form[$section_id]['content'] = $section->build($filters);
+    $form[$sid]['content'] = $section->build($filters);
 
     $form['footer_note'] = [
       '#type' => 'markup',
@@ -114,13 +114,13 @@ class DashboardForm extends FormBase {
   /**
    * Builds the dashboard tabs.
    *
-   * @param string $active_section_id
+   * @param string $active_sid
    *   The ID of the active section.
    *
    * @return array
    *   A render array for the dashboard tabs.
    */
-  protected function buildTabs(string $active_section_id): array {
+  protected function buildTabs(string $active_sid): array {
     $tabs = [
       '#theme' => 'links',
       '#links' => [],
@@ -136,7 +136,7 @@ class DashboardForm extends FormBase {
         'class' => ['nav-link'],
       ],
     ];
-    if ('overview' === $active_section_id) {
+    if ('overview' === $active_sid) {
       $tabs['#links']['overview']['attributes']['class'][] = 'active';
     }
 
@@ -145,12 +145,12 @@ class DashboardForm extends FormBase {
       $section_id = $section->getId();
       $tabs['#links'][$section_id] = [
         'title' => $section->getLabel(),
-        'url' => Url::fromRoute('makerspace_dashboard.section_page', ['section_id' => $section_id]),
+        'url' => Url::fromRoute('makerspace_dashboard.section_page', ['sid' => $section_id]),
         'attributes' => [
           'class' => ['nav-link'],
         ],
       ];
-      if ($section_id === $active_section_id) {
+      if ($section_id === $active_sid) {
         $tabs['#links'][$section_id]['attributes']['class'][] = 'active';
       }
     }
