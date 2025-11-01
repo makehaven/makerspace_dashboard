@@ -3,12 +3,12 @@ makerspace_dashboard.dashboard:
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
     _title: 'Makerspace Dashboard'
-    section_id: 'overview'
+    sid: 'overview'
   requirements:
     _permission: 'view makerspace dashboard'
 
 makerspace_dashboard.section_page:
-  path: '/makerspace-dashboard/{section_id}'
+  path: '/makerspace-dashboard/{sid}'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
     _title: 'Makerspace Dashboard'
@@ -39,10 +39,10 @@ makerspace_dashboard.settings:
     _permission: 'administer site configuration'
 
 makerspace_dashboard.download_chart_csv:
-  path: '/makerspace-dashboard/download-csv/{section_id}/{chart_id}'
+  path: '/makerspace-dashboard/download-csv/{sid}/{chart_id}'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\CsvDownloadController::downloadCsv'
   requirements:
     _permission: 'view makerspace dashboard'
-    section_id: '[a-z0-9_]+'
+    sid: '[a-z0-9_]+'
     chart_id: '[a-z0-9_]+'

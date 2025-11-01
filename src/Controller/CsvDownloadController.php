@@ -42,7 +42,7 @@ class CsvDownloadController extends ControllerBase {
   /**
    * Downloads the chart data as a CSV file.
    *
-   * @param string $section_id
+   * @param string $sid
    *   The ID of the dashboard section.
    * @param string $chart_id
    *   The ID of the chart.
@@ -50,8 +50,8 @@ class CsvDownloadController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\StreamedResponse
    *   A streamed response containing the CSV file.
    */
-  public function downloadCsv(string $section_id, string $chart_id): StreamedResponse {
-    $section = $this->dashboardSectionManager->getSection($section_id);
+  public function downloadCsv(string $sid, string $chart_id): StreamedResponse {
+    $section = $this->sectionManager->getSection($sid);
     if (!$section) {
       throw new NotFoundHttpException();
     }
