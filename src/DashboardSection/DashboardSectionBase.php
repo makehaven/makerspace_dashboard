@@ -67,7 +67,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    */
   protected function buildCsvDownloadLink(string $section_id, string $chart_id): array {
     $url = \Drupal\Core\Url::fromRoute('makerspace_dashboard.download_chart_csv', [
-      'section_id' => $section_id,
+      'sid' => $section_id,
       'chart_id' => $chart_id,
     ]);
 
