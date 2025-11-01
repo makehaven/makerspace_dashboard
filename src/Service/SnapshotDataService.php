@@ -187,4 +187,26 @@ class SnapshotDataService {
     };
   }
 
+  /**
+   * Gets the total number of new member signups for the year.
+   *
+   * @return int
+   *   The total number of new member signups.
+   */
+  public function getAnnualNewMemberSignups(): int {
+    // @todo: Replace with actual data from the snapshot service.
+    return 350;
+  }
+
+  /**
+   * Gets the total dollar value of new recurring revenue for the year.
+   *
+   * @return float
+   *   The total new recurring revenue.
+   */
+  public function getAnnualNewRecurringRevenue(): float {
+    // @todo: Replace with actual data from the snapshot service.
+    return 60000.00;
+  }
+
 }

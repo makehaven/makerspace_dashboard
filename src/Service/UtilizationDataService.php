@@ -344,4 +344,15 @@ class UtilizationDataService {
     return 'night';
   }
 
+  /**
+   * Gets the annual active participation percentage.
+   *
+   * @return float
+   *   The annual active participation percentage.
+   */
+  public function getAnnualActiveParticipation(): float {
+    // @todo: Replace with actual data from door access logs.
+    return 0.65;
+  }
+
 }

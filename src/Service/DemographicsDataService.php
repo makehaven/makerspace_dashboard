@@ -490,4 +490,26 @@ class DemographicsDataService {
     return $map[$prepared] ?? $prepared;
   }
 
+  /**
+   * Gets the annual member referral rate.
+   *
+   * @return float
+   *   The member referral rate.
+   */
+  public function getAnnualMemberReferralRate(): float {
+    // @todo: Replace with actual data from Drupal profiles.
+    return 0.35;
+  }
+
+  /**
+   * Gets the annual membership diversity (% BIPOC).
+   *
+   * @return float
+   *   The membership diversity.
+   */
+  public function getAnnualMembershipDiversity(): float {
+    // @todo: Replace with actual data from Drupal profiles.
+    return 0.18;
+  }
+
 }

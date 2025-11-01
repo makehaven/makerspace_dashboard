@@ -11,6 +11,8 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getInterestDistribution(int $minimum = 5, int $limit = 10): array` – aggregates member counts by interest field.
   - `getDiscoveryDistribution(int $minimum = 5): array` – aggregates member counts by discovery source field.
   - `getAgeDistribution(int $minimumAge = 0, int $maximumAge = 100): array` – aggregates member counts by age.
+  - `getAnnualMemberReferralRate(): float` - gets the annual member referral rate.
+  - `getAnnualMembershipDiversity(): float` - gets the annual membership diversity (% BIPOC).
 - **Notes**: Uses profile tables (`profile`, `profile__field_member_address`, etc.) and `users_field_data`. Cache tags: `profile_list`, `user_list`.
 
 ## EngagementDataService
@@ -32,6 +34,11 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getAverageTimeToJoin(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array` – gets average time from event to membership.
   - `getMonthlyRegistrationsByType(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array` – returns monthly registration counts grouped by event type.
   - `getAverageRevenuePerRegistration(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array` – returns average paid amount per registration grouped by event type and month.
+  - `getAnnualWorkshopAttendees(): int` - gets the total number of workshop attendees for the year.
+  - `getAnnualFirstTimeWorkshopParticipants(): int` - gets the total number of first-time workshop participants for the year.
+  - `getAnnualEducationNps(): int` - gets the Net Promoter Score (NPS) for the education program for the year.
+  - `getAnnualParticipantDemographics(): float` - gets the percentage of workshop participants who are BIPOC for the year.
+  - `getAnnualInstructorDemographics(): float` - gets the percentage of active instructors who are BIPOC for the year.
 - **Notes**: Queries CiviCRM tables (`civicrm_participant`, `civicrm_event`, `civicrm_uf_match`).
 
 ## FinancialDataService
@@ -42,6 +49,16 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getPaymentMix(): array` – gets payment mix data.
   - `getAverageMonthlyPaymentByType(): array` – computes average recorded monthly payment amount by membership type.
   - `getChargebeePlanDistribution(): array` – returns Chargebee plan distribution for active users.
+  - `getAverageMonthlyOperatingExpense(): float` - gets the average monthly operating expense over the last 12 months.
+  - `getEarnedIncomeSustainingCore(): float` - gets the earned income sustaining core percentage.
+  - `getAnnualMemberRevenue(): float` - gets the annual member revenue.
+  - `getAnnualNetIncomeProgramLines(): float` - gets the annual net income from program lines.
+  - `getAdherenceToShopBudget(): float` - gets the adherence to the shop budget as a variance percentage.
+  - `getAnnualIndividualGiving(): float` - gets the annual individual giving amount.
+  - `getAnnualCorporateSponsorships(): float` - gets the annual corporate sponsorships amount.
+  - `getNonGovernmentGrantsSecured(): int` - gets the number of non-government grants secured.
+  - `getDonorRetentionRate(): float` - gets the donor retention rate.
+  - `getNetIncomeEducationProgram(): float` - gets the net income from the education program.
 - **Notes**: Queries profile tables and Chargebee-related user fields.
 
 ## MembershipMetricsService
@@ -51,6 +68,8 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getFlow(\DateTimeImmutable $start, \DateTimeImmutable $end, string $granularity = 'month'): array` – returns membership inflow/outflow counts grouped by type and period.
   - `getEndReasonsByPeriod(\DateTimeImmutable $start, \DateTimeImmutable $end, string $granularity = 'month'): array` – returns membership end reasons grouped by period.
   - `getAnnualCohorts(int $startYear, int $endYear): array` – returns annual cohort retention metrics between the given years.
+  - `getAnnualMemberNps(): int` - gets the annual Member Net Promoter Score (NPS).
+  - `getAnnualRetentionPoc(): float` - gets the annual retention rate for POC members.
 - **Notes**: Relies on profile join/end date fields and membership type taxonomy; caches tagged with `profile_list`, `user_list`.
 
 ## UtilizationDataService
@@ -61,7 +80,15 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getVisitFrequencyBuckets(int $startTimestamp, int $endTimestamp): array` – builds visit frequency buckets based on distinct visit days per member.
   - `getFirstEntryBucketsByWeekday(int $startTimestamp, int $endTimestamp): array` – builds weekday/time-of-day buckets for first entries.
   - `getTimeOfDayBucketLabels(): array` – returns translated labels for time-of-day buckets.
+  - `getAnnualActiveParticipation(): float` - gets the annual active participation percentage.
 - **Notes**: Queries `access_control_log_field_data` + `access_control_log__field_access_request_user` and `user__roles`. Cache tags: `access_control_log_list`, `user_list`.
+
+## KpiDataService
+- **Class**: `Drupal\makerspace_dashboard\Service\KpiDataService`
+- **Constructor args**: `ConfigFactoryInterface`, `FinancialDataService`, `GoogleSheetClientService`, `EventsMembershipDataService`, `DemographicsDataService`, `SnapshotDataService`, `MembershipMetricsService`, `UtilizationDataService`.
+- **Core Methods**:
+  - `getKpiData(string $section_id): array` – gets all KPI data for a given section.
+- **Notes**: This service orchestrates calls to all other data services to gather and calculate KPI data. It also reads from the `makerspace_dashboard.kpis.yml` configuration file.
 
 ## Section Wiring
 - `DashboardSectionManager` assembles all sections tagged with `makerspace_dashboard.section` and injects them into the controller.

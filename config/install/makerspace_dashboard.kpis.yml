@@ -1,0 +1,235 @@
+# This file stores the static Key Performance Indicator (KPI) goals for the
+# Makerspace Dashboard, as defined in the 2025-2030 Strategic Plan.
+#
+# The data in this file is used to populate the "Base (2025)" and "2030 (Goal)"
+# columns in the KPI tables on each dashboard section.
+
+overview:
+  total_active_members:
+    label: 'Total # Active Members'
+    base_2025: 1000
+    goal_2030: 1500
+  workshop_attendees:
+    label: '# of Workshop Attendees'
+    base_2025: 1200
+    goal_2030: 2000
+  reserve_funds_months:
+    label: 'Reserve Funds (as Months of Operating Expense)'
+    base_2025: 3
+    goal_2030: 6
+
+governance:
+  board_ethnic_diversity:
+    label: 'Board Ethnic Diversity (% BIPOC)'
+    base_2025: 0.20
+    goal_2030: 0.50
+    annual_values:
+      2026: 0.25
+      2027: 0.30
+      2028: 0.35
+      2029: 0.40
+      2030: 0.45
+  board_gender_diversity:
+    label: 'Board Gender Diversity (% Female/Non-binary)'
+    base_2025: 0.40
+    goal_2030: 0.50
+    annual_values:
+      2026: 0.42
+      2027: 0.44
+      2028: 0.46
+      2029: 0.48
+      2030: 0.50
+  active_titled_recurring_volunteers:
+    label: 'Count of Active Titled Recurring Volunteers'
+    base_2025: 50
+    goal_2030: 100
+    annual_values:
+      2026: 60
+      2027: 70
+      2028: 80
+      2029: 90
+      2030: 100
+  active_committee_participation:
+    label: 'Active Committee Participation'
+    base_2025: 30
+    goal_2030: 60
+
+finance:
+  reserve_funds_months:
+    label: 'Reserve Funds (as Months of Operating Expense)'
+    base_2025: 3
+    goal_2030: 6
+  earned_income_sustaining_core:
+    label: 'Earned Income Sustaining Core %'
+    base_2025: 0.80
+    goal_2030: 1.00
+  member_revenue_quarterly:
+    label: 'Member Revenue (Quarterly)'
+    base_2025: 100000
+    goal_2030: 150000
+  net_income_program_lines:
+    label: 'Net Income (Program Lines)'
+    base_2025: 20000
+    goal_2030: 50000
+
+infrastructure:
+  member_satisfaction_equipment:
+    label: 'Member Satisfaction (Equipment)'
+    base_2025: 4.0
+    goal_2030: 4.5
+  member_satisfaction_facility_vibe:
+    label: 'Member Satisfaction (Facility/Vibe)'
+    base_2025: 4.2
+    goal_2030: 4.7
+  shop_utilization:
+    label: 'Shop Utilization (Active Participation %)'
+    base_2025: 0.60
+    goal_2030: 0.80
+  adherence_to_shop_budget:
+    label: 'Adherence to Shop Budget'
+    base_2025: 1.0
+    goal_2030: 1.0
+
+outreach:
+  total_new_member_signups:
+    label: 'Total New Member Signups'
+    base_2025: 300
+    goal_2030: 500
+  total_first_time_workshop_participants:
+    label: 'Total # First Time Workshop Participants'
+    base_2025: 400
+    goal_2030: 600
+  total_new_recurring_revenue:
+    label: 'Total $ of New Recurring Revenue'
+    base_2025: 50000
+    goal_2030: 80000
+  member_referral_rate:
+    label: 'Member Referral Rate'
+    base_2025: 0.30
+    goal_2030: 0.50
+
+retention:
+  total_active_members:
+    label: 'Total # Active Members'
+    base_2025: 1000
+    goal_2030: 1500
+  first_year_member_retention:
+    label: 'First Year Member Retention %'
+    base_2025: 0.70
+    goal_2030: 0.85
+  member_nps:
+    label: 'Member Net Promoter Score (NPS)'
+    base_2025: 50
+    goal_2030: 75
+  active_participation:
+    label: 'Active Participation %'
+    base_2025: 0.60
+    goal_2030: 0.80
+  membership_diversity_bipoc:
+    label: 'Membership Diversity (% BIPOC)'
+    base_2025: 0.15
+    goal_2030: 0.30
+
+education:
+  workshop_attendees:
+    label: '# of Workshop Attendees'
+    base_2025: 1200
+    goal_2030: 2000
+  education_nps:
+    label: 'Education Net Promoter Score (NPS)'
+    base_2025: 60
+    goal_2030: 80
+  workshop_participants_bipoc:
+    label: '% Workshop Participants (BIPOC)'
+    base_2025: 0.15
+    goal_2030: 0.30
+  active_instructors_bipoc:
+    label: '% Active Instructors (BIPOC)'
+    base_2025: 0.10
+    goal_2030: 0.25
+  net_income_education:
+    label: 'Net Income (Education Program)'
+    base_2025: 10000
+    goal_2030: 30000
+
+entrepreneurship:
+  incubator_workspace_occupancy:
+    label: 'Incubator Workspace Occupancy %'
+    base_2025: 0.75
+    goal_2030: 0.95
+    annual_values:
+      2026: 0.80
+      2027: 0.85
+      2028: 0.90
+      2029: 0.92
+      2030: 0.95
+  active_incubator_ventures:
+    label: '# of Active Incubator Ventures'
+    base_2025: 10
+    goal_2030: 20
+    annual_values:
+      2026: 12
+      2027: 14
+      2028: 16
+      2029: 18
+      2030: 20
+  entrepreneurship_events:
+    label: '# of Entrepreneurship Events Held'
+    base_2025: 5
+    goal_2030: 15
+    annual_values:
+      2026: 7
+      2027: 9
+      2028: 11
+      2029: 13
+      2030: 15
+  milestones_achieved:
+    label: '# of Milestones Achieved by Ventures'
+    base_2025: 20
+    goal_2030: 50
+    annual_values:
+      2026: 25
+      2027: 30
+      2028: 35
+      2029: 40
+      2030: 50
+
+development:
+  annual_individual_giving:
+    label: '$ Annual Individual Giving'
+    base_2025: 50000
+    goal_2030: 100000
+  annual_corporate_sponsorships:
+    label: '$ Annual Corporate Sponsorships'
+    base_2025: 25000
+    goal_2030: 75000
+  non_government_grants:
+    label: '# of Non-Government Grants Secured'
+    base_2025: 2
+    goal_2030: 5
+  donor_retention_rate:
+    label: 'Donor Retention Rate %'
+    base_2025: 0.60
+    goal_2030: 0.75
+
+dei:
+  membership_diversity_bipoc:
+    label: 'Membership Diversity (% BIPOC)'
+    base_2025: 0.15
+    goal_2030: 0.30
+  workshop_participants_bipoc:
+    label: '% Workshop Participants (BIPOC)'
+    base_2025: 0.15
+    goal_2030: 0.30
+  active_instructors_bipoc:
+    label: '% Active Instructors (BIPOC)'
+    base_2025: 0.10
+    goal_2030: 0.25
+  board_ethnic_diversity:
+    label: 'Board Ethnic diversity (% BIPOC)'
+    base_2025: 0.20
+    goal_2030: 0.50
+  retention_poc:
+    label: 'Retention POC %'
+    base_2025: 0.65
+    goal_2030: 0.80

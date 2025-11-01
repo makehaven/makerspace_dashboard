@@ -9,6 +9,7 @@ use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
 use Drupal\makerspace_dashboard\Service\SnapshotDataService;
 use Drupal\makerspace_dashboard\Service\UtilizationDataService;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Tracks recruitment and retention cohorts.
@@ -46,9 +47,14 @@ class RetentionSection extends DashboardSectionBase {
   protected SnapshotDataService $snapshotData;
 
   /**
+   * KPI data service.
+   */
+  protected KpiDataService $kpiDataService;
+
+  /**
    * Constructs the retention section.
    */
-  public function __construct(MembershipMetricsService $membership_metrics, DateFormatterInterface $date_formatter, TimeInterface $time, UtilizationDataService $utilization_data_service, ConfigFactoryInterface $config_factory, SnapshotDataService $snapshot_data) {
+  public function __construct(MembershipMetricsService $membership_metrics, DateFormatterInterface $date_formatter, TimeInterface $time, UtilizationDataService $utilization_data_service, ConfigFactoryInterface $config_factory, SnapshotDataService $snapshot_data, KpiDataService $kpi_data_service) {
     parent::__construct();
     $this->membershipMetrics = $membership_metrics;
     $this->dateFormatter = $date_formatter;
@@ -56,6 +62,7 @@ class RetentionSection extends DashboardSectionBase {
     $this->utilizationDataService = $utilization_data_service;
     $this->configFactory = $config_factory;
     $this->snapshotData = $snapshot_data;
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -80,7 +87,7 @@ class RetentionSection extends DashboardSectionBase {
     $weight = 0;
 
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('retention'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['charts_section_heading'] = [

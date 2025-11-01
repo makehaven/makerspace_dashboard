@@ -838,4 +838,59 @@ class EventsMembershipDataService {
     return array_map('trim', $parts);
   }
 
+  /**
+   * Gets the total number of workshop attendees for the year.
+   *
+   * @return int
+   *   The total number of workshop attendees.
+   */
+  public function getAnnualWorkshopAttendees(): int {
+    // @todo: Replace with actual data from CiviCRM.
+    return 1350;
+  }
+
+  /**
+   * Gets the total number of first-time workshop participants for the year.
+   *
+   * @return int
+   *   The total number of first-time workshop participants.
+   */
+  public function getAnnualFirstTimeWorkshopParticipants(): int {
+    // @todo: Replace with actual data from CiviCRM.
+    return 450;
+  }
+
+  /**
+   * Gets the Net Promoter Score (NPS) for the education program for the year.
+   *
+   * @return int
+   *   The education NPS.
+   */
+  public function getAnnualEducationNps(): int {
+    // @todo: Replace with actual data from CiviCRM evaluations.
+    return 65;
+  }
+
+  /**
+   * Gets the percentage of workshop participants who are BIPOC for the year.
+   *
+   * @return float
+   *   The percentage of BIPOC workshop participants.
+   */
+  public function getAnnualParticipantDemographics(): float {
+    // @todo: Replace with actual data from CiviCRM.
+    return 0.20;
+  }
+
+  /**
+   * Gets the percentage of active instructors who are BIPOC for the year.
+   *
+   * @return float
+   *   The percentage of BIPOC active instructors.
+   */
+  public function getAnnualInstructorDemographics(): float {
+    // @todo: Replace with actual data from CiviCRM.
+    return 0.15;
+  }
+
 }

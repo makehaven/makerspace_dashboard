@@ -217,4 +217,114 @@ class FinancialDataService {
     return $data;
   }
 
+  /**
+   * Gets the average monthly operating expense over the last 12 months.
+   *
+   * @return float
+   *   The average monthly operating expense.
+   */
+  public function getAverageMonthlyOperatingExpense(): float {
+    // @todo: Replace with actual data from Xero.
+    return 25000.00;
+  }
+
+  /**
+   * Gets the earned income sustaining core percentage.
+   *
+   * @return float
+   *   The earned income sustaining core percentage.
+   */
+  public function getEarnedIncomeSustainingCore(): float {
+    // @todo: Replace with actual data from Xero.
+    return 0.85;
+  }
+
+  /**
+   * Gets the annual member revenue.
+   *
+   * @return float
+   *   The annual member revenue.
+   */
+  public function getAnnualMemberRevenue(): float {
+    // @todo: Replace with actual data from Xero.
+    return 450000.00;
+  }
+
+  /**
+   * Gets the annual net income from program lines.
+   *
+   * @return float
+   *   The annual net income from program lines.
+   */
+  public function getAnnualNetIncomeProgramLines(): float {
+    // @todo: Replace with actual data from Xero.
+    return 25000.00;
+  }
+
+  /**
+   * Gets the adherence to the shop budget.
+   *
+   * @return float
+   *   The adherence to the shop budget as a variance percentage.
+   */
+  public function getAdherenceToShopBudget(): float {
+    // @todo: Replace with actual data from Xero.
+    return 0.98;
+  }
+
+  /**
+   * Gets the annual individual giving amount.
+   *
+   * @return float
+   *   The annual individual giving amount.
+   */
+  public function getAnnualIndividualGiving(): float {
+    // @todo: Replace with actual data from finance systems.
+    return 60000.00;
+  }
+
+  /**
+   * Gets the annual corporate sponsorships amount.
+   *
+   * @return float
+   *   The annual corporate sponsorships amount.
+   */
+  public function getAnnualCorporateSponsorships(): float {
+    // @todo: Replace with actual data from finance systems.
+    return 30000.00;
+  }
+
+  /**
+   * Gets the number of non-government grants secured.
+   *
+   * @return int
+   *   The number of non-government grants secured.
+   */
+  public function getNonGovernmentGrantsSecured(): int {
+    // @todo: Replace with actual data from finance systems.
+    return 3;
+  }
+
+  /**
+   * Gets the donor retention rate.
+   *
+   * @return float
+   *   The donor retention rate.
+   */
+  public function getDonorRetentionRate(): float {
+    // @todo: Replace with actual data from finance systems.
+    return 0.65;
+  }
+
+  /**
+   * Gets the net income from the education program.
+   *
+   * @return float
+   *   The net income from the education program.
+   */
+  public function getNetIncomeEducationProgram(): float {
+    // @todo: Replace with actual data from Xero.
+    return 15000.00;
+  }
+
 }

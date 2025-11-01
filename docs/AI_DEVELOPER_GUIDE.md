@@ -60,8 +60,18 @@ The `build()` method in each section should be organized in this order, using th
 The `DashboardSectionBase` class provides the following helper methods to build the standardized elements:
 
 -   `buildIntro(TranslatableMarkup $intro_text): array`: Builds the introductory text block.
--   `buildKpiTable(array $rows = []): array`: Builds the KPI table.
+-   `buildKpiTable(array $kpi_data = []): array`: Builds the KPI table. The `$kpi_data` argument should be the return value of `KpiDataService::getKpiData()`.
 -   `buildChartContainer(string $chart_id, TranslatableMarkup $title, TranslatableMarkup $description, array $chart, array $info): array`: Builds a container for a chart, including a title, description, the chart itself, data source information, and a CSV download link.
+
+### The KPI Table Pattern
+
+The KPI table is a standardized element that should be included at the top of each dashboard section. The data for this table is provided by the `KpiDataService`, which aggregates data from all other data services and the `makerspace_dashboard.kpis.yml` configuration file.
+
+To add the KPI table to a section, you must:
+
+1.  Inject the `KpiDataService` into the section's constructor.
+2.  Call the `buildKpiTable()` method in the section's `build()` method, passing the result of `KpiDataService::getKpiData()` as the argument.
+3.  Update the section's service definition in `makerspace_dashboard.services.yml` to include the new `KpiDataService` dependency.
 
 ### 4. Add Custom JavaScript (If Necessary)
 If your chart requires client-side interactivity beyond what the `charts` module provides:
