@@ -838,4 +838,69 @@ class EventsMembershipDataService {
     return array_map('trim', $parts);
   }
 
+  /**
+   * Gets the total number of workshop attendees for the year.
+   *
+   * @return int
+   *   The total number of workshop attendees.
+   */
+  public function getAnnualWorkshopAttendees(): int {
+    // @todo: Implement logic to get this from the CiviCRM "Event Registration
+    // Report" where the event type is "Ticketed Workshop". This will be called
+    // by the 'annual' snapshot in the makerspace_snapshot module.
+    return 1350;
+  }
+
+  /**
+   * Gets the total number of first-time workshop participants for the year.
+   *
+   * @return int
+   *   The total number of first-time workshop participants.
+   */
+  public function getAnnualFirstTimeWorkshopParticipants(): int {
+    // @todo: Implement logic to get a unique count of participants who attended
+    // their first-ever event in that year. This will be called by the 'annual'
+    // snapshot.
+    return 450;
+  }
+
+  /**
+   * Gets the Net Promoter Score (NPS) for the education program for the year.
+   *
+   * @return int
+   *   The education NPS.
+   */
+  public function getAnnualEducationNps(): int {
+    // @todo: Implement logic to query CiviCRM evaluations for the year and
+    // calculate the NPS. The formula is: ((Promoters - Detractors) / Total
+    // Responses) * 100. Promoters: 5, Passives: 4, Detractors: 1-3. This will
+    // be called by the 'annual' snapshot.
+    return 65;
+  }
+
+  /**
+   * Gets the percentage of workshop participants who are BIPOC for the year.
+   *
+   * @return float
+   *   The percentage of BIPOC workshop participants.
+   */
+  public function getAnnualParticipantDemographics(): float {
+    // @todo: Implement logic to get this from the CiviCRM report on
+    // demographics selected at registration (all not white). This will be
+    // called by the 'annual' snapshot.
+    return 0.20;
+  }
+
+  /**
+   * Gets the percentage of active instructors who are BIPOC for the year.
+   *
+   * @return float
+   *   The percentage of BIPOC active instructors.
+   */
+  public function getAnnualInstructorDemographics(): float {
+    // @todo: Implement logic to get this count from CiviCRM for the past 12
+    // months. This will be called by the 'annual' snapshot.
+    return 0.15;
+  }
+
 }

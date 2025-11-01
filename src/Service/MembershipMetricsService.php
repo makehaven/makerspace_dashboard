@@ -356,4 +356,29 @@ class MembershipMetricsService {
     return in_array($granularity, ['day', 'month', 'quarter', 'year'], TRUE) ? $granularity : 'month';
   }
 
+  /**
+   * Gets the annual Member Net Promoter Score (NPS).
+   *
+   * @return int
+   *   The annual member NPS.
+   */
+  public function getAnnualMemberNps(): int {
+    // @todo: Implement logic to get this value from the annual member survey.
+    // This will be called by the 'annual' snapshot in the makerspace_snapshot
+    // module.
+    return 55;
+  }
+
+  /**
+   * Gets the annual retention rate for POC members.
+   *
+   * @return float
+   *   The annual POC retention rate.
+   */
+  public function getAnnualRetentionPoc(): float {
+    // @todo: Implement logic to calculate this. This will be called by the
+    // 'annual' snapshot.
+    return 0.68;
+  }
+
 }

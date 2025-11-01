@@ -5,6 +5,7 @@ namespace Drupal\makerspace_dashboard\DashboardSection;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\GoogleSheetClientService;
 use Drupal\Core\StringTranslation\TranslationInterface;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Governance dashboard section.
@@ -19,16 +20,24 @@ class GovernanceSection extends DashboardSectionBase {
   protected $googleSheetClient;
 
   /**
+   * KPI data service.
+   */
+  protected KpiDataService $kpiDataService;
+
+  /**
    * Constructs a new GovernanceSection object.
    *
    * @param \Drupal\makerspace_dashboard\Service\GoogleSheetClientService $google_sheet_client
    *   The Google Sheet client service.
    * @param \Drupal\Core\StringTranslation\TranslationInterface $string_translation
    *   The string translation service.
+   * @param \Drupal\makerspace_dashboard\Service\KpiDataService $kpi_data_service
+   *   The KPI data service.
    */
-  public function __construct(GoogleSheetClientService $google_sheet_client, TranslationInterface $string_translation) {
+  public function __construct(GoogleSheetClientService $google_sheet_client, TranslationInterface $string_translation, KpiDataService $kpi_data_service) {
     $this->googleSheetClient = $google_sheet_client;
     $this->setStringTranslation($string_translation);
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -305,7 +314,7 @@ class GovernanceSection extends DashboardSectionBase {
     $weight = 0;
 
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('governance'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['data_section'] = [

@@ -7,6 +7,7 @@ use Drupal\makerspace_dashboard\Service\FinancialDataService;
 use Drupal\makerspace_dashboard\Service\SnapshotDataService;
 use Drupal\makerspace_dashboard\Service\InfrastructureDataService;
 use Drupal\Core\Datetime\DateFormatterInterface;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Defines the OverviewSection class.
@@ -17,16 +18,18 @@ class OverviewSection extends DashboardSectionBase {
   protected SnapshotDataService $snapshotDataService;
   protected InfrastructureDataService $infrastructureDataService;
   protected DateFormatterInterface $dateFormatter;
+  protected KpiDataService $kpiDataService;
 
   /**
    * Constructs the section.
    */
-  public function __construct(FinancialDataService $financial_data_service, SnapshotDataService $snapshot_data_service, InfrastructureDataService $infrastructure_data_service, DateFormatterInterface $date_formatter) {
+  public function __construct(FinancialDataService $financial_data_service, SnapshotDataService $snapshot_data_service, InfrastructureDataService $infrastructure_data_service, DateFormatterInterface $date_formatter, KpiDataService $kpi_data_service) {
     parent::__construct();
     $this->financialDataService = $financial_data_service;
     $this->snapshotDataService = $snapshot_data_service;
     $this->infrastructureDataService = $infrastructure_data_service;
     $this->dateFormatter = $date_formatter;
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -50,7 +53,7 @@ class OverviewSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('overview'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['charts_section_heading'] = [

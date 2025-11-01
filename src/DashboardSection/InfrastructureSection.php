@@ -7,6 +7,7 @@ use Drupal\Core\Link;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Url;
 use Drupal\makerspace_dashboard\Service\InfrastructureDataService;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Displays tool availability and maintenance signals.
@@ -24,12 +25,18 @@ class InfrastructureSection extends DashboardSectionBase {
   protected DateFormatterInterface $dateFormatter;
 
   /**
+   * KPI data service.
+   */
+  protected KpiDataService $kpiDataService;
+
+  /**
    * Constructs the section.
    */
-  public function __construct(InfrastructureDataService $data_service, DateFormatterInterface $date_formatter) {
+  public function __construct(InfrastructureDataService $data_service, DateFormatterInterface $date_formatter, KpiDataService $kpi_data_service) {
     parent::__construct();
     $this->dataService = $data_service;
     $this->dateFormatter = $date_formatter;
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -56,7 +63,7 @@ class InfrastructureSection extends DashboardSectionBase {
     $statusCounts = $this->dataService->getToolStatusCounts();
     $totalTools = array_sum($statusCounts);
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('infrastructure'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['charts_section_heading'] = [

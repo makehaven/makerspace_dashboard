@@ -217,4 +217,129 @@ class FinancialDataService {
     return $data;
   }
 
+  /**
+   * Gets the average monthly operating expense over the last 12 months.
+   *
+   * @return float
+   *   The average monthly operating expense.
+   */
+  public function getAverageMonthlyOperatingExpense(): float {
+    // @todo: Implement logic to get this value from Xero. This will be called
+    // by the 'annual' snapshot in the makerspace_snapshot module to calculate
+    // the "Reserve Funds (as Months of Operating Expense)" KPI.
+    return 25000.00;
+  }
+
+  /**
+   * Gets the earned income sustaining core percentage.
+   *
+   * @return float
+   *   The earned income sustaining core percentage.
+   */
+  public function getEarnedIncomeSustainingCore(): float {
+    // @todo: Implement logic to calculate this from Xero. The formula is:
+    // (Income - (grants+donations)) / (expenses- (grant program expense +capital investment)).
+    // This will be called by the 'annual' snapshot.
+    return 0.85;
+  }
+
+  /**
+   * Gets the annual member revenue.
+   *
+   * @return float
+   *   The annual member revenue.
+   */
+  public function getAnnualMemberRevenue(): float {
+    // @todo: Implement logic to get the sum of the four quarters for the year
+    // from Xero "Membership - Individual Recuring". This will be called by the
+    // 'annual' snapshot.
+    return 450000.00;
+  }
+
+  /**
+   * Gets the annual net income from program lines.
+   *
+   * @return float
+   *   The annual net income from program lines.
+   */
+  public function getAnnualNetIncomeProgramLines(): float {
+    // @todo: Implement logic to get this from Xero. Program lines include:
+    // desk rental, storage, room rental and equipment usage fees. This will be
+    // called by the 'annual' snapshot.
+    return 25000.00;
+  }
+
+  /**
+   * Gets the adherence to the shop budget.
+   *
+   * @return float
+   *   The adherence to the shop budget as a variance percentage.
+   */
+  public function getAdherenceToShopBudget(): float {
+    // @todo: Implement logic to get this from Xero as "Budget vs Shop Expense
+    // Line". This will be called by the 'annual' snapshot.
+    return 0.98;
+  }
+
+  /**
+   * Gets the annual individual giving amount.
+   *
+   * @return float
+   *   The annual individual giving amount.
+   */
+  public function getAnnualIndividualGiving(): float {
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
+    return 60000.00;
+  }
+
+  /**
+   * Gets the annual corporate sponsorships amount.
+   *
+   * @return float
+   *   The annual corporate sponsorships amount.
+   */
+  public function getAnnualCorporateSponsorships(): float {
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
+    return 30000.00;
+  }
+
+  /**
+   * Gets the number of non-government grants secured.
+   *
+   * @return int
+   *   The number of non-government grants secured.
+   */
+  public function getNonGovernmentGrantsSecured(): int {
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
+    return 3;
+  }
+
+  /**
+   * Gets the donor retention rate.
+   *
+   * @return float
+   *   The donor retention rate.
+   */
+  public function getDonorRetentionRate(): float {
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
+    return 0.65;
+  }
+
+  /**
+   * Gets the net income from the education program.
+   *
+   * @return float
+   *   The net income from the education program.
+   */
+  public function getNetIncomeEducationProgram(): float {
+    // @todo: Implement logic to get this value from Xero. The formula is:
+    // "Education ... - Education Expense ...". This will be called by the
+    // 'annual' snapshot.
+    return 15000.00;
+  }
+
 }

@@ -344,4 +344,17 @@ class UtilizationDataService {
     return 'night';
   }
 
+  /**
+   * Gets the annual active participation percentage.
+   *
+   * @return float
+   *   The annual active participation percentage.
+   */
+  public function getAnnualActiveParticipation(): float {
+    // @todo: Implement logic to count unique UIDs with door access logs in Q4
+    // and divide by `members_active` in the December snapshot. This will be
+    // called by the 'annual' snapshot in the makerspace_snapshot module.
+    return 0.65;
+  }
+
 }

@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\FinancialDataService;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Summarizes high-level financial metrics sourced from member profiles.
@@ -16,14 +17,22 @@ class FinanceSection extends DashboardSectionBase {
   protected FinancialDataService $financialDataService;
 
   /**
+   * KPI data service.
+   */
+  protected KpiDataService $kpiDataService;
+
+  /**
    * Constructs the section.
    *
    * @param \Drupal\makerspace_dashboard\Service\FinancialDataService $financial_data_service
    *   The financial data service.
+   * @param \Drupal\makerspace_dashboard\Service\KpiDataService $kpi_data_service
+   *   The KPI data service.
    */
-  public function __construct(FinancialDataService $financial_data_service) {
+  public function __construct(FinancialDataService $financial_data_service, KpiDataService $kpi_data_service) {
     parent::__construct();
     $this->financialDataService = $financial_data_service;
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -55,7 +64,7 @@ class FinanceSection extends DashboardSectionBase {
     $weight = 0;
 
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('finance'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['charts_section_heading'] = [

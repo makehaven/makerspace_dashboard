@@ -62,6 +62,18 @@ services:
       - '@database'
       - '@cache.default'
 
+  makerspace_dashboard.kpi_data:
+    class: Drupal\makerspace_dashboard\Service\KpiDataService
+    arguments:
+      - '@config.factory'
+      - '@makerspace_dashboard.financial_data'
+      - '@makerspace_dashboard.google_sheet_client'
+      - '@makerspace_dashboard.events_membership_data'
+      - '@makerspace_dashboard.demographics_data'
+      - '@makerspace_dashboard.snapshot_data'
+      - '@makerspace_dashboard.membership_metrics'
+      - '@makerspace_dashboard.utilization_data'
+
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
     arguments:
@@ -73,6 +85,7 @@ services:
     arguments:
       - '@makerspace_dashboard.google_sheet_client'
       - '@string_translation'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
       - { name: makerspace_dashboard.google_sheet_chart, label: 'Governance', tab_name: 'Governance' }
@@ -81,6 +94,7 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\FinanceSection
     arguments:
       - '@makerspace_dashboard.financial_data'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
       - { name: makerspace_dashboard.google_sheet_chart, label: 'Financial Snapshot', tab_name: 'Finance' }
@@ -92,6 +106,7 @@ services:
     arguments:
       - '@makerspace_dashboard.infrastructure_data'
       - '@date.formatter'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -104,6 +119,7 @@ services:
       - '@makerspace_dashboard.snapshot_data'
       - '@makerspace_dashboard.infrastructure_data'
       - '@date.formatter'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -113,6 +129,7 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\OutreachSection
     arguments:
       - '@makerspace_dashboard.demographics_data'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -127,6 +144,7 @@ services:
       - '@makerspace_dashboard.utilization_data'
       - '@config.factory'
       - '@makerspace_dashboard.snapshot_data'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -139,6 +157,7 @@ services:
       - '@date.formatter'
       - '@datetime.time'
       - '@makerspace_dashboard.events_membership_data'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -146,6 +165,8 @@ services:
 
   makerspace_dashboard.section.entrepreneurship:
     class: Drupal\makerspace_dashboard\DashboardSection\EntrepreneurshipSection
+    arguments:
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -153,6 +174,8 @@ services:
 
   makerspace_dashboard.section.development:
     class: Drupal\makerspace_dashboard\DashboardSection\DevelopmentSection
+    arguments:
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -162,6 +185,7 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\DeiSection
     arguments:
       - '@makerspace_dashboard.demographics_data'
+      - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

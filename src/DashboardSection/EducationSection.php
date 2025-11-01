@@ -7,6 +7,7 @@ use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\EngagementDataService;
 use Drupal\makerspace_dashboard\Service\EventsMembershipDataService;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Shows early member engagement signals like badges earned and trainings.
@@ -21,12 +22,15 @@ class EducationSection extends DashboardSectionBase {
 
   protected EventsMembershipDataService $eventsMembershipDataService;
 
-  public function __construct(EngagementDataService $data_service, DateFormatterInterface $date_formatter, TimeInterface $time, EventsMembershipDataService $events_membership_data_service) {
+  protected KpiDataService $kpiDataService;
+
+  public function __construct(EngagementDataService $data_service, DateFormatterInterface $date_formatter, TimeInterface $time, EventsMembershipDataService $events_membership_data_service, KpiDataService $kpi_data_service) {
     parent::__construct();
     $this->dataService = $data_service;
     $this->dateFormatter = $date_formatter;
     $this->time = $time;
     $this->eventsMembershipDataService = $events_membership_data_service;
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -59,7 +63,7 @@ class EducationSection extends DashboardSectionBase {
     $cohortStart = $this->dateFormatter->format($range['start']->getTimestamp(), 'custom', 'M j, Y');
     $cohortEnd = $this->dateFormatter->format($range['end']->getTimestamp(), 'custom', 'M j, Y');
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('education'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['charts_section_heading'] = [

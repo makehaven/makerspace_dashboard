@@ -105,7 +105,31 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    * @return array
    *   A render array for the KPI table.
    */
-  protected function buildKpiTable(array $rows = []): array {
+  protected function buildKpiTable(array $kpi_data = []): array {
+    $rows = [];
+    foreach ($kpi_data as $kpi_id => $kpi) {
+      $rows[] = [
+        $kpi['label'],
+        $kpi['base_2025'],
+        $kpi['2026'],
+        $kpi['2027'],
+        $kpi['2028'],
+        $kpi['2029'],
+        $kpi['2030'],
+        $kpi['goal_2030'],
+        $this->buildSparkline($kpi['trend']),
+      ];
+    }
+
+    $notes = [];
+    foreach ($kpi_data as $kpi) {
+      if (!empty($kpi['description'])) {
+        $notes[] = [
+          '#markup' => '<strong>' . $kpi['label'] . ':</strong> ' . $kpi['description'],
+        ];
+      }
+    }
+
     return [
       '#type' => 'container',
       '#attributes' => ['class' => ['kpi-table-container']],
@@ -114,14 +138,44 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
         '#type' => 'table',
         '#header' => [
           $this->t('KPI Name'),
-          $this->t('2025 Baseline'),
-          $this->t('2030 Goal'),
-          $this->t('Current'),
+          $this->t('Base (2025)'),
+          $this->t('2026'),
+          $this->t('2027'),
+          $this->t('2028'),
+          $this->t('2029'),
+          $this->t('2030 (Actual)'),
+          $this->t('2030 (Goal)'),
+          $this->t('12-Month Trend'),
         ],
         '#rows' => $rows,
         '#empty' => $this->t('KPI data is not yet available.'),
         '#attributes' => ['class' => ['kpi-table']],
       ],
+      'notes' => [
+        '#type' => 'details',
+        '#title' => $this->t('KPI Calculation Notes'),
+        'list' => [
+          '#theme' => 'item_list',
+          '#items' => $notes,
+        ],
+      ],
+    ];
+  }
+
+  /**
+   * Builds a sparkline chart.
+   *
+   * @param array $data
+   *   The data for the sparkline.
+   *
+   * @return array
+   *   A render array for the sparkline chart.
+   */
+  protected function buildSparkline(array $data): array {
+    return [
+      '#type' => 'chart',
+      '#chart_type' => 'sparkline',
+      '#data' => $data,
     ];
   }
 
