@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\DemographicsDataService;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Provides demographic breakdowns without exposing individual identities.
@@ -16,11 +17,17 @@ class OutreachSection extends DashboardSectionBase {
   protected DemographicsDataService $dataService;
 
   /**
+   * KPI data service.
+   */
+  protected KpiDataService $kpiDataService;
+
+  /**
    * Constructs the section.
    */
-  public function __construct(DemographicsDataService $data_service) {
+  public function __construct(DemographicsDataService $data_service, KpiDataService $kpi_data_service) {
     parent::__construct();
     $this->dataService = $data_service;
+    $this->kpiDataService = $kpi_data_service;
   }
 
   /**
@@ -45,7 +52,7 @@ class OutreachSection extends DashboardSectionBase {
     $weight = 0;
 
 
-    $build['kpi_table'] = $this->buildKpiTable();
+    $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('outreach'));
     $build['kpi_table']['#weight'] = $weight++;
 
     $build['charts_section_heading'] = [
