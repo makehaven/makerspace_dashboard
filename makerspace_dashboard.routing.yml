@@ -7,7 +7,7 @@ makerspace_dashboard.dashboard:
   requirements:
     _permission: 'view makerspace dashboard'
 
-makerspace_dashboard.dashboard_section:
+makerspace_dashboard.section_page:
   path: '/makerspace-dashboard/{section_id}'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
