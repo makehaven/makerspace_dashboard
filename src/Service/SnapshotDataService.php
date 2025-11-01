@@ -194,7 +194,9 @@ class SnapshotDataService {
    *   The total number of new member signups.
    */
   public function getAnnualNewMemberSignups(): int {
-    // @todo: Replace with actual data from the snapshot service.
+    // @todo: Implement logic to SUM() the 12 monthly `joins` values from the
+    // `ms_fact_org_snapshot` table. This will be called by the 'annual'
+    // snapshot in the makerspace_snapshot module.
     return 350;
   }
 
@@ -205,7 +207,10 @@ class SnapshotDataService {
    *   The total new recurring revenue.
    */
   public function getAnnualNewRecurringRevenue(): float {
-    // @todo: Replace with actual data from the snapshot service.
+    // @todo: Implement logic to SUM(plan_amount) for all new joins in the
+    // period. This will require modifying the `takeSnapshot()` method in the
+    // `makerspace_snapshot` module. This will be called by the 'annual'
+    // snapshot.
     return 60000.00;
   }
 

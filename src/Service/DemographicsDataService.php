@@ -497,7 +497,10 @@ class DemographicsDataService {
    *   The member referral rate.
    */
   public function getAnnualMemberReferralRate(): float {
-    // @todo: Replace with actual data from Drupal profiles.
+    // @todo: Implement logic to query new member profiles for
+    // `field_member_discovery_value` = 'Referral' and divide by the total
+    // number of new members in that year. This will be called by the 'annual'
+    // snapshot.
     return 0.35;
   }
 
@@ -508,7 +511,9 @@ class DemographicsDataService {
    *   The membership diversity.
    */
   public function getAnnualMembershipDiversity(): float {
-    // @todo: Replace with actual data from Drupal profiles.
+    // @todo: Implement logic to call `getEthnicityDistribution()`, sum the
+    // counts for all non-white identities, and divide by the total responses.
+    // This will be called by the 'annual' snapshot.
     return 0.18;
   }
 

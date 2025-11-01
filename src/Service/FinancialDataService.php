@@ -224,7 +224,9 @@ class FinancialDataService {
    *   The average monthly operating expense.
    */
   public function getAverageMonthlyOperatingExpense(): float {
-    // @todo: Replace with actual data from Xero.
+    // @todo: Implement logic to get this value from Xero. This will be called
+    // by the 'annual' snapshot in the makerspace_snapshot module to calculate
+    // the "Reserve Funds (as Months of Operating Expense)" KPI.
     return 25000.00;
   }
 
@@ -235,7 +237,9 @@ class FinancialDataService {
    *   The earned income sustaining core percentage.
    */
   public function getEarnedIncomeSustainingCore(): float {
-    // @todo: Replace with actual data from Xero.
+    // @todo: Implement logic to calculate this from Xero. The formula is:
+    // (Income - (grants+donations)) / (expenses- (grant program expense +capital investment)).
+    // This will be called by the 'annual' snapshot.
     return 0.85;
   }
 
@@ -246,7 +250,9 @@ class FinancialDataService {
    *   The annual member revenue.
    */
   public function getAnnualMemberRevenue(): float {
-    // @todo: Replace with actual data from Xero.
+    // @todo: Implement logic to get the sum of the four quarters for the year
+    // from Xero "Membership - Individual Recuring". This will be called by the
+    // 'annual' snapshot.
     return 450000.00;
   }
 
@@ -257,7 +263,9 @@ class FinancialDataService {
    *   The annual net income from program lines.
    */
   public function getAnnualNetIncomeProgramLines(): float {
-    // @todo: Replace with actual data from Xero.
+    // @todo: Implement logic to get this from Xero. Program lines include:
+    // desk rental, storage, room rental and equipment usage fees. This will be
+    // called by the 'annual' snapshot.
     return 25000.00;
   }
 
@@ -268,7 +276,8 @@ class FinancialDataService {
    *   The adherence to the shop budget as a variance percentage.
    */
   public function getAdherenceToShopBudget(): float {
-    // @todo: Replace with actual data from Xero.
+    // @todo: Implement logic to get this from Xero as "Budget vs Shop Expense
+    // Line". This will be called by the 'annual' snapshot.
     return 0.98;
   }
 
@@ -279,7 +288,8 @@ class FinancialDataService {
    *   The annual individual giving amount.
    */
   public function getAnnualIndividualGiving(): float {
-    // @todo: Replace with actual data from finance systems.
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
     return 60000.00;
   }
 
@@ -290,7 +300,8 @@ class FinancialDataService {
    *   The annual corporate sponsorships amount.
    */
   public function getAnnualCorporateSponsorships(): float {
-    // @todo: Replace with actual data from finance systems.
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
     return 30000.00;
   }
 
@@ -301,7 +312,8 @@ class FinancialDataService {
    *   The number of non-government grants secured.
    */
   public function getNonGovernmentGrantsSecured(): int {
-    // @todo: Replace with actual data from finance systems.
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
     return 3;
   }
 
@@ -312,7 +324,8 @@ class FinancialDataService {
    *   The donor retention rate.
    */
   public function getDonorRetentionRate(): float {
-    // @todo: Replace with actual data from finance systems.
+    // @todo: Implement logic to get this value from the finance system. This
+    // will be called by the 'annual' snapshot.
     return 0.65;
   }
 
@@ -323,7 +336,9 @@ class FinancialDataService {
    *   The net income from the education program.
    */
   public function getNetIncomeEducationProgram(): float {
-    // @todo: Replace with actual data from Xero.
+    // @todo: Implement logic to get this value from Xero. The formula is:
+    // "Education ... - Education Expense ...". This will be called by the
+    // 'annual' snapshot.
     return 15000.00;
   }
 

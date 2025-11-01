@@ -120,9 +120,42 @@ class KpiDataService {
       if (method_exists($this, $method_name)) {
         $kpi_data[$kpi_id] = $this->{$method_name}($kpi_info);
       }
+      else {
+        // Fallback for KPIs that don't have a dedicated method yet.
+        $kpi_data[$kpi_id] = $this->getPlaceholderData($kpi_info);
+      }
     }
 
     return $kpi_data;
+  }
+
+  /**
+   * Gets placeholder data for a KPI.
+   *
+   * @param array $kpi_info
+   *   The KPI configuration info.
+   *
+   * @return array
+   *   The placeholder KPI data.
+   */
+  private function getPlaceholderData(array $kpi_info): array {
+    // @todo: This is a placeholder. The actual data should be fetched from the
+    // makerspace_snapshot module's `ms_fact_org_snapshot` table. This will
+    // require modifying the makerspace_snapshot module to add new columns for
+    // each KPI and implementing the logic to calculate and save the annual
+    // snapshot data. The `trend` data should be fetched from the existing
+    // monthly snapshots.
+    return [
+      'label' => $kpi_info['label'],
+      'base_2025' => $kpi_info['base_2025'],
+      'goal_2030' => $kpi_info['goal_2030'],
+      '2026' => 'n/a',
+      '2027' => 'n/a',
+      '2028' => 'n/a',
+      '2029' => 'n/a',
+      '2030' => 'n/a',
+      'trend' => [],
+    ];
   }
 
   /**
@@ -135,6 +168,13 @@ class KpiDataService {
    *   The KPI data.
    */
   private function getTotalActiveMembersData(array $kpi_info): array {
+    // @todo: Replace placeholder data with actual data from the
+    // makerspace_snapshot module.
+    // - The yearly "Actual" values (2026-2030) should be fetched from the
+    //   `ms_fact_org_snapshot` table, from a new `kpi_total_active_members`
+    //   column, for snapshots with `snapshot_type = 'annual'`.
+    // - The `trend` data should be an array of the last 12 `members_active`
+    //   values from snapshots with `snapshot_type = 'monthly'`.
     return [
       'label' => $kpi_info['label'],
       'base_2025' => $kpi_info['base_2025'],
@@ -158,6 +198,13 @@ class KpiDataService {
    *   The KPI data.
    */
   private function getWorkshopAttendeesData(array $kpi_info): array {
+    // @todo: Replace placeholder data with actual data from the
+    // makerspace_snapshot module.
+    // - The yearly "Actual" values (2026-2030) should be fetched from the
+    //   `ms_fact_org_snapshot` table, from a new `kpi_workshop_attendees`
+    //   column, for snapshots with `snapshot_type = 'annual'`.
+    // - The `trend` data should be an array of the last 12 monthly values
+    //   from `EventsMembershipDataService::getMonthlyRegistrationsByType()`.
     return [
       'label' => $kpi_info['label'],
       'base_2025' => $kpi_info['base_2025'],
@@ -181,6 +228,12 @@ class KpiDataService {
    *   The KPI data.
    */
   private function getReserveFundsMonthsData(array $kpi_info): array {
+    // @todo: Replace placeholder data with actual data from the
+    // makerspace_snapshot module.
+    // - The yearly "Actual" values (2026-2030) should be fetched from the
+    //   `ms_fact_org_snapshot` table, from a new `kpi_reserve_funds_months`
+    //   column, for snapshots with `snapshot_type = 'annual'`.
+    // - The `trend` data should be calculated monthly.
     return [
       'label' => $kpi_info['label'],
       'base_2025' => $kpi_info['base_2025'],

@@ -351,7 +351,9 @@ class UtilizationDataService {
    *   The annual active participation percentage.
    */
   public function getAnnualActiveParticipation(): float {
-    // @todo: Replace with actual data from door access logs.
+    // @todo: Implement logic to count unique UIDs with door access logs in Q4
+    // and divide by `members_active` in the December snapshot. This will be
+    // called by the 'annual' snapshot in the makerspace_snapshot module.
     return 0.65;
   }
 
