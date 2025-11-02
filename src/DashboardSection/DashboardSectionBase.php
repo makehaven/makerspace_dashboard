@@ -119,7 +119,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     $main_header = [
       $this->t('KPI Name'),
       $this->t('Goal 2030'),
-      $this->t('Goal @year (Current)', ['@year' => $currentGoalYear]),
+      $this->t('Goal @year', ['@year' => $currentGoalYear]),
       $this->t('Current'),
       $this->t('Trend (12 month)'),
     ];

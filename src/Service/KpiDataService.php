@@ -1019,7 +1019,11 @@ class KpiDataService {
     // detected gap so the chart reflects only the populated data.
     $contiguousEntries = [];
     $previousDate = NULL;
+    $now = new \DateTimeImmutable('first day of this month');
     foreach ($entries as $monthKey => $entry) {
+      if ($entry['date'] >= $now) {
+        break;
+      }
       if ($previousDate !== NULL) {
         $diff = $this->diffInMonths($previousDate, $entry['date']);
         if ($diff > 1) {
