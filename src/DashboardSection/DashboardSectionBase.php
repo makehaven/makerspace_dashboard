@@ -212,43 +212,37 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    *   A render array for the sparkline chart.
    */
   protected function buildSparkline(array $data): array {
-    $numeric = array_values(array_filter($data, static function ($value) {
-      return is_numeric($value);
-    }));
-    if (empty($numeric)) {
-      return [
-        '#markup' => (string) $this->t('n/a'),
-      ];
+    $numeric = array_values(array_filter($data, 'is_numeric'));
+    if (count($numeric) < 2) {
+      return ['#markup' => (string) $this->t('n/a')];
     }
 
-    // Google Charts requires a header row for line charts.
-    $chart_data = [['', '']];
-    foreach ($numeric as $key => $value) {
-      $chart_data[] = [$key, $value];
+    $width = 120;
+    $height = 40;
+    $max_value = max($numeric);
+    $min_value = min($numeric);
+    $range = $max_value - $min_value;
+    if ($range == 0) {
+      $range = 1;
     }
+
+    $points = [];
+    $count = count($numeric);
+    for ($i = 0; $i < $count; $i++) {
+      $x = ($width / ($count - 1)) * $i;
+      $y = $height - (($numeric[$i] - $min_value) / $range) * $height;
+      $points[] = "{$x},{$y}";
+    }
+    $polyline_points = implode(' ', $points);
+
+    $svg = <<<SVG
+<svg width="{$width}" height="{$height}" xmlns="http://www.w3.org/2000/svg" class="sparkline">
+  <polyline points="{$polyline_points}" style="fill:none;stroke:#545454;stroke-width:2" />
+</svg>
+SVG;
 
     return [
-      '#type' => 'chart',
-      '#chart_type' => 'line',
-      '#data' => $chart_data,
-      '#options' => [
-        'legend' => 'none',
-        'tooltip.trigger' => 'none',
-        'hAxis.baselineColor' => 'transparent',
-        'hAxis.gridlineColor' => 'transparent',
-        'hAxis.textPosition' => 'none',
-        'vAxis.baselineColor' => 'transparent',
-        'vAxis.gridlineColor' => 'transparent',
-        'vAxis.textPosition' => 'none',
-        'backgroundColor' => 'transparent',
-        'chartArea.left' => 0,
-        'chartArea.top' => 0,
-        'chartArea.width' => '100%',
-        'chartArea.height' => '100%',
-        'width' => 120,
-        'height' => 40,
-        'colors' => ['#545454'],
-      ],
+      '#markup' => $svg,
     ];
   }
 
