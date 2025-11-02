@@ -190,3 +190,10 @@ services:
       - { name: makerspace_dashboard.section }
     calls:
       - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.kpi_goal_importer:
+    class: Drupal\makerspace_dashboard\Service\KpiGoalImporter
+    arguments:
+      - '@config.factory'
+      - '@file_system'
+      - '@logger.factory'

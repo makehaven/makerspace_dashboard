@@ -1,0 +1,31 @@
+makerspace_dashboard.kpis:
+  type: mapping
+  label: 'Makerspace Dashboard KPI configuration'
+  mapping:
+    '*':
+      type: mapping
+      label: 'Dashboard section'
+      mapping:
+        '*':
+          type: mapping
+          label: 'KPI definition'
+          mapping:
+            label:
+              type: label
+              label: 'Display label'
+            base_2025:
+              type: float
+              label: 'Baseline (2025)'
+            goal_2030:
+              type: float
+              label: 'Goal (2030)'
+            description:
+              type: text
+              label: 'Calculation notes'
+            annual_values:
+              type: mapping
+              label: 'Annual values'
+              mapping:
+                '*':
+                  type: float
+                  label: 'Yearly actual or waypoint'

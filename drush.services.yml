@@ -1,0 +1,7 @@
+services:
+  makerspace_dashboard.commands.kpi_goal_import:
+    class: Drupal\makerspace_dashboard\Commands\KpiGoalImportCommands
+    arguments:
+      - '@makerspace_dashboard.kpi_goal_importer'
+    tags:
+      - { name: drush.command }

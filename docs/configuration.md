@@ -20,6 +20,13 @@ The module exposes a single configuration object, `makerspace_dashboard.settings
 |-----|-------------|
 | `tab_notes.<section>` | Free-form markdown/text displayed above each tab for shared context (e.g. definitions, caveats). Supported sections: `utilization`, `demographics`, `engagement`, `events_membership`, `retention`, `financial`. |
 
+## KPI Goals & Snapshots
+
+- Baseline and goal values for each KPI live in `makerspace_dashboard.kpis`.
+- Import updated goal snapshots via `/admin/config/makerspace/dashboard/kpi-import` or with `drush makerspace-dashboard:import-kpi-goals path/to/file.csv` (see `docs/kpi-goal-import.md` for the CSV format). The importer updates labels, baseline, goals, and descriptions only—the actual KPI measurements come from snapshots.
+- `docs/kpi-snapshot-roadmap.md` tracks the plan for wiring live data into each KPI.
+- Live KPI metrics are stored in `makerspace_snapshot`'s `ms_fact_kpi_snapshot` table whenever `hook_makerspace_snapshot_collect_kpi()` returns values (the dashboard now consumes these records).
+
 ## Adding New Settings
 1. Update `config/install/makerspace_dashboard.settings.yml` with sensible defaults.
 2. Extend the schema in `config/schema/makerspace_dashboard.schema.yml`.

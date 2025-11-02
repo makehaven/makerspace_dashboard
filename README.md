@@ -37,3 +37,9 @@ These will be mirrored against CiviCRM contact data (via `field_member_crm_id`) 
 3. Convert heavier sections to `#lazy_builder` callbacks (or secondary routes) so expensive queries only execute when panels open.
 4. Define cache contexts/tags to keep charts fast while honoring real-time updates from Chargebee role revisions.
 5. Add kernel tests covering aggregation services and minimum-count privacy enforcement.
+
+## Tooling
+
+- `/admin/config/makerspace/dashboard/kpi-import` – Upload a CSV snapshot and (optionally) dry-run KPI goal metadata updates (label / baseline / goal / description) before committing them.
+- `drush makerspace-dashboard:import-kpi-goals /path/to/file.csv` – Bulk update KPI baseline, goal, and annual values from a spreadsheet export. See `docs/kpi-goal-import.md` for the CSV format.
+- `makerspace_snapshot` captures live KPI metrics via `hook_makerspace_snapshot_collect_kpi()` and persists them in `ms_fact_kpi_snapshot`, which the dashboard pulls into each KPI table.

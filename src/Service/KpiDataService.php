@@ -109,10 +109,7 @@ class KpiDataService {
    *   An array of KPI data for the section.
    */
   public function getKpiData(string $section_id): array {
-    // @todo: This is a temporary workaround to ensure the KPI tables render for
-    // UI review. This should be reverted to use the `makerspace_dashboard.kpis.yml`
-    // configuration file once the live data is implemented.
-    $kpi_config = $this->getHardcodedKpiConfig($section_id);
+    $kpi_config = $this->getMergedKpiDefinitions($section_id);
 
     if (!$kpi_config) {
       return [];
@@ -134,6 +131,66 @@ class KpiDataService {
   }
 
   /**
+   * Builds merged KPI definitions from configuration and static metadata.
+   *
+   * @param string $section_id
+   *   The dashboard section machine name.
+   *
+   * @return array
+   *   An array of KPI definition arrays keyed by KPI ID.
+   */
+  public function getAllKpiDefinitions(): array {
+    $definitions = [];
+    $metadataSections = array_keys($this->getStaticKpiMetadata(NULL));
+    foreach ($metadataSections as $sectionId) {
+      $definitions[$sectionId] = $this->getMergedKpiDefinitions($sectionId);
+    }
+
+    $configured = $this->configFactory->get('makerspace_dashboard.kpis')->getRawData() ?? [];
+    foreach (array_keys($configured) as $sectionId) {
+      if (!isset($definitions[$sectionId])) {
+        $definitions[$sectionId] = $this->getMergedKpiDefinitions($sectionId);
+      }
+    }
+
+    ksort($definitions);
+    return $definitions;
+  }
+
+  public function getSectionKpiDefinitions(string $section_id): array {
+    return $this->getMergedKpiDefinitions($section_id);
+  }
+
+  private function getMergedKpiDefinitions(string $section_id): array {
+    $config = $this->configFactory->get('makerspace_dashboard.kpis');
+    $configured = $config->get($section_id) ?? [];
+    $metadata = $this->getStaticKpiMetadata($section_id);
+
+    $kpi_ids = array_unique(array_merge(array_keys($metadata), array_keys($configured)));
+    if (!$kpi_ids) {
+      return [];
+    }
+
+    $definitions = [];
+    foreach ($kpi_ids as $kpi_id) {
+      $definition = $metadata[$kpi_id] ?? [];
+      $config_values = $configured[$kpi_id] ?? [];
+
+      $definition = array_merge($definition, $config_values);
+      if (!isset($definition['label']) || $definition['label'] === '') {
+        $definition['label'] = $kpi_id;
+      }
+      if (empty($definition['description']) && isset($metadata[$kpi_id]['description'])) {
+        $definition['description'] = $metadata[$kpi_id]['description'];
+      }
+
+      $definitions[$kpi_id] = $definition;
+    }
+
+    return $definitions;
+  }
+
+  /**
    * Gets placeholder data for a KPI.
    *
    * @param array $kpi_info
@@ -143,23 +200,47 @@ class KpiDataService {
    *   The placeholder KPI data.
    */
   private function getPlaceholderData(array $kpi_info): array {
-    // @todo: This is a placeholder. The actual data should be fetched from the
-    // makerspace_snapshot module's `ms_fact_org_snapshot` table. This will
-    // require modifying the makerspace_snapshot module to add new columns for
-    // each KPI and implementing the logic to calculate and save the annual
-    // snapshot data. The `trend` data should be fetched from the existing
-    // monthly snapshots.
+    return $this->buildKpiResult($kpi_info);
+  }
+
+  /**
+   * Normalizes common KPI result structure.
+   *
+   * @param array $kpi_info
+   *   The KPI definition from configuration/metadata.
+   * @param array $annualOverrides
+   *   Optional keyed array of year => value overrides.
+   * @param array $trend
+   *   Numeric values used to render the 12 month sparkline.
+   * @param float|null $ttm12
+   *   Trailing 12 month average (or other value depending on KPI).
+   * @param float|null $ttm3
+   *   Trailing 3 month average (or other value depending on KPI).
+   * @param string|null $lastUpdated
+   *   ISO date string representing the freshest snapshot.
+   *
+   * @return array
+   *   A normalized KPI payload.
+   */
+  private function buildKpiResult(array $kpi_info, array $annualOverrides = [], array $trend = [], ?float $ttm12 = NULL, ?float $ttm3 = NULL, ?string $lastUpdated = NULL): array {
+    $annual = $kpi_info['annual_values'] ?? [];
+    foreach ($annualOverrides as $year => $value) {
+      $annual[(string) $year] = $value;
+    }
+    if ($annual) {
+      ksort($annual, SORT_STRING);
+    }
+
     return [
-      'label' => $kpi_info['label'],
-      'base_2025' => $kpi_info['base_2025'],
-      'goal_2030' => $kpi_info['goal_2030'],
-      '2026' => 'n/a',
-      '2027' => 'n/a',
-      '2028' => 'n/a',
-      '2029' => 'n/a',
-      '2030' => 'n/a',
-      'trend' => [],
+      'label' => $kpi_info['label'] ?? '',
+      'base_2025' => $kpi_info['base_2025'] ?? NULL,
+      'goal_2030' => $kpi_info['goal_2030'] ?? NULL,
+      'annual_values' => $annual,
+      'ttm_12' => $ttm12,
+      'ttm_3' => $ttm3,
+      'trend' => $trend,
       'description' => $kpi_info['description'] ?? '',
+      'last_updated' => $lastUpdated,
     ];
   }
 
@@ -173,25 +254,83 @@ class KpiDataService {
    *   The KPI data.
    */
   private function getTotalActiveMembersData(array $kpi_info): array {
-    // @todo: Replace placeholder data with actual data from the
-    // makerspace_snapshot module.
-    // - The yearly "Actual" values (2026-2030) should be fetched from the
-    //   `ms_fact_org_snapshot` table, from a new `kpi_total_active_members`
-    //   column, for snapshots with `snapshot_type = 'annual'`.
-    // - The `trend` data should be an array of the last 12 `members_active`
-    //   values from snapshots with `snapshot_type = 'monthly'`.
-    return [
-      'label' => $kpi_info['label'],
-      'base_2025' => $kpi_info['base_2025'],
-      'goal_2030' => $kpi_info['goal_2030'],
-      '2026' => 1100,
-      '2027' => 1200,
-      '2028' => 1300,
-      '2029' => 1400,
-      '2030' => 1500,
-      'trend' => [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120],
-      'description' => $kpi_info['description'],
-    ];
+    $kpiSeries = $this->snapshotDataService->getKpiMetricSeries('total_active_members');
+
+    if (!empty($kpiSeries)) {
+      $annual = [];
+      $values = [];
+      $lastSnapshot = NULL;
+      foreach ($kpiSeries as $record) {
+        $snapshotDate = $record['snapshot_date'] ?? NULL;
+        if ($snapshotDate instanceof \DateTimeImmutable) {
+          $year = $snapshotDate->format('Y');
+        }
+        elseif (!empty($record['period_year'])) {
+          $year = (string) $record['period_year'];
+        }
+        else {
+          continue;
+        }
+
+        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
+        if ($value === NULL) {
+          continue;
+        }
+
+        $annual[$year] = $value;
+        $values[] = $value;
+        $lastSnapshot = $record;
+      }
+
+      if ($values) {
+        $trend = array_slice($values, -12);
+        $ttm12 = $this->calculateTrailingAverage($values, 12);
+        $ttm3 = $this->calculateTrailingAverage($values, 3);
+        $lastUpdated = NULL;
+        if ($lastSnapshot) {
+          if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
+            $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
+          }
+          elseif (!empty($lastSnapshot['period_year'])) {
+            $month = (int) ($lastSnapshot['period_month'] ?? 1);
+            $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
+          }
+        }
+
+        return $this->buildKpiResult($kpi_info, $annual, $trend, $ttm12, $ttm3, $lastUpdated);
+      }
+    }
+
+    $series = $this->snapshotDataService->getMembershipCountSeries('month');
+    if (empty($series)) {
+      return $this->buildKpiResult($kpi_info);
+    }
+
+    $annual = [];
+    $values = [];
+    $lastSnapshot = NULL;
+    foreach ($series as $row) {
+      if (empty($row['snapshot_date']) || !$row['snapshot_date'] instanceof \DateTimeImmutable) {
+        continue;
+      }
+      $year = $row['snapshot_date']->format('Y');
+      $membersActive = is_numeric($row['members_active']) ? (float) $row['members_active'] : NULL;
+      if ($membersActive === NULL) {
+        continue;
+      }
+      $annual[$year] = $membersActive;
+      $values[] = $membersActive;
+      $lastSnapshot = $row;
+    }
+
+    $trend = array_slice($values, -12);
+    $ttm12 = $this->calculateTrailingAverage($values, 12);
+    $ttm3 = $this->calculateTrailingAverage($values, 3);
+    $lastUpdated = $lastSnapshot && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable
+      ? $lastSnapshot['snapshot_date']->format('Y-m-d')
+      : NULL;
+
+    return $this->buildKpiResult($kpi_info, $annual, $trend, $ttm12, $ttm3, $lastUpdated);
   }
 
   /**
@@ -204,25 +343,51 @@ class KpiDataService {
    *   The KPI data.
    */
   private function getWorkshopAttendeesData(array $kpi_info): array {
-    // @todo: Replace placeholder data with actual data from the
-    // makerspace_snapshot module.
-    // - The yearly "Actual" values (2026-2030) should be fetched from the
-    //   `ms_fact_org_snapshot` table, from a new `kpi_workshop_attendees`
-    //   column, for snapshots with `snapshot_type = 'annual'`.
-    // - The `trend` data should be an array of the last 12 monthly values
-    //   from `EventsMembershipDataService::getMonthlyRegistrationsByType()`.
-    return [
-      'label' => $kpi_info['label'],
-      'base_2025' => $kpi_info['base_2025'],
-      'goal_2030' => $kpi_info['goal_2030'],
-      '2026' => $this->eventsMembershipDataService->getAnnualWorkshopAttendees(),
-      '2027' => 1500,
-      '2028' => 1600,
-      '2029' => 1800,
-      '2030' => 2000,
-      'trend' => [100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 200, 210],
-      'description' => $kpi_info['description'],
-    ];
+    $series = $this->snapshotDataService->getKpiMetricSeries('workshop_attendees');
+    if (!empty($series)) {
+      $annual = [];
+      $values = [];
+      $last = NULL;
+      foreach ($series as $record) {
+        $year = $record['period_year'] ?? ($record['snapshot_date'] instanceof \DateTimeImmutable ? (int) $record['snapshot_date']->format('Y') : NULL);
+        if (!$year) {
+          continue;
+        }
+        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
+        if ($value === NULL) {
+          continue;
+        }
+        $annual[(string) $year] = $value;
+        $values[] = $value;
+        $last = $record;
+      }
+
+      if ($values) {
+        $trend = array_slice($values, -12);
+        $ttm12 = $this->calculateTrailingAverage($values, 12);
+        $ttm3 = $this->calculateTrailingAverage($values, 3);
+        $lastUpdated = NULL;
+        if ($last) {
+          if (!empty($last['snapshot_date']) && $last['snapshot_date'] instanceof \DateTimeImmutable) {
+            $lastUpdated = $last['snapshot_date']->format('Y-m-d');
+          }
+          elseif (!empty($last['period_year'])) {
+            $month = (int) ($last['period_month'] ?? 1);
+            $lastUpdated = sprintf('%04d-%02d-01', (int) $last['period_year'], $month);
+          }
+        }
+
+        return $this->buildKpiResult($kpi_info, $annual, $trend, $ttm12, $ttm3, $lastUpdated);
+      }
+    }
+
+    $annual = [];
+    $attendees = $this->eventsMembershipDataService->getAnnualWorkshopAttendees();
+    if (is_numeric($attendees)) {
+      $annual['2026'] = (float) $attendees;
+    }
+
+    return $this->buildKpiResult($kpi_info, $annual, []);
   }
 
   /**
@@ -235,36 +400,60 @@ class KpiDataService {
    *   The KPI data.
    */
   private function getReserveFundsMonthsData(array $kpi_info): array {
-    // @todo: Replace placeholder data with actual data from the
-    // makerspace_snapshot module.
-    // - The yearly "Actual" values (2026-2030) should be fetched from the
-    //   `ms_fact_org_snapshot` table, from a new `kpi_reserve_funds_months`
-    //   column, for snapshots with `snapshot_type = 'annual'`.
-    // - The `trend` data should be calculated monthly.
-    return [
-      'label' => $kpi_info['label'],
-      'base_2025' => $kpi_info['base_2025'],
-      'goal_2030' => $kpi_info['goal_2030'],
+    // Placeholder values until financial snapshot integration is implemented.
+    $annual = [
       '2026' => 3.5,
-      '2027' => 4,
+      '2027' => 4.0,
       '2028' => 4.5,
-      '2029' => 5,
-      '2030' => 6,
-      'trend' => [3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4, 4.1],
-      'description' => $kpi_info['description'],
+      '2029' => 5.0,
+      '2030' => 6.0,
     ];
+    $trend = [3, 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 4.0, 4.1];
+
+    return $this->buildKpiResult($kpi_info, $annual, $trend);
   }
 
   /**
-   * Temporary hardcoded KPI configuration.
+   * Calculates a trailing average for the supplied window.
+   *
+   * @param array $values
+   *   Ordered numeric values.
+   * @param int $window
+   *   Number of points to include in the trailing window.
+   *
+   * @return float|null
+   *   The trailing average, or NULL if there is insufficient data.
+   */
+  private function calculateTrailingAverage(array $values, int $window): ?float {
+    if ($window <= 0 || empty($values)) {
+      return NULL;
+    }
+
+    $numeric = array_values(array_filter($values, static function ($value) {
+      return is_numeric($value);
+    }));
+    if (!$numeric) {
+      return NULL;
+    }
+
+    $slice = array_slice($numeric, -1 * min($window, count($numeric)));
+    if (!$slice) {
+      return NULL;
+    }
+
+    return array_sum($slice) / count($slice);
+  }
+
+  /**
+   * Static KPI metadata leveraged to document calculations.
    *
    * @param string $section_id
    *   The ID of the section.
    *
    * @return array
-   *   The hardcoded KPI configuration for the section.
+   *   Metadata keyed by KPI machine name.
    */
-  private function getHardcodedKpiConfig(string $section_id): array {
+  private function getStaticKpiMetadata(?string $section_id = NULL): array {
     $config = [
       'overview' => [
         'total_active_members' => [
@@ -539,6 +728,10 @@ class KpiDataService {
         ],
       ],
     ];
+
+    if ($section_id === NULL) {
+      return $config;
+    }
 
     return $config[$section_id] ?? [];
   }

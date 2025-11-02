@@ -38,3 +38,20 @@ function makerspace_dashboard_charts_process_alter(array &$build, FormStateInter
     $build['#chart']['data']['labels'] = array_map('strval', $build['#chart']['data']['labels']);
   }
 }
+
+/**
+ * Implements hook_makerspace_snapshot_collect_kpi().
+ */
+function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): array {
+  $metrics = [];
+
+  if (isset($context['members_active'])) {
+    $metrics['total_active_members'] = [
+      'value' => (int) $context['members_active'],
+      'period_year' => (int) date('Y', strtotime($context['snapshot_date'])),
+      'period_month' => (int) date('n', strtotime($context['snapshot_date'])),
+    ];
+  }
+
+  return $metrics;
+}

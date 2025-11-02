@@ -4,3 +4,10 @@ makerspace_dashboard.settings:
   route_name: makerspace_dashboard.settings
   parent: system.admin_config_system
   weight: 50
+
+makerspace_dashboard.kpi_import:
+  title: 'Import KPI goals'
+  description: 'Upload KPI goal snapshots from CSV.'
+  route_name: makerspace_dashboard.kpi_import
+  parent: system.admin_config_system
+  weight: 51

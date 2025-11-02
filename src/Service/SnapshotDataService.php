@@ -94,7 +94,13 @@ class SnapshotDataService {
       $query->condition('s.snapshot_type', $snapshotTypes, 'IN');
     }
     else {
-      $query->condition('s.snapshot_type', 'membership_totals%', 'LIKE');
+      // Default to the core snapshot cadence types when none are specified.
+      $query->condition('s.snapshot_type', [
+        'monthly',
+        'quarterly',
+        'annually',
+        'manual',
+      ], 'IN');
     }
 
     if (!$includeTests) {
@@ -149,6 +155,88 @@ class SnapshotDataService {
     $this->cache->set($cacheId, $clean, $expire, ['makerspace_snapshot:membership_totals']);
 
     return $clean;
+  }
+
+  /**
+   * Returns the stored KPI metric series for a given KPI ID.
+   */
+  public function getKpiMetricSeries(string $kpiId, bool $includeTests = FALSE, ?array $snapshotTypes = NULL, ?int $limit = NULL): array {
+    $kpiId = trim($kpiId);
+    if ($kpiId === '') {
+      return [];
+    }
+
+    $cacheIdParts = [
+      'makerspace_dashboard:snapshot:kpi',
+      $kpiId,
+      $includeTests ? 'with_tests' : 'production',
+    ];
+    if ($snapshotTypes) {
+      $cacheIdParts[] = md5(implode('|', $snapshotTypes));
+    }
+    if ($limit) {
+      $cacheIdParts[] = 'limit:' . $limit;
+    }
+    $cacheId = implode(':', $cacheIdParts);
+
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('ms_fact_kpi_snapshot') || !$schema->tableExists('ms_snapshot')) {
+      return [];
+    }
+
+    $query = $this->database->select('ms_fact_kpi_snapshot', 'k');
+    $query->innerJoin('ms_snapshot', 's', 's.id = k.snapshot_id');
+    $query->fields('k', ['metric_value', 'period_year', 'period_month', 'meta']);
+    $query->fields('s', ['snapshot_date', 'snapshot_type', 'is_test']);
+    $query->condition('k.kpi_id', $kpiId);
+
+    if ($snapshotTypes) {
+      $query->condition('s.snapshot_type', $snapshotTypes, 'IN');
+    }
+
+    if (!$includeTests) {
+      $query->condition('s.is_test', 0);
+    }
+
+    $query->orderBy('s.snapshot_date', 'DESC');
+    if ($limit !== NULL) {
+      $query->range(0, max(0, $limit));
+    }
+
+    $records = $query->execute()->fetchAll();
+    if (!$records) {
+      return [];
+    }
+
+    $series = [];
+    foreach ($records as $record) {
+      $snapshotDate = \DateTimeImmutable::createFromFormat('Y-m-d', $record->snapshot_date);
+      $value = is_numeric($record->metric_value) ? (float) $record->metric_value : $record->metric_value;
+      $series[] = [
+        'snapshot_date' => $snapshotDate ?: NULL,
+        'snapshot_type' => $record->snapshot_type,
+        'is_test' => (bool) $record->is_test,
+        'value' => $value,
+        'period_year' => $record->period_year !== NULL ? (int) $record->period_year : NULL,
+        'period_month' => $record->period_month !== NULL ? (int) $record->period_month : NULL,
+        'meta' => is_array($record->meta) ? $record->meta : [],
+      ];
+    }
+
+    // Reverse to chronological order because the query sorted descending.
+    $series = array_reverse($series);
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $series, $expire, [
+      'makerspace_snapshot:kpi',
+      'makerspace_snapshot:kpi:' . $kpiId,
+    ]);
+
+    return $series;
   }
 
   /**

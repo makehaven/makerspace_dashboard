@@ -38,6 +38,21 @@ makerspace_dashboard.settings:
   requirements:
     _permission: 'administer site configuration'
 
+makerspace_dashboard.kpi_import:
+  path: '/admin/config/makerspace/dashboard/kpi-import'
+  defaults:
+    _form: '\Drupal\makerspace_dashboard\Form\KpiGoalImportForm'
+    _title: 'Import KPI goals'
+  requirements:
+    _permission: 'administer site configuration'
+
+makerspace_dashboard.kpi_import_template:
+  path: '/admin/config/makerspace/dashboard/kpi-import/template'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\KpiGoalTemplateController::download'
+  requirements:
+    _permission: 'administer site configuration'
+
 makerspace_dashboard.download_chart_csv:
   path: '/makerspace-dashboard/download-csv/{sid}/{chart_id}'
   defaults:

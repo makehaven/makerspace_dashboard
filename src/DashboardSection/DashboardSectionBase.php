@@ -13,6 +13,13 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   use StringTranslationTrait;
 
   /**
+   * Default KPI year columns.
+   *
+   * @var string[]
+   */
+  protected const KPI_DEFAULT_YEARS = ['2026', '2027', '2028', '2029', '2030'];
+
+  /**
    * Supported time range presets.
    */
   protected const RANGE_PRESETS = [
@@ -106,29 +113,67 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    *   A render array for the KPI table.
    */
   protected function buildKpiTable(array $kpi_data = []): array {
+    $yearColumns = [];
+    foreach ($kpi_data as $kpi) {
+      if (!empty($kpi['annual_values']) && is_array($kpi['annual_values'])) {
+        foreach (array_keys($kpi['annual_values']) as $year) {
+          if ((int) $year < 2025) {
+            continue;
+          }
+          $yearColumns[(string) $year] = TRUE;
+        }
+      }
+    }
+
+    $yearColumns = array_keys($yearColumns);
+    $yearColumns = array_unique(array_merge(self::KPI_DEFAULT_YEARS, $yearColumns));
+    usort($yearColumns, static function (string $a, string $b): int {
+      return (int) $a <=> (int) $b;
+    });
+
     $rows = [];
-    foreach ($kpi_data as $kpi_id => $kpi) {
-      $rows[] = [
-        $kpi['label'],
-        $kpi['base_2025'],
-        $kpi['2026'],
-        $kpi['2027'],
-        $kpi['2028'],
-        $kpi['2029'],
-        $kpi['2030'],
-        $kpi['goal_2030'],
-        $this->buildSparkline($kpi['trend']),
+    foreach ($kpi_data as $kpi) {
+      $row = [
+        $kpi['label'] ?? '',
+        $this->formatKpiValue($kpi['base_2025'] ?? NULL),
       ];
+      foreach ($yearColumns as $year) {
+        $row[] = $this->formatKpiValue($kpi['annual_values'][$year] ?? NULL);
+      }
+      $row[] = $this->formatKpiValue($kpi['ttm_12'] ?? NULL);
+      $row[] = $this->formatKpiValue($kpi['ttm_3'] ?? NULL);
+      $row[] = $this->formatKpiValue($kpi['goal_2030'] ?? NULL);
+      $row[] = $this->buildSparkline($kpi['trend'] ?? []);
+      $rows[] = $row;
     }
 
     $notes = [];
     foreach ($kpi_data as $kpi) {
+      $noteParts = [];
       if (!empty($kpi['description'])) {
+        $noteParts[] = $kpi['description'];
+      }
+      if (!empty($kpi['last_updated'])) {
+        $noteParts[] = '<em>' . $this->t('Last snapshot: @date', ['@date' => $kpi['last_updated']]) . '</em>';
+      }
+      if ($noteParts) {
         $notes[] = [
-          '#markup' => '<strong>' . $kpi['label'] . ':</strong> ' . $kpi['description'],
+          '#markup' => '<strong>' . ($kpi['label'] ?? '') . ':</strong> ' . implode(' ', $noteParts),
         ];
       }
     }
+
+    $header = [
+      $this->t('KPI Name'),
+      $this->t('Base (2025)'),
+    ];
+    foreach ($yearColumns as $year) {
+      $header[] = $this->t('@year', ['@year' => $year]);
+    }
+    $header[] = $this->t('Trailing 12 Mo');
+    $header[] = $this->t('Trailing 3 Mo');
+    $header[] = $this->t('2030 (Goal)');
+    $header[] = $this->t('12-Month Trend');
 
     return [
       '#type' => 'container',
@@ -136,17 +181,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       'heading' => ['#markup' => '<h2>' . $this->t('Key Performance Indicators') . '</h2>'],
       'table' => [
         '#type' => 'table',
-        '#header' => [
-          $this->t('KPI Name'),
-          $this->t('Base (2025)'),
-          $this->t('2026'),
-          $this->t('2027'),
-          $this->t('2028'),
-          $this->t('2029'),
-          $this->t('2030 (Actual)'),
-          $this->t('2030 (Goal)'),
-          $this->t('12-Month Trend'),
-        ],
+        '#header' => $header,
         '#rows' => $rows,
         '#empty' => $this->t('KPI data is not yet available.'),
         '#attributes' => ['class' => ['kpi-table']],
@@ -172,11 +207,48 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    *   A render array for the sparkline chart.
    */
   protected function buildSparkline(array $data): array {
+    $numeric = array_values(array_filter($data, static function ($value) {
+      return is_numeric($value);
+    }));
+    if (empty($numeric)) {
+      return [
+        '#markup' => (string) $this->t('n/a'),
+      ];
+    }
+
     return [
       '#type' => 'chart',
       '#chart_type' => 'sparkline',
-      '#data' => $data,
+      '#data' => $numeric,
     ];
+  }
+
+  /**
+   * Formats a KPI value for display.
+   *
+   * @param mixed $value
+   *   The raw value.
+   *
+   * @return string
+   *   The formatted value.
+   */
+  protected function formatKpiValue($value): string {
+    if ($value === NULL || $value === '' || $value === 'n/a') {
+      return (string) $this->t('n/a');
+    }
+    if (is_numeric($value)) {
+      $float = (float) $value;
+      $abs = abs($float);
+      $precision = 0;
+      if ($abs < 10) {
+        $precision = 2;
+      }
+      elseif ($abs < 100) {
+        $precision = 1;
+      }
+      return number_format($float, $precision);
+    }
+    return (string) $value;
   }
 
   /**
