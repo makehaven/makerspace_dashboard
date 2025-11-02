@@ -113,38 +113,38 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    *   A render array for the KPI table.
    */
   protected function buildKpiTable(array $kpi_data = []): array {
-    $yearColumns = [];
+    // Main KPI table.
+    $main_header = [
+      $this->t('KPI Name'),
+      $this->t('Goal 2030'),
+      $this->t('Current'),
+      $this->t('Trend (12 month)'),
+    ];
+
+    $main_rows = [];
     foreach ($kpi_data as $kpi) {
-      if (!empty($kpi['annual_values']) && is_array($kpi['annual_values'])) {
-        foreach (array_keys($kpi['annual_values']) as $year) {
-          if ((int) $year < 2025) {
-            continue;
-          }
-          $yearColumns[(string) $year] = TRUE;
-        }
-      }
+      $main_rows[] = [
+        $kpi['label'] ?? '',
+        $this->formatKpiValue($kpi['goal_2030'] ?? NULL),
+        $this->formatKpiValue($kpi['ttm_3'] ?? NULL),
+        $this->buildSparkline($kpi['trend'] ?? []),
+      ];
     }
 
-    $yearColumns = array_keys($yearColumns);
-    $yearColumns = array_unique(array_merge(self::KPI_DEFAULT_YEARS, $yearColumns));
-    usort($yearColumns, static function (string $a, string $b): int {
-      return (int) $a <=> (int) $b;
-    });
+    // Annual data table.
+    $year_columns = ['2025', '2026', '2027', '2028', '2029', '2030'];
+    $annual_header = [$this->t('KPI Name')];
+    foreach ($year_columns as $year) {
+      $annual_header[] = $this->t($year);
+    }
 
-    $rows = [];
+    $annual_rows = [];
     foreach ($kpi_data as $kpi) {
-      $row = [
-        $kpi['label'] ?? '',
-        $this->formatKpiValue($kpi['base_2025'] ?? NULL),
-      ];
-      foreach ($yearColumns as $year) {
+      $row = [$kpi['label'] ?? ''];
+      foreach ($year_columns as $year) {
         $row[] = $this->formatKpiValue($kpi['annual_values'][$year] ?? NULL);
       }
-      $row[] = $this->formatKpiValue($kpi['ttm_12'] ?? NULL);
-      $row[] = $this->formatKpiValue($kpi['ttm_3'] ?? NULL);
-      $row[] = $this->formatKpiValue($kpi['goal_2030'] ?? NULL);
-      $row[] = $this->buildSparkline($kpi['trend'] ?? []);
-      $rows[] = $row;
+      $annual_rows[] = $row;
     }
 
     $notes = [];
@@ -163,38 +163,43 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       }
     }
 
-    $header = [
-      $this->t('KPI Name'),
-      $this->t('Base (2025)'),
-    ];
-    foreach ($yearColumns as $year) {
-      $header[] = $this->t('@year', ['@year' => $year]);
-    }
-    $header[] = $this->t('Trailing 12 Mo');
-    $header[] = $this->t('Trailing 3 Mo');
-    $header[] = $this->t('2030 (Goal)');
-    $header[] = $this->t('12-Month Trend');
-
-    return [
+    $build = [
       '#type' => 'container',
       '#attributes' => ['class' => ['kpi-table-container']],
       'heading' => ['#markup' => '<h2>' . $this->t('Key Performance Indicators') . '</h2>'],
       'table' => [
         '#type' => 'table',
-        '#header' => $header,
-        '#rows' => $rows,
+        '#header' => $main_header,
+        '#rows' => $main_rows,
         '#empty' => $this->t('KPI data is not yet available.'),
         '#attributes' => ['class' => ['kpi-table']],
       ],
-      'notes' => [
+    ];
+
+    if (!empty($annual_rows)) {
+      $build['annual_data_details'] = [
         '#type' => 'details',
-        '#title' => $this->t('KPI Calculation Notes'),
-        'list' => [
-          '#theme' => 'item_list',
-          '#items' => $notes,
+        '#title' => $this->t('Annual Data'),
+        'annual_table' => [
+          '#type' => 'table',
+          '#header' => $annual_header,
+          '#rows' => $annual_rows,
+          '#empty' => $this->t('Annual KPI data is not yet available.'),
+          '#attributes' => ['class' => ['kpi-annual-table']],
         ],
+      ];
+    }
+
+    $build['notes'] = [
+      '#type' => 'details',
+      '#title' => $this->t('KPI Calculation Notes'),
+      'list' => [
+        '#theme' => 'item_list',
+        '#items' => $notes,
       ],
     ];
+
+    return $build;
   }
 
   /**
