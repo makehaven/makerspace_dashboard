@@ -125,7 +125,7 @@ class DashboardForm extends FormBase {
       '#theme' => 'links',
       '#links' => [],
       '#attributes' => [
-        'class' => ['nav', 'nav-pills'],
+        'class' => ['nav', 'nav-pills', 'makerspace-dashboard-tabs'],
       ],
     ];
 

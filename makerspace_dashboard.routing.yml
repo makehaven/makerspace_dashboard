@@ -2,7 +2,7 @@ makerspace_dashboard.dashboard:
   path: '/makerspace-dashboard'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
-    _title: 'Makerspace Dashboard'
+    _title: 'Data Dashboard'
     sid: 'overview'
   requirements:
     _permission: 'view makerspace dashboard'
@@ -11,7 +11,7 @@ makerspace_dashboard.section_page:
   path: '/makerspace-dashboard/{sid}'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardController::dashboard'
-    _title: 'Makerspace Dashboard'
+    _title: 'Data Dashboard'
   requirements:
     _permission: 'view makerspace dashboard'
 makerspace_dashboard.dashboard_legacy:

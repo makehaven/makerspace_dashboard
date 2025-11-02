@@ -209,6 +209,81 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Returns monthly workshop attendance counts for the specified window.
+   *
+   * @param \DateTimeImmutable $start_date
+   *   Start of the reporting window.
+   * @param \DateTimeImmutable $end_date
+   *   End of the reporting window.
+   * @param string $eventTypeLabel
+   *   Event type label to filter by. Defaults to "Ticketed Workshop".
+   *
+   * @return array
+   *   Structured series data with keys:
+   *   - items: Ordered list of month info arrays containing:
+   *     - month_key: Canonical Y-m-01 string.
+   *     - label: Human-readable month label.
+   *     - date: \DateTimeImmutable instance.
+   *     - count: Integer registration count.
+   *   - labels: Month labels mapped from the items.
+   *   - counts: Numeric counts aligned with the labels order.
+   */
+  public function getMonthlyWorkshopAttendanceSeries(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): array {
+    $months = $this->buildMonthRange($start_date, $end_date);
+    if (empty($months)) {
+      return [
+        'items' => [],
+        'labels' => [],
+        'counts' => [],
+      ];
+    }
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:workshop_attendance:%s:%s:%s',
+      $start_date->format('Ymd'),
+      $end_date->format('Ymd'),
+      md5($eventTypeLabel)
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $registrations = $this->getMonthlyRegistrationsByType($start_date, $end_date);
+    $series = $registrations['types'][$eventTypeLabel] ?? [];
+
+    $items = [];
+    $labels = [];
+    $counts = [];
+    $index = 0;
+    $now = new \DateTimeImmutable('first day of this month');
+    foreach ($months as $monthKey => $label) {
+      $monthDate = new \DateTimeImmutable($monthKey);
+      if ($monthDate >= $now) {
+        break;
+      }
+      $count = isset($series[$index]) ? (int) $series[$index] : 0;
+      $items[] = [
+        'month_key' => $monthKey,
+        'label' => $label,
+        'date' => $monthDate,
+        'count' => $count,
+      ];
+      $labels[] = $label;
+      $counts[] = $count;
+      $index++;
+    }
+
+    $result = [
+      'items' => $items,
+      'labels' => $labels,
+      'counts' => $counts,
+    ];
+    $this->cache->set($cacheId, $result, $this->buildTtl(), ['civicrm_participant_list']);
+
+    return $result;
+  }
+
+  /**
    * Returns average paid amount per registration grouped by event type and month.
    */
   public function getAverageRevenuePerRegistration(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {

@@ -117,9 +117,9 @@ services:
     arguments:
       - '@makerspace_dashboard.financial_data'
       - '@makerspace_dashboard.snapshot_data'
-      - '@makerspace_dashboard.infrastructure_data'
       - '@date.formatter'
       - '@makerspace_dashboard.kpi_data'
+      - '@makerspace_dashboard.events_membership_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

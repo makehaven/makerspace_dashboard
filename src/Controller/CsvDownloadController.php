@@ -21,6 +21,13 @@ class CsvDownloadController extends ControllerBase {
   protected DashboardSectionManager $dashboardSectionManager;
 
   /**
+   * Backwards compatibility alias for legacy property access.
+   *
+   * @var \Drupal\makerspace_dashboard\Service\DashboardSectionManager
+   */
+  protected DashboardSectionManager $sectionManager;
+
+  /**
    * Constructs a new CsvDownloadController object.
    *
    * @param \Drupal\makerspace_dashboard\Service\DashboardSectionManager $dashboard_section_manager
@@ -28,6 +35,7 @@ class CsvDownloadController extends ControllerBase {
    */
   public function __construct(DashboardSectionManager $dashboard_section_manager) {
     $this->dashboardSectionManager = $dashboard_section_manager;
+    $this->sectionManager = $dashboard_section_manager;
   }
 
   /**
@@ -51,7 +59,7 @@ class CsvDownloadController extends ControllerBase {
    *   A streamed response containing the CSV file.
    */
   public function downloadCsv(string $sid, string $chart_id): StreamedResponse {
-    $section = $this->sectionManager->getSection($sid);
+    $section = $this->dashboardSectionManager->getSection($sid);
     if (!$section) {
       throw new NotFoundHttpException();
     }
