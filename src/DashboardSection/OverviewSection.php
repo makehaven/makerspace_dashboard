@@ -234,72 +234,71 @@ class OverviewSection extends DashboardSectionBase {
         $labels = array_map('strval', $workshopSeries['labels']);
         $counts = array_map('intval', $workshopSeries['counts']);
         $chart_id = 'workshop_attendance_trend';
-            $tooltipCallbackWorkshops = 'function(context){ var value = context && context.parsed && context.parsed.y !== undefined ? context.parsed.y : (context && context.yLabel !== undefined ? context.yLabel : (context && context.value !== undefined ? context.value : null)); if (value === null) { return ""; } var label = context.datasetIndex === 0 ? "' . $primaryLabelWorkshops . '" : "' . $trendLabelWorkshops . '"; return label + ": " + Number(value).toLocaleString() + " attendees"; }';
-            $chart = [
-                '#type' => 'chart',
-                '#chart_type' => 'line',
-                '#chart_library' => 'chartjs',
-                '#raw_options' => [
-                    'options' => [
+        $tooltipCallbackWorkshops = 'function(context){ var value = context && context.parsed && context.parsed.y !== undefined ? context.parsed.y : (context && context.yLabel !== undefined ? context.yLabel : (context && context.value !== undefined ? context.value : null)); if (value === null) { return ""; } var label = context.datasetIndex === 0 ? "' . $primaryLabelWorkshops . '" : "' . $trendLabelWorkshops . '"; return label + ": " + Number(value).toLocaleString() + " attendees"; }';
+        $chart = [
+            '#type' => 'chart',
+            '#chart_type' => 'line',
+            '#chart_library' => 'chartjs',
+            '#raw_options' => [
+                'options' => [
+                    'legend' => ['display' => FALSE],
+                    'tooltips' => [
+                        'mode' => 'index',
+                        'intersect' => FALSE,
+                        'callbacks' => [
+                            'label' => $tooltipCallbackWorkshops,
+                        ],
+                    ],
+                    'plugins' => [
                         'legend' => ['display' => FALSE],
-                        'tooltips' => [
+                        'tooltip' => [
                             'mode' => 'index',
                             'intersect' => FALSE,
                             'callbacks' => [
                                 'label' => $tooltipCallbackWorkshops,
                             ],
                         ],
-                        'plugins' => [
-                            'legend' => ['display' => FALSE],
-                            'tooltip' => [
-                                'mode' => 'index',
-                                'intersect' => FALSE,
-                                'callbacks' => [
-                                    'label' => $tooltipCallbackWorkshops,
-                                ],
-                            ],
-                        ],
-                        'interaction' => [
-                            'mode' => 'index',
-                            'intersect' => FALSE,
-                        ],
-                        'hover' => [
-                            'mode' => 'index',
-                            'intersect' => FALSE,
-                        ],
+                    ],
+                    'interaction' => [
+                        'mode' => 'index',
+                        'intersect' => FALSE,
+                    ],
+                    'hover' => [
+                        'mode' => 'index',
+                        'intersect' => FALSE,
                     ],
                 ],
-            ];
-            $chart['series'] = [
-                '#type' => 'chart_data',
-                '#title' => $this->t('Monthly attendees'),
-                '#data' => $counts,
-                '#color' => '#64748b',
-                '#options' => [
-                    'pointRadius' => 3,
-                    'pointBackgroundColor' => '#64748b',
-                    'fill' => FALSE,
-                ],
-            ];
-            if ($trend = $this->buildTrendDataset($counts, $this->t('Trend'), '#9ca3af')) {
-                $chart['trend'] = $trend;
-            }
-            $chart['xaxis'] = [
-                '#type' => 'chart_xaxis',
-                '#labels' => $labels,
-            ];
-            $build[$chart_id] = $this->buildChartContainer(
-                $chart_id,
-                $this->t('Workshop Attendance (Ticketed Workshops)'),
-                $this->t('Displays the monthly count of participants registered for ticketed workshops over the past two years.'),
-                $chart,
-                [
-                  $this->t('Source: CiviCRM participant records with counted statuses and event type "Ticketed Workshop".'),
-                  $this->t('Processing: Groups registrations by workshop month; months with no registrations render as zero.'),
-                ]
-            );
-            $build[$chart_id]['#weight'] = $weight++;
+            ],
+        ];
+        $chart['series'] = [
+            '#type' => 'chart_data',
+            '#title' => $this->t('Monthly attendees'),
+            '#data' => $counts,
+            '#color' => '#64748b',
+            '#options' => [
+                'pointRadius' => 3,
+                'pointBackgroundColor' => '#64748b',
+                'fill' => FALSE,
+            ],
+        ];
+        if ($trend = $this->buildTrendDataset($counts, $this->t('Trend'), '#9ca3af')) {
+            $chart['trend'] = $trend;
         }
+        $chart['xaxis'] = [
+            '#type' => 'chart_xaxis',
+            '#labels' => $labels,
+        ];
+        $build[$chart_id] = $this->buildChartContainer(
+            $chart_id,
+            $this->t('Workshop Attendance (Ticketed Workshops)'),
+            $this->t('Displays the monthly count of participants registered for ticketed workshops over the past two years.'),
+            $chart,
+            [
+              $this->t('Source: CiviCRM participant records with counted statuses and event type "Ticketed Workshop".'),
+              $this->t('Processing: Groups registrations by workshop month; months with no registrations render as zero.'),
+            ]
+        );
+        $build[$chart_id]['#weight'] = $weight++;
     }
 
     // Reserve Funds (Months of Operating Expense)
