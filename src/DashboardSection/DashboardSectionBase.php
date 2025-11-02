@@ -221,10 +221,40 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       ];
     }
 
+    // Google Charts requires a header row for line charts.
+    $chart_data = [['', '']];
+    foreach ($numeric as $key => $value) {
+      $chart_data[] = [$key, $value];
+    }
+
     return [
       '#type' => 'chart',
-      '#chart_type' => 'sparkline',
-      '#data' => $numeric,
+      '#chart_type' => 'line',
+      '#data' => $chart_data,
+      '#options' => [
+        'legend' => 'none',
+        'tooltip' => ['trigger' => 'none'],
+        'hAxis' => [
+          'baselineColor' => 'transparent',
+          'gridlineColor' => 'transparent',
+          'textPosition' => 'none',
+        ],
+        'vAxis' => [
+          'baselineColor' => 'transparent',
+          'gridlineColor' => 'transparent',
+          'textPosition' => 'none',
+        ],
+        'backgroundColor' => 'transparent',
+        'chartArea' => [
+          'left' => 0,
+          'top' => 0,
+          'width' => '100%',
+          'height' => '100%',
+        ],
+        'width' => '100px',
+        'height' => '25px',
+        'colors' => ['#545454'],
+      ],
     ];
   }
 
