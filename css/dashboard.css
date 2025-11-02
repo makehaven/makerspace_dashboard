@@ -2,6 +2,12 @@
   padding: 1.5rem 1rem 2rem;
 }
 
+.makerspace-dashboard-tabs {
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid #d0d7de;
+}
+
 .makerspace-dashboard-section {
   margin-bottom: 2.5rem;
 }

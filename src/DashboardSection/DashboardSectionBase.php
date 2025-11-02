@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
+use Drupal\Core\Render\Markup;
 use Drupal\makerspace_dashboard\DashboardSectionInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
@@ -17,7 +18,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    *
    * @var string[]
    */
-  protected const KPI_DEFAULT_YEARS = ['2026', '2027', '2028', '2029', '2030'];
+  protected const KPI_DEFAULT_YEARS = ['2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
   /**
    * Supported time range presets.
@@ -114,9 +115,11 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    */
   protected function buildKpiTable(array $kpi_data = []): array {
     // Main KPI table.
+    $currentGoalYear = $this->determineDisplayGoalYear($kpi_data);
     $main_header = [
       $this->t('KPI Name'),
       $this->t('Goal 2030'),
+      $this->t('Goal @year (Current)', ['@year' => $currentGoalYear]),
       $this->t('Current'),
       $this->t('Trend (12 month)'),
     ];
@@ -126,13 +129,21 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       $main_rows[] = [
         $kpi['label'] ?? '',
         $this->formatKpiValue($kpi['goal_2030'] ?? NULL),
-        $this->formatKpiValue($kpi['ttm_3'] ?? NULL),
-        $this->buildSparkline($kpi['trend'] ?? []),
+        $this->formatKpiValue($kpi['goal_current_year'] ?? NULL),
+        $this->formatKpiValue($kpi['current'] ?? NULL),
+        [
+          'data' => [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['kpi-sparkline-wrapper']],
+            'sparkline' => $this->buildSparkline($kpi['trend'] ?? []),
+          ],
+          'attributes' => ['class' => 'kpi-sparkline-cell'],
+        ],
       ];
     }
 
     // Annual data table.
-    $year_columns = ['2025', '2026', '2027', '2028', '2029', '2030'];
+    $year_columns = self::KPI_DEFAULT_YEARS;
     $annual_header = [$this->t('KPI Name')];
     foreach ($year_columns as $year) {
       $annual_header[] = $this->t($year);
@@ -242,8 +253,28 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
 SVG;
 
     return [
-      '#markup' => $svg,
+      '#markup' => Markup::create($svg),
     ];
+  }
+
+  /**
+   * Returns the current calendar year used for goal comparisons.
+   */
+  protected function getCurrentGoalYear(): int {
+    return (int) (new \DateTimeImmutable())->format('Y');
+  }
+
+  /**
+   * Determines which goal year label to display for the table.
+   */
+  protected function determineDisplayGoalYear(array $kpi_data): int {
+    $currentYear = $this->getCurrentGoalYear();
+    foreach ($kpi_data as $kpi) {
+      if (!empty($kpi['goal_current_year_label'])) {
+        return (int) $kpi['goal_current_year_label'];
+      }
+    }
+    return $currentYear;
   }
 
   /**
