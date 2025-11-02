@@ -225,29 +225,15 @@ class OverviewSection extends DashboardSectionBase {
     }
 
     // Workshop Attendees (Monthly Totals)
-    $workshopEnd = new \DateTimeImmutable('first day of this month');
+    $workshopEnd = new \DateTimeImmutable('last day of last month');
     $workshopStart = $workshopEnd->modify('-23 months');
     $workshopSeries = $this->eventsMembershipDataService->getMonthlyWorkshopAttendanceSeries($workshopStart, $workshopEnd);
     if (!empty($workshopSeries['counts'])) {
-        $items = $workshopSeries['items'] ?? [];
-        $countsSource = $workshopSeries['counts'];
-        $labelsSource = $workshopSeries['labels'];
-        if (!empty($items)) {
-            $latestItem = end($items);
-            if (!empty($latestItem['date']) && $latestItem['date'] instanceof \DateTimeImmutable) {
-                $firstDayCurrent = new \DateTimeImmutable('first day of this month');
-                if ($latestItem['date'] >= $firstDayCurrent) {
-                    array_pop($countsSource);
-                    array_pop($labelsSource);
-                }
-            }
-        }
-        if (!empty($countsSource)) {
-            $primaryLabelWorkshops = addslashes((string) $this->t('Monthly attendees'));
-            $trendLabelWorkshops = addslashes((string) $this->t('Trend'));
-            $labels = array_map('strval', $labelsSource);
-            $counts = array_map('intval', $countsSource);
-            $chart_id = 'workshop_attendance_trend';
+        $primaryLabelWorkshops = addslashes((string) $this->t('Monthly attendees'));
+        $trendLabelWorkshops = addslashes((string) $this->t('Trend'));
+        $labels = array_map('strval', $workshopSeries['labels']);
+        $counts = array_map('intval', $workshopSeries['counts']);
+        $chart_id = 'workshop_attendance_trend';
             $tooltipCallbackWorkshops = 'function(context){ var value = context && context.parsed && context.parsed.y !== undefined ? context.parsed.y : (context && context.yLabel !== undefined ? context.yLabel : (context && context.value !== undefined ? context.value : null)); if (value === null) { return ""; } var label = context.datasetIndex === 0 ? "' . $primaryLabelWorkshops . '" : "' . $trendLabelWorkshops . '"; return label + ": " + Number(value).toLocaleString() + " attendees"; }';
             $chart = [
                 '#type' => 'chart',
