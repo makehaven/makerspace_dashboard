@@ -197,3 +197,19 @@ services:
       - '@config.factory'
       - '@file_system'
       - '@logger.factory'
+
+  Drupal\search_api\Hook\SearchApiHooks:
+    class: Drupal\search_api\Hook\SearchApiHooks
+    arguments:
+      - '@entity_type.manager'
+      - '@entity_type.bundle.info'
+      - '@config.factory'
+      - '@module_handler'
+      - '@request_stack'
+      - '@search_api.task_manager'
+      - '@search_api.server_task_manager'
+      - '@search_api.tracking_helper'
+      - '@plugin.manager.search_api.display'
+      - '@messenger'
+      - '@logger.channel.search_api'
+      - '@?plugin.manager.views.row'
