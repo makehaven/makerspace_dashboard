@@ -34,6 +34,11 @@ class SnapshotDataService {
   protected int $ttl;
 
   /**
+   * Cached indicator for the snapshot is_test flag availability.
+   */
+  protected ?bool $snapshotHasTestFlag = NULL;
+
+  /**
    * Constructs the service.
    */
   public function __construct(Connection $database, CacheBackendInterface $cache, TimeInterface $time, int $ttl = 900) {
@@ -86,8 +91,13 @@ class SnapshotDataService {
     }
 
     $query = $this->database->select('ms_snapshot', 's');
+    $hasTestFlag = $this->snapshotHasTestFlag();
     $query->innerJoin('ms_fact_org_snapshot', 'o', 'o.snapshot_id = s.id');
-    $query->fields('s', ['snapshot_date', 'snapshot_type', 'is_test']);
+    $snapshotFields = ['snapshot_date', 'snapshot_type'];
+    if ($hasTestFlag) {
+      $snapshotFields[] = 'is_test';
+    }
+    $query->fields('s', $snapshotFields);
     $query->fields('o', ['members_active']);
 
     if ($snapshotTypes) {
@@ -103,7 +113,7 @@ class SnapshotDataService {
       ], 'IN');
     }
 
-    if (!$includeTests) {
+    if (!$includeTests && $hasTestFlag) {
       $query->condition('s.is_test', 0);
     }
 
@@ -189,16 +199,21 @@ class SnapshotDataService {
     }
 
     $query = $this->database->select('ms_fact_kpi_snapshot', 'k');
+    $hasTestFlag = $this->snapshotHasTestFlag();
     $query->innerJoin('ms_snapshot', 's', 's.id = k.snapshot_id');
     $query->fields('k', ['metric_value', 'period_year', 'period_month', 'meta']);
-    $query->fields('s', ['snapshot_date', 'snapshot_type', 'is_test']);
+    $snapshotFields = ['snapshot_date', 'snapshot_type'];
+    if ($hasTestFlag) {
+      $snapshotFields[] = 'is_test';
+    }
+    $query->fields('s', $snapshotFields);
     $query->condition('k.kpi_id', $kpiId);
 
     if ($snapshotTypes) {
       $query->condition('s.snapshot_type', $snapshotTypes, 'IN');
     }
 
-    if (!$includeTests) {
+    if (!$includeTests && $hasTestFlag) {
       $query->condition('s.is_test', 0);
     }
 
@@ -219,7 +234,7 @@ class SnapshotDataService {
       $series[] = [
         'snapshot_date' => $snapshotDate ?: NULL,
         'snapshot_type' => $record->snapshot_type,
-        'is_test' => (bool) $record->is_test,
+        'is_test' => $hasTestFlag ? (bool) $record->is_test : FALSE,
         'value' => $value,
         'period_year' => $record->period_year !== NULL ? (int) $record->period_year : NULL,
         'period_month' => $record->period_month !== NULL ? (int) $record->period_month : NULL,
@@ -249,6 +264,16 @@ class SnapshotDataService {
       throw new InvalidArgumentException(sprintf('Unsupported granularity "%s".', $granularity));
     }
     return $granularity;
+  }
+
+  /**
+   * Determines whether the ms_snapshot table still exposes the is_test flag.
+   */
+  protected function snapshotHasTestFlag(): bool {
+    if ($this->snapshotHasTestFlag === NULL) {
+      $this->snapshotHasTestFlag = $this->database->schema()->fieldExists('ms_snapshot', 'is_test');
+    }
+    return $this->snapshotHasTestFlag;
   }
 
   /**
