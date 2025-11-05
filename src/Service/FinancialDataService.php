@@ -203,7 +203,40 @@ class FinancialDataService {
     $query->addExpression("COALESCE(NULLIF(plan.field_user_chargebee_plan_value, ''), 'Unassigned')", 'plan_label');
     $query->addExpression('COUNT(DISTINCT plan.entity_id)', 'member_count');
     $query->innerJoin('users_field_data', 'u', 'u.uid = plan.entity_id');
+    $query->innerJoin('user__roles', 'member_role', "member_role.entity_id = u.uid AND member_role.roles_target_id = 'member'");
     $query->condition('u.status', 1);
+    $query->condition('plan.deleted', 0);
+
+    $has_chargebee_pause = $this->database->schema()->tableExists('user__field_chargebee_payment_pause');
+    $has_manual_pause = $this->database->schema()->tableExists('user__field_manual_pause');
+
+    if ($has_chargebee_pause) {
+      $query->leftJoin('user__field_chargebee_payment_pause', 'chargebee_pause', 'chargebee_pause.entity_id = u.uid AND chargebee_pause.deleted = 0');
+    }
+    if ($has_manual_pause) {
+      $query->leftJoin('user__field_manual_pause', 'manual_pause', 'manual_pause.entity_id = u.uid AND manual_pause.deleted = 0');
+    }
+
+    $active_group = $query->andConditionGroup();
+
+    if ($has_chargebee_pause) {
+      $chargebee_not_paused = $query->orConditionGroup()
+        ->isNull('chargebee_pause.field_chargebee_payment_pause_value')
+        ->condition('chargebee_pause.field_chargebee_payment_pause_value', 0);
+      $active_group->condition($chargebee_not_paused);
+    }
+
+    if ($has_manual_pause) {
+      $manual_not_paused = $query->orConditionGroup()
+        ->isNull('manual_pause.field_manual_pause_value')
+        ->condition('manual_pause.field_manual_pause_value', 0);
+      $active_group->condition($manual_not_paused);
+    }
+
+    if ($has_chargebee_pause || $has_manual_pause) {
+      $query->condition($active_group);
+    }
+
     $query->groupBy('plan_label');
     $query->orderBy('member_count', 'DESC');
 
