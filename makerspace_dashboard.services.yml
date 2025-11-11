@@ -36,6 +36,14 @@ services:
       - '@cache.default'
       - '@datetime.time'
 
+  makerspace_dashboard.development_data:
+    class: Drupal\makerspace_dashboard\Service\DevelopmentDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+      - '@config.factory'
+
   makerspace_dashboard.engagement_data:
     class: Drupal\makerspace_dashboard\Service\EngagementDataService
     arguments:
@@ -176,6 +184,7 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\DevelopmentSection
     arguments:
       - '@makerspace_dashboard.kpi_data'
+      - '@makerspace_dashboard.development_data'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
