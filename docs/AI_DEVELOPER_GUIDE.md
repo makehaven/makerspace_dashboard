@@ -36,11 +36,11 @@ This is where you build the chart itself.
     - **File:** `src/DashboardSection/NewSectionName.php`
     - **Action:**
         1. Call the data service to get your data.
-        2. Build a Drupal Render Array using the `charts` module API.
+        2. Build a Drupal render array using the `charts` module API (line, bar, pie, etc.). The React serializer still expects the `chart_data` structures provided by that module even though the markup is no longer rendered server-side.
         3. **Important:** Set the legend position to `top` for Pie/Doughnut charts to avoid library bugs.
         4. **Important:** Explicitly cast all chart labels to strings (`array_map('strval', ...)`).
         5. Add the appropriate cache tags from your data service.
-        6. Return the render array.
+        6. Return the render array. `buildChartContainer()` will serialize the chart into JSON for `/makerspace-dashboard/api/chart/{section}/{chart}` and inject the React placeholder automatically—no manual JS is required.
 
 ## Standardized Dashboard Structure
 
@@ -61,7 +61,7 @@ The `DashboardSectionBase` class provides the following helper methods to build 
 
 -   `buildIntro(TranslatableMarkup $intro_text): array`: Builds the introductory text block.
 -   `buildKpiTable(array $kpi_data = []): array`: Builds the KPI table. The `$kpi_data` argument should be the return value of `KpiDataService::getKpiData()`.
--   `buildChartContainer(string $chart_id, TranslatableMarkup $title, TranslatableMarkup $description, array $chart, array $info): array`: Builds a container for a chart, including a title, description, the chart itself, data source information, and a CSV download link.
+-   `buildChartContainer(string $chart_id, TranslatableMarkup $title, TranslatableMarkup $description, array $chart, array $info): array`: Builds the server-rendered wrapper for a chart, including a React placeholder, description, data-source notes, and the CSV download link. The `$chart` render array you pass in is serialized to JSON so the React bundle can draw the visualization.
 
 ### The KPI Table Pattern
 
@@ -73,17 +73,15 @@ To add the KPI table to a section, you must:
 2.  Call the `buildKpiTable()` method in the section's `build()` method, passing the result of `KpiDataService::getKpiData()` as the argument.
 3.  Update the section's service definition in `makerspace_dashboard.services.yml` to include the new `KpiDataService` dependency.
 
-### 4. Add Custom JavaScript (If Necessary)
-If your chart requires client-side interactivity beyond what the `charts` module provides:
+### 4. Update the React Bundle (If Necessary)
+Most interactions are handled by the shared React app under `js/react-app`. If you need new client-side behavior:
 
-- **Create a new JS file.**
-    - **File:** `js/new-feature.js`
-- **Define a new library.**
-    - **File:** `makerspace_dashboard.libraries.yml`
-    - **Action:** Add a new library definition and declare your JS file and any dependencies (e.g., `core/drupal`, `core/jquery`).
-- **Attach the library.**
-    - **File:** `src/DashboardSection/NewSectionName.php`
-    - **Action:** In your `build()` method, add the `'#attached'` key to your render array to attach your new library.
+- **Add or update a component.**
+    - **File:** `js/react-app/src/**/*.tsx`
+    - **Action:** Extend the existing `DashboardChart`/`ChartRenderer` components so they understand your new data structure.
+- **Run the build.**
+    - `cd js/react-app && npm install && npm run build`
+    - This regenerates `js/react-app/dist/dashboard.js`, which Drupal loads via the `makerspace_dashboard/react_app` library.
 
 ## How to Use This Guide with an AI
 

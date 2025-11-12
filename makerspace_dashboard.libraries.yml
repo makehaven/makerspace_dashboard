@@ -5,9 +5,22 @@ dashboard:
       css/dashboard.css: {}
   js:
     js/makerspace_dashboard.tabs.js: {}
-    js/makerspace_dashboard.ranges.js: {}
   dependencies:
     - core/jquery
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+
+react_app:
+  version: 1.x
+  css:
+    theme:
+      css/react-dashboard.css: {}
+  js:
+    js/react-app/dist/dashboard.js:
+      attributes:
+        type: module
+  dependencies:
     - core/drupal
     - core/drupalSettings
     - core/once

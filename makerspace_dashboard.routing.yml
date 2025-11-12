@@ -20,16 +20,15 @@ makerspace_dashboard.dashboard_legacy:
     _controller: '\Drupal\makerspace_dashboard\Controller\DashboardRedirectController::legacyRedirect'
   requirements:
     _permission: 'view makerspace dashboard'
-makerspace_dashboard.chart_range:
-  path: '/makerspace-dashboard/chart/{section}/{chart}/{range}'
+makerspace_dashboard.chart_data:
+  path: '/makerspace-dashboard/api/chart/{section}/{chart}'
   defaults:
-    _controller: '\Drupal\makerspace_dashboard\Controller\DashboardChartController::chart'
+    _controller: '\Drupal\makerspace_dashboard\Controller\DashboardDataController::chart'
     _format: 'json'
   requirements:
     _permission: 'view makerspace dashboard'
     section: '[a-z0-9_]+'
     chart: '[a-z0-9_]+'
-    range: '[a-z0-9]+'
 makerspace_dashboard.settings:
   path: '/admin/config/makerspace/dashboard'
   defaults:

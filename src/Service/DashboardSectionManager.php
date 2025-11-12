@@ -58,4 +58,15 @@ class DashboardSectionManager {
     return $section->buildChart($chartId, $filters);
   }
 
+  /**
+   * Builds chart metadata suitable for React rendering.
+   */
+  public function getChartDefinition(string $sectionId, string $chartId, array $filters = []): ?array {
+    $chart = $this->buildSectionChart($sectionId, $chartId, $filters);
+    if (!$chart) {
+      return NULL;
+    }
+    return $chart['#makerspace_chart'] ?? NULL;
+  }
+
 }

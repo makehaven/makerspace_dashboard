@@ -2,7 +2,9 @@
 
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Url;
 use Drupal\makerspace_dashboard\DashboardSectionInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
@@ -322,21 +324,51 @@ SVG;
    * @return array
    *   A render array for the chart container.
    */
-  protected function buildChartContainer(string $chart_id, \Drupal\Core\StringTranslation\TranslatableMarkup $title, \Drupal\Core\StringTranslation\TranslatableMarkup $description, array $chart, array $info, array $rangeControls = []): array {
+  protected function buildChartContainer(string $chart_id, \Drupal\Core\StringTranslation\TranslatableMarkup $title, \Drupal\Core\StringTranslation\TranslatableMarkup $description, array $chart, array $info): array {
+    $placeholder_id = $this->buildChartDomId($chart_id);
+    $metadata = [
+      'sectionId' => $this->getId(),
+      'chartId' => $chart_id,
+      'title' => (string) $title,
+      'description' => (string) $description,
+      'notes' => $this->stringifyInfoItems($info),
+      'downloadUrl' => Url::fromRoute('makerspace_dashboard.download_chart_csv', [
+        'sid' => $this->getId(),
+        'chart_id' => $chart_id,
+      ])->toString(),
+      'range' => NULL,
+      'visualization' => $this->serializeRenderable($chart),
+    ];
+
     $container = [
       '#type' => 'container',
       '#attributes' => ['class' => ['metric-container']],
+      '#react_placeholder_id' => $placeholder_id,
+      '#makerspace_chart' => $metadata,
       'title' => ['#markup' => '<h3>' . $title . '</h3>'],
       'description' => ['#markup' => '<p>' . $description . '</p>'],
+      'chart_placeholder' => [
+        '#type' => 'container',
+        '#attributes' => [
+          'id' => $placeholder_id,
+          'class' => ['makerspace-dashboard-react-chart'],
+          'data-section-id' => $this->getId(),
+          'data-chart-id' => $chart_id,
+          'data-react-id' => $placeholder_id,
+        ],
+        'fallback' => [
+          '#markup' => '<div class="makerspace-dashboard-react-chart__status">' . $this->t('Loading chart…') . '</div>',
+        ],
+      ],
+      'info' => $this->buildChartInfo($info),
+      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
     ];
 
-    if (!empty($rangeControls)) {
-      $container['range_controls'] = $rangeControls;
-    }
-
-    $container['chart'] = $chart;
-    $container['info'] = $this->buildChartInfo($info);
-    $container['download'] = $this->buildCsvDownloadLink($this->getId(), $chart_id);
+    $container['#attached']['library'][] = 'makerspace_dashboard/react_app';
+    $container['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholder_id] = [
+      'sectionId' => $this->getId(),
+      'chartId' => $chart_id,
+    ];
 
     return $container;
   }
@@ -346,6 +378,339 @@ SVG;
    */
   public function getGoogleSheetChartMetadata(): array {
     return [];
+  }
+
+  /**
+   * Builds a DOM-safe identifier for a chart placeholder.
+   */
+  protected function buildChartDomId(string $chartId): string {
+    $base = sprintf('makerspace-dashboard-chart-%s-%s', $this->getId(), $chartId);
+    return Html::getId($base);
+  }
+
+  /**
+   * Converts info items into plain strings for metadata export.
+   */
+  protected function stringifyInfoItems(array $info): array {
+    $items = [];
+    foreach ($info as $item) {
+      if (is_array($item) && isset($item['#markup'])) {
+        $items[] = (string) $item['#markup'];
+      }
+      else {
+        $items[] = (string) $item;
+      }
+    }
+    return $items;
+  }
+
+  /**
+   * Serializes a render array into a React-friendly data structure.
+   */
+  protected function serializeRenderable(array $element): array {
+    $type = $element['#type'] ?? NULL;
+
+    if ($type === 'chart') {
+      return $this->serializeChartElement($element);
+    }
+
+    if ($type === 'table') {
+      return [
+        'type' => 'table',
+        'header' => array_map([$this, 'convertToString'], $element['#header'] ?? []),
+        'rows' => $this->convertTableRows($element['#rows'] ?? []),
+        'empty' => isset($element['#empty']) ? $this->convertToString($element['#empty']) : NULL,
+      ];
+    }
+
+    if ($type === 'container') {
+      $children = [];
+      foreach ($element as $key => $child) {
+        if (is_string($key) && str_starts_with($key, '#')) {
+          continue;
+        }
+        if (is_array($child)) {
+          $children[$key] = $this->serializeRenderable($child);
+        }
+      }
+
+      return [
+        'type' => 'container',
+        'attributes' => $this->normalizeForJson($element['#attributes'] ?? []),
+        'children' => $children,
+      ];
+    }
+
+    if (isset($element['#markup'])) {
+      return [
+        'type' => 'markup',
+        'markup' => $this->convertToString($element['#markup']),
+      ];
+    }
+
+    return [
+      'type' => 'unknown',
+    ];
+  }
+
+  /**
+   * Normalizes a chart render array into Chart.js data/options.
+   */
+  protected function serializeChartElement(array $chart): array {
+    $library = $chart['#chart_library'] ?? 'chartjs';
+    if ($library === 'google') {
+      return $this->serializeGoogleChartElement($chart);
+    }
+
+    $labels = $chart['xaxis']['#labels'] ?? $chart['#labels'] ?? [];
+
+    return [
+      'type' => 'chart',
+      'library' => 'chartjs',
+      'chartType' => $chart['#chart_type'] ?? 'line',
+      'data' => [
+        'labels' => array_map([$this, 'convertToString'], $labels),
+        'datasets' => $this->serializeChartDatasets($chart),
+      ],
+      'options' => $this->normalizeForJson($chart['#raw_options']['options'] ?? $chart['#options'] ?? []),
+    ];
+  }
+
+  /**
+   * Converts chart_data children into datasets.
+   */
+  protected function serializeChartDatasets(array $chart): array {
+    $datasets = [];
+    foreach ($chart as $key => $child) {
+      if (!is_array($child) || ($child['#type'] ?? NULL) !== 'chart_data') {
+        continue;
+      }
+      $datasets[] = $this->serializeChartDataset($child, is_string($key) ? $key : 'series');
+    }
+    return $datasets;
+  }
+
+  /**
+   * Serializes a single chart dataset definition.
+   */
+  protected function serializeChartDataset(array $dataset, string $key): array {
+    $normalized = [
+      'label' => isset($dataset['#title']) ? $this->convertToString($dataset['#title']) : $this->humanizeKey($key),
+      'data' => array_values($dataset['#data'] ?? []),
+    ];
+
+    if (isset($dataset['#color'])) {
+      $normalized['borderColor'] = $dataset['#color'];
+      $normalized['backgroundColor'] = $dataset['#color'];
+    }
+
+    if (!empty($dataset['#settings'])) {
+      $normalized = array_merge($normalized, $this->normalizeForJson($dataset['#settings']));
+    }
+
+    if (!empty($dataset['#options'])) {
+      $normalized = array_merge($normalized, $this->normalizeForJson($dataset['#options']));
+    }
+
+    if (isset($dataset['#labels'])) {
+      $normalized['labels'] = array_map([$this, 'convertToString'], $dataset['#labels']);
+    }
+
+    return $normalized;
+  }
+
+  /**
+   * Serializes Google Charts definitions into Chart.js payloads.
+   */
+  protected function serializeGoogleChartElement(array $chart): array {
+    $type = $chart['#chart_type'] ?? 'pie';
+    if ($type === 'pie' && isset($chart['pie_data'])) {
+      $labels = $chart['pie_data']['#labels'] ?? [];
+      $values = $this->scaleIfFractional($chart['pie_data']['#data'] ?? []);
+      return [
+        'type' => 'chart',
+        'library' => 'chartjs',
+        'chartType' => 'pie',
+        'data' => [
+          'labels' => array_map([$this, 'convertToString'], $labels),
+          'datasets' => [[
+            'label' => isset($chart['pie_data']['#title']) ? $this->convertToString($chart['pie_data']['#title']) : $this->convertToString($chart['#title'] ?? $this->t('Distribution')),
+            'data' => $values,
+            'backgroundColor' => $chart['#options']['colors'] ?? [],
+          ]],
+        ],
+        'options' => [
+          'plugins' => [
+            'legend' => ['position' => 'bottom'],
+          ],
+        ],
+      ];
+    }
+
+    if ($type === 'bar' && isset($chart['series_data']['#data'])) {
+      $rows = $chart['series_data']['#data'];
+      if (!$rows) {
+        return [
+          'type' => 'chart',
+          'library' => 'chartjs',
+          'chartType' => 'bar',
+          'data' => ['labels' => [], 'datasets' => []],
+          'options' => [],
+        ];
+      }
+
+      $header = array_map([$this, 'convertToString'], array_shift($rows));
+      $labels = [];
+      $datasets = [];
+      $palette = $this->defaultColorPalette();
+      for ($i = 1; $i < count($header); $i++) {
+        $datasets[$i] = [
+          'label' => $header[$i],
+          'data' => [],
+          'backgroundColor' => $palette[($i - 1) % count($palette)],
+        ];
+      }
+
+      foreach ($rows as $row) {
+        if (!$row) {
+          continue;
+        }
+        $labels[] = $this->convertToString($row[0] ?? '');
+        for ($i = 1; $i < count($header); $i++) {
+          $value = isset($row[$i]) ? (float) $row[$i] : 0;
+          $datasets[$i]['data'][] = $value <= 1 ? round($value * 100, 2) : $value;
+        }
+      }
+
+      // Re-index datasets numerically.
+      $datasets = array_values($datasets);
+
+      return [
+        'type' => 'chart',
+        'library' => 'chartjs',
+        'chartType' => 'bar',
+        'data' => [
+          'labels' => $labels,
+          'datasets' => $datasets,
+        ],
+        'options' => [
+          'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+          'plugins' => [
+            'legend' => ['position' => 'bottom'],
+          ],
+          'responsive' => TRUE,
+          'maintainAspectRatio' => FALSE,
+        ],
+      ];
+    }
+
+    return [
+      'type' => 'chart',
+      'library' => 'chartjs',
+      'chartType' => $type,
+      'data' => ['labels' => [], 'datasets' => []],
+      'options' => [],
+    ];
+  }
+
+  /**
+   * Provides a fallback color palette for generated datasets.
+   */
+  protected function defaultColorPalette(): array {
+    return [
+      '#2563eb',
+      '#16a34a',
+      '#f97316',
+      '#dc2626',
+      '#7c3aed',
+      '#0d9488',
+    ];
+  }
+
+  /**
+   * Converts rows into stringable arrays.
+   */
+  protected function convertTableRows(array $rows): array {
+    $converted = [];
+    foreach ($rows as $row) {
+      if (is_array($row)) {
+        $converted[] = array_map([$this, 'convertToString'], $row);
+      }
+      else {
+        $converted[] = [$this->convertToString($row)];
+      }
+    }
+    return $converted;
+  }
+
+  /**
+   * Converts values to strings when needed.
+   */
+  protected function convertToString($value): string {
+    if ($value instanceof \Stringable) {
+      return (string) $value;
+    }
+    if (is_array($value)) {
+      if (isset($value['#markup'])) {
+        return (string) $value['#markup'];
+      }
+      if (isset($value['#plain_text'])) {
+        return (string) $value['#plain_text'];
+      }
+      $flattened = [];
+      foreach ($value as $child) {
+        if (is_scalar($child) || $child instanceof \Stringable || is_array($child)) {
+          $flattened[] = $this->convertToString($child);
+        }
+      }
+      $text = trim(implode(' ', array_filter($flattened)));
+      if ($text !== '') {
+        return $text;
+      }
+      return (string) json_encode($this->normalizeForJson($value));
+    }
+    return (string) $value;
+  }
+
+  /**
+   * Normalizes nested arrays for JSON serialization.
+   */
+  protected function normalizeForJson($value) {
+    if (is_array($value)) {
+      $normalized = [];
+      foreach ($value as $key => $item) {
+        $normalized[$key] = $this->normalizeForJson($item);
+      }
+      return $normalized;
+    }
+    if ($value instanceof \Stringable) {
+      return (string) $value;
+    }
+    if ($value instanceof \DateTimeInterface) {
+      return $value->format(\DateTimeInterface::RFC3339);
+    }
+    return $value;
+  }
+
+  /**
+   * Creates a human readable label from a key.
+   */
+  protected function humanizeKey(string $key): string {
+    return ucwords(str_replace('_', ' ', $key));
+  }
+
+  /**
+   * Scales decimal values to percentages when appropriate.
+   */
+  protected function scaleIfFractional(array $values): array {
+    if (!$values) {
+      return $values;
+    }
+    $max = max(array_map('abs', $values));
+    if ($max <= 1) {
+      return array_map(static fn($value) => round(((float) $value) * 100, 2), $values);
+    }
+    return array_map('floatval', $values);
   }
 
   /**
@@ -423,50 +788,30 @@ SVG;
       return $chartContent;
     }
 
-    $chartContent['range_controls'] = $this->buildRangeControls($allowed, $activeRange);
-    $chartContent['#attached']['library'][] = 'makerspace_dashboard/dashboard';
-    $chartContent['#attributes']['data-section'] = $this->getId();
-    $chartContent['#attributes']['data-chart-id'] = $chartId;
-    $chartContent['#attributes']['data-active-range'] = $activeRange;
-
-    return $chartContent;
-  }
-
-  /**
-   * Builds the control bar for range selection.
-   */
-  protected function buildRangeControls(array $allowedRanges, string $activeRange): array {
-    $controls = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => ['makerspace-dashboard-range-controls'],
-        'role' => 'toolbar',
-        'aria-label' => (string) $this->t('Select time range'),
-      ],
-    ];
-
-    foreach ($allowedRanges as $rangeKey => $info) {
-      $isActive = $rangeKey === $activeRange;
-      $classes = ['makerspace-dashboard-range-button'];
-      if ($isActive) {
-        $classes[] = 'is-active';
-      }
-
-      $controls[$rangeKey] = [
-        '#type' => 'html_tag',
-        '#tag' => 'button',
-        '#value' => (string) $info['label'],
-        '#attributes' => [
-          'type' => 'button',
-          'class' => $classes,
-          'data-range' => $rangeKey,
-          'aria-pressed' => $isActive ? 'true' : 'false',
-          'title' => (string) $this->t('Show last @range', ['@range' => $info['label']]),
-        ],
+    $normalized = [];
+    foreach ($allowed as $rangeKey => $definition) {
+      $normalized[$rangeKey] = [
+        'label' => (string) $definition['label'],
       ];
     }
 
-    return $controls;
+    if (isset($chartContent['#makerspace_chart'])) {
+      $chartContent['#makerspace_chart']['range'] = [
+        'active' => $activeRange,
+        'options' => $normalized,
+      ];
+    }
+
+    $placeholderId = $chartContent['#react_placeholder_id'] ?? NULL;
+    if ($placeholderId && isset($chartContent['chart_placeholder']['#attributes'])) {
+      $chartContent['chart_placeholder']['#attributes']['data-default-range'] = $activeRange;
+      $chartContent['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholderId]['ranges'] = [
+        'active' => $activeRange,
+        'options' => $normalized,
+      ];
+    }
+
+    return $chartContent;
   }
 
   /**

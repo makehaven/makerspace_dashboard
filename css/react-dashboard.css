@@ -1,0 +1,101 @@
+.makerspace-dashboard-react-chart {
+  min-height: 280px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.makerspace-dashboard-react-chart__status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 1px dashed #c7ced6;
+  border-radius: 6px;
+  color: #5f6b7a;
+  font-size: 0.95rem;
+  background: #fff;
+  padding: 1rem;
+}
+
+.makerspace-dashboard-react-chart__status--error {
+  border-color: #b91c1c;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+.makerspace-dashboard-react-chart__status--empty {
+  border-style: solid;
+  color: #475569;
+}
+
+.makerspace-dashboard-react-chart canvas {
+  max-width: 100%;
+}
+
+.makerspace-dashboard-react-chart__ranges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.makerspace-dashboard-react-chart__btn {
+  background-color: #f1f5f9;
+  border: 1px solid #cbd5f5;
+  border-radius: 14px;
+  color: #111827;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1.2;
+  padding: 0.35rem 0.85rem;
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.makerspace-dashboard-react-chart__btn:hover:not([disabled]) {
+  background-color: #e2e8f0;
+}
+
+.makerspace-dashboard-react-chart__btn--active {
+  background-color: #1d4ed8;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.makerspace-dashboard-react-chart__btn[disabled] {
+  opacity: 0.7;
+  cursor: default;
+}
+
+.makerspace-dashboard-react-chart__table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.makerspace-dashboard-react-chart__table th,
+.makerspace-dashboard-react-chart__table td {
+  border: 1px solid #d0d7de;
+  padding: 0.5rem 0.75rem;
+}
+
+.makerspace-dashboard-react-chart__table th {
+  background: #f1f5f9;
+  text-align: left;
+  font-weight: 600;
+}
+
+.makerspace-dashboard-react-chart__table caption {
+  text-align: left;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.makerspace-dashboard-react-chart__children {
+  display: grid;
+  gap: 1rem;
+}
+
+.makerspace-dashboard-react-chart__children--two-up {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}

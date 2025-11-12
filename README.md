@@ -5,7 +5,7 @@ Aggregated dashboards that summarize makerspace health across utilization, engag
 ## Key Concepts
 
 - **Data sources** – Utilizes ECK access control logs for door entry counts, Drupal profile fields (e.g. town, gender, ethnicity) today, and can pivot to CiviCRM contacts when fields migrate. Financial summaries blend Chargebee, Stripe storage, and PayPal revenue exports.
-- **Charting** – Uses the Charts module’s Chart.js plugin to render responsive visuals without depending on Google infrastructure.
+- **Charting** – Section classes still describe datasets with the Charts module render-array API, but the actual rendering now happens in a progressively decoupled React app that consumes `/makerspace-dashboard/api/chart/...` JSON responses.
 - **Privacy guardrails** – Only aggregated metrics render. Future data services should enforce minimum row counts before displaying values and bucket low-volume segments into catch-all categories.
 - **Extensibility** – Each tab is a tagged service implementing `DashboardSectionInterface`. Add new insights by registering additional section services or extending existing ones with configurable filters.
 - **Membership metrics** – `MembershipMetricsService` aggregates join/end events and yearly cohorts from profile metadata so retention charts stay fast even as history grows.
@@ -37,6 +37,18 @@ These will be mirrored against CiviCRM contact data (via `field_member_crm_id`) 
 3. Convert heavier sections to `#lazy_builder` callbacks (or secondary routes) so expensive queries only execute when panels open.
 4. Define cache contexts/tags to keep charts fast while honoring real-time updates from Chargebee role revisions.
 5. Add kernel tests covering aggregation services and minimum-count privacy enforcement.
+
+## Front-end Build
+
+The React bundle that renders charts lives in `js/react-app`.
+
+```bash
+cd web/modules/custom/makerspace_dashboard/js/react-app
+npm install
+npm run build
+```
+
+The resulting `dist/dashboard.js` file is referenced by the `makerspace_dashboard/react_app` library and loaded automatically whenever a chart placeholder is displayed.
 
 ## Tooling
 
