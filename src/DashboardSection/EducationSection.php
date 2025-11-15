@@ -55,7 +55,10 @@ class EducationSection extends DashboardSectionBase {
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
       ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
-    $range = $this->dataService->getDefaultRange($now);
+
+    // Resolve the active time range for the charts.
+    $activeRange = $this->resolveSelectedRange($filters, 'engagement', '3m', ['3m', '6m', '1y']);
+    $range = $this->calculateRangeBounds($activeRange, $now);
     $snapshot = $this->dataService->getEngagementSnapshot($range['start'], $range['end']);
     $activationDays = $this->dataService->getActivationWindowDays();
 
