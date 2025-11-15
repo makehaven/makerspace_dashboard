@@ -6,7 +6,6 @@ dashboard:
   js:
     js/makerspace_dashboard.tabs.js: {}
   dependencies:
-    - core/jquery
     - core/drupal
     - core/drupalSettings
     - core/once

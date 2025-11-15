@@ -58,14 +58,24 @@ class FinanceAverageMonthlyPaymentChartBuilder extends ChartBuilderBase {
           'legend' => ['display' => FALSE],
           'tooltip' => [
             'callbacks' => [
-              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return "$" + Number(value ?? 0).toFixed(2); }',
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 2,
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],
         'scales' => [
           'y' => [
             'ticks' => [
-              'callback' => 'function(value){ return "$" + Number(value ?? 0).toFixed(0); }',
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 0,
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],

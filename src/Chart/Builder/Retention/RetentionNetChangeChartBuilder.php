@@ -94,7 +94,9 @@ class RetentionNetChangeChartBuilder extends RetentionFlowChartBuilderBase {
           'legend' => ['position' => 'bottom'],
           'tooltip' => [
             'callbacks' => [
-              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return context.dataset.label + ": " + value.toLocaleString(); }',
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+              ]),
             ],
           ],
         ],
@@ -102,7 +104,10 @@ class RetentionNetChangeChartBuilder extends RetentionFlowChartBuilderBase {
           'y' => [
             'ticks' => [
               'precision' => 0,
-              'callback' => 'function(value){ return value.toLocaleString(); }',
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'integer',
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],

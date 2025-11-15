@@ -38,8 +38,6 @@ class InfrastructureToolStatusChartBuilder extends ChartBuilderBase {
     $labels = array_map('strval', array_keys($statusCounts));
     $values = array_values($statusCounts);
     $datasetLabel = (string) $this->t('Tools');
-    $toolsLabel = addslashes((string) $this->t('tools'));
-
     $visualization = [
       'type' => 'chart',
       'library' => 'chartjs',
@@ -59,7 +57,11 @@ class InfrastructureToolStatusChartBuilder extends ChartBuilderBase {
           'legend' => ['display' => FALSE],
           'tooltip' => [
             'callbacks' => [
-              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return value.toLocaleString() + " ' . $toolsLabel . '"; }',
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+                'showLabel' => FALSE,
+                'suffix' => (string) $this->t('tools'),
+              ]),
             ],
           ],
         ],
@@ -68,7 +70,10 @@ class InfrastructureToolStatusChartBuilder extends ChartBuilderBase {
             'beginAtZero' => TRUE,
             'ticks' => [
               'precision' => 0,
-              'callback' => 'function(value){ return Number(value ?? 0).toLocaleString(); }',
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'integer',
+                'showLabel' => FALSE,
+              ]),
             ],
             'title' => [
               'display' => TRUE,

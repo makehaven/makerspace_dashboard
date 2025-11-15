@@ -66,7 +66,7 @@ class RetentionCohortCompositionChartBuilder extends RetentionCohortChartBuilder
         'plugins' => [
           'tooltip' => [
             'callbacks' => [
-              'afterBody' => "function(context){ var idx = context[0].dataIndex; var chart = context[0].chart; var active = chart.data.datasets[0].data[idx] || 0; var inactive = chart.data.datasets[1].data[idx] || 0; var total = active + inactive; return ['Total: ' + total, 'Active: ' + active, 'Inactive: ' + inactive]; }",
+              'afterBody' => $this->chartCallback('tooltip_after_body_cohort'),
             ],
           ],
         ],

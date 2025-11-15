@@ -59,7 +59,9 @@ class DeiGenderMixChartBuilder extends DeiChartBuilderBase {
           'datalabels' => [
             'color' => '#0f172a',
             'font' => ['weight' => 'bold'],
-            'formatter' => "function(value, ctx) { var data = ctx.chart.data.datasets[0].data; var total = data.reduce(function(acc, curr){ return acc + curr; }, 0); if (!total) { return '0%'; } var pct = (value / total) * 100; return pct.toFixed(1) + '%'; }",
+            'formatter' => $this->chartCallback('dataset_share_percent', [
+              'decimals' => 1,
+            ]),
           ],
         ],
       ],

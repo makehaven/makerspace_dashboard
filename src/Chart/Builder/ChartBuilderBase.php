@@ -62,7 +62,7 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
   /**
    * Helper to instantiate a definition with shared defaults.
    */
-  protected function newDefinition(string $title, string $description, array $visualization, array $notes = [], ?array $range = NULL, ?int $weight = NULL): ChartDefinition {
+  protected function newDefinition(string $title, string $description, array $visualization, array $notes = [], ?array $range = NULL, ?int $weight = NULL, array $cache = []): ChartDefinition {
     return new ChartDefinition(
       $this->getSectionId(),
       $this->getChartId(),
@@ -72,7 +72,18 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
       $notes,
       $range,
       $weight ?? $this->getWeight(),
+      $cache,
     );
+  }
+
+  /**
+   * Builds a callback definition consumed by the React renderer.
+   */
+  protected function chartCallback(string $id, array $options = []): array {
+    return [
+      '#makerspace_callback' => $id,
+      '#options' => $options,
+    ];
   }
 
   /**

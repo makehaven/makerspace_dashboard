@@ -68,7 +68,9 @@ class RetentionRecruitmentVsChurnChartBuilder extends RetentionFlowChartBuilderB
           'legend' => ['position' => 'top'],
           'tooltip' => [
             'callbacks' => [
-              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return context.dataset.label + ": " + value.toLocaleString(); }',
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+              ]),
             ],
           ],
         ],

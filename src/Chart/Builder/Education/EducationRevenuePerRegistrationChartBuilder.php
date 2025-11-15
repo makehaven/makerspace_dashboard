@@ -58,14 +58,23 @@ class EducationRevenuePerRegistrationChartBuilder extends EducationEventsChartBu
           ],
           'tooltip' => [
             'callbacks' => [
-              'label' => "function(context){ const value = context.parsed.y ?? context.raw ?? 0; return context.dataset.label + ': $' + Number(value).toFixed(2); }",
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 2,
+              ]),
             ],
           ],
         ],
         'scales' => [
           'y' => [
             'ticks' => [
-              'callback' => "function(value){ return '$' + Number(value ?? 0).toFixed(2); }",
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 2,
+                'showLabel' => FALSE,
+              ]),
             ],
             'title' => [
               'display' => TRUE,

@@ -59,7 +59,11 @@ class RetentionAnnualRetentionChartBuilder extends RetentionCohortChartBuilderBa
         'scales' => [
           'y' => [
             'ticks' => [
-              'callback' => 'function(value){ return value + \"%\"; }',
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'percent',
+                'decimals' => 0,
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],

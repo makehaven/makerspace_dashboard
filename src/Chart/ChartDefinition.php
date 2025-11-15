@@ -26,6 +26,8 @@ class ChartDefinition {
    *   Optional active/available range metadata.
    * @param int $weight
    *   Ordering hint relative to other charts in the section.
+   * @param array $cache
+   *   Optional cache metadata (max-age, tags, contexts).
    */
   public function __construct(
     protected string $sectionId,
@@ -36,6 +38,7 @@ class ChartDefinition {
     protected array $notes = [],
     protected ?array $range = NULL,
     protected int $weight = 0,
+    protected array $cache = [],
   ) {
   }
 
@@ -96,6 +99,13 @@ class ChartDefinition {
   }
 
   /**
+   * Gets cache metadata defined for the chart.
+   */
+  public function getCacheMetadata(): array {
+    return $this->cache;
+  }
+
+  /**
    * Converts the definition into array metadata for React/JSON responses.
    */
   public function toMetadata(): array {
@@ -105,9 +115,41 @@ class ChartDefinition {
       'title' => $this->title,
       'description' => $this->description,
       'notes' => $this->notes,
-      'visualization' => $this->visualization,
+      'visualization' => $this->normalizeVisualization($this->visualization),
       'range' => $this->range,
     ];
+  }
+
+  /**
+   * Normalizes callback placeholders inside visualization arrays.
+   */
+  protected function normalizeVisualization(array $visualization): array {
+    return $this->normalizeValue($visualization);
+  }
+
+  /**
+   * Converts nested arrays into JSON-friendly structures.
+   */
+  protected function normalizeValue($value) {
+    if (is_array($value)) {
+      if (isset($value['#makerspace_callback'])) {
+        return [
+          '__callback' => $value['#makerspace_callback'],
+          'options' => $this->normalizeValue($value['#options'] ?? []),
+        ];
+      }
+      $normalized = [];
+      foreach ($value as $key => $item) {
+        $normalized[$key] = $this->normalizeValue($item);
+      }
+      return $normalized;
+    }
+
+    if ($value instanceof \Stringable) {
+      return (string) $value;
+    }
+
+    return $value;
   }
 
 }

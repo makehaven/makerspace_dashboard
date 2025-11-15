@@ -53,8 +53,6 @@ class OverviewMrrTrendChartBuilder extends ChartBuilderBase {
       $datasets[] = $trendDataset;
     }
 
-    $tooltipCallback = 'function(context){ var value = context && context.parsed && context.parsed.y !== undefined ? context.parsed.y : (context && context.yLabel !== undefined ? context.yLabel : (context && context.value !== undefined ? context.value : null)); if (value === null) { return ""; } var label = context.datasetIndex === 0 ? "' . addslashes((string) $this->t('MRR ($)')) . '" : "' . addslashes((string) $this->t('Trend')) . '"; return label + ": $" + Number(value).toLocaleString(); }';
-
     $visualization = [
       'type' => 'chart',
       'library' => 'chartjs',
@@ -74,7 +72,11 @@ class OverviewMrrTrendChartBuilder extends ChartBuilderBase {
             'mode' => 'index',
             'intersect' => FALSE,
             'callbacks' => [
-              'label' => $tooltipCallback,
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 0,
+              ]),
             ],
           ],
         ],
@@ -85,7 +87,12 @@ class OverviewMrrTrendChartBuilder extends ChartBuilderBase {
         'scales' => [
           'y' => [
             'ticks' => [
-              'callback' => 'function(value){ return "$" + Number(value).toLocaleString(); }',
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 0,
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],

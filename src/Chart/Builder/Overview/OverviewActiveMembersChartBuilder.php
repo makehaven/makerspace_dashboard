@@ -66,8 +66,6 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
       $datasets[] = $trendDataset;
     }
 
-    $tooltipCallback = 'function(context){ var value = context && context.parsed && context.parsed.y !== undefined ? context.parsed.y : (context && context.yLabel !== undefined ? context.yLabel : (context && context.value !== undefined ? context.value : null)); if (value === null) { return ""; } var label = context.datasetIndex === 0 ? "' . addslashes((string) $this->t('Active members')) . '" : "' . addslashes((string) $this->t('Trend')) . '"; return label + ": " + Number(value).toLocaleString() + " members"; }';
-
     $visualization = [
       'type' => 'chart',
       'library' => 'chartjs',
@@ -87,7 +85,10 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
             'mode' => 'index',
             'intersect' => FALSE,
             'callbacks' => [
-              'label' => $tooltipCallback,
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+                'suffix' => (string) $this->t('members'),
+              ]),
             ],
           ],
         ],

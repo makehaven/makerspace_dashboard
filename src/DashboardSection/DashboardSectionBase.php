@@ -399,6 +399,7 @@ SVG;
       'info' => $this->buildChartInfo($definition->getNotes()),
     ];
 
+    $container['#cache'] = $this->buildChartCacheMetadata($definition);
     if ($downloadable) {
       $container['download'] = $this->buildCsvDownloadLink($definition->getSectionId(), $chart_id);
     }
@@ -414,6 +415,34 @@ SVG;
     $container['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholder_id] = $settings;
 
     return $container;
+  }
+
+  /**
+   * Builds cache metadata for a chart definition.
+   */
+  protected function buildChartCacheMetadata(ChartDefinition $definition): array {
+    $defaults = [
+      'max-age' => 900,
+      'contexts' => ['user.permissions'],
+      'tags' => [
+        'makerspace_dashboard:section:' . $definition->getSectionId(),
+        'makerspace_dashboard:chart:' . $definition->getSectionId() . ':' . $definition->getChartId(),
+      ],
+    ];
+    $custom = $definition->getCacheMetadata();
+
+    if (isset($custom['max-age'])) {
+      $defaults['max-age'] = (int) $custom['max-age'];
+    }
+
+    foreach (['contexts', 'tags'] as $key) {
+      if (!empty($custom[$key]) && is_array($custom[$key])) {
+        $combined = array_merge($defaults[$key] ?? [], array_values($custom[$key]));
+        $defaults[$key] = array_values(array_unique($combined));
+      }
+    }
+
+    return $defaults;
   }
 
   /**
@@ -720,6 +749,12 @@ SVG;
    */
   protected function normalizeForJson($value) {
     if (is_array($value)) {
+      if (isset($value['#makerspace_callback'])) {
+        return [
+          '__callback' => $value['#makerspace_callback'],
+          'options' => $this->normalizeForJson($value['#options'] ?? []),
+        ];
+      }
       $normalized = [];
       foreach ($value as $key => $item) {
         $normalized[$key] = $this->normalizeForJson($item);

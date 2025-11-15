@@ -73,7 +73,10 @@ class GovernanceBoardEthnicityChartBuilder extends GovernanceChartBuilderBase {
           ],
           'tooltip' => [
             'callbacks' => [
-              'label' => "function(context) { var value = context.parsed.y ?? context.parsed; return context.dataset.label + ': ' + value.toFixed(1) + '%'; }",
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'percent',
+                'decimals' => 1,
+              ]),
             ],
           ],
         ],
@@ -82,7 +85,11 @@ class GovernanceBoardEthnicityChartBuilder extends GovernanceChartBuilderBase {
             'beginAtZero' => TRUE,
             'suggestedMax' => ceil($maxValue / 10) * 10,
             'ticks' => [
-              'callback' => "function(value) { return value + '%'; }",
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'percent',
+                'decimals' => 0,
+                'showLabel' => FALSE,
+              ]),
             ],
             'title' => [
               'display' => TRUE,

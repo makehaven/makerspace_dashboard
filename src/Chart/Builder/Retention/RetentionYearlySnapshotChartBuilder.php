@@ -65,7 +65,11 @@ class RetentionYearlySnapshotChartBuilder extends RetentionSnapshotChartBuilderB
           'legend' => ['display' => FALSE],
           'tooltip' => [
             'callbacks' => [
-              'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return value.toLocaleString() + " active members"; }',
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+                'showLabel' => FALSE,
+                'suffix' => (string) $this->t('active members'),
+              ]),
             ],
           ],
         ],
@@ -80,7 +84,10 @@ class RetentionYearlySnapshotChartBuilder extends RetentionSnapshotChartBuilderB
           'y' => [
             'ticks' => [
               'precision' => 0,
-              'callback' => 'function(value){ return value.toLocaleString(); }',
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'integer',
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],

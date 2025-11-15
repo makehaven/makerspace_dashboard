@@ -88,7 +88,11 @@ abstract class GovernanceChartBuilderBase extends ChartBuilderBase {
             'text' => $title,
           ],
           'datalabels' => [
-            'formatter' => "function(value) { return value ? value.toFixed(1) + '%': '0%'; }",
+            'formatter' => $this->chartCallback('value_format', [
+              'format' => 'percent',
+              'decimals' => 1,
+              'showLabel' => FALSE,
+            ]),
           ],
         ],
       ],

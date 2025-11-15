@@ -63,7 +63,16 @@ class EducationEventInterestChartBuilder extends EducationEventsChartBuilderBase
           'legend' => ['position' => 'bottom'],
           'tooltip' => [
             'callbacks' => [
-              'label' => "function(context){ if (context.dataset.yAxisID === 'y1') { return context.dataset.label + ': $' + Number(context.parsed.y ?? 0).toFixed(2); } return context.dataset.label + ': ' + Number(context.parsed.y ?? 0).toLocaleString(); }",
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+                'perAxis' => [
+                  'y1' => [
+                    'format' => 'currency',
+                    'currency' => 'USD',
+                    'decimals' => 2,
+                  ],
+                ],
+              ]),
             ],
           ],
         ],
@@ -77,7 +86,12 @@ class EducationEventInterestChartBuilder extends EducationEventsChartBuilderBase
             'title' => ['display' => TRUE, 'text' => (string) $this->t('Average ticket ($)')],
             'grid' => ['drawOnChartArea' => FALSE],
             'ticks' => [
-              'callback' => "function(value){ return '$' + Number(value ?? 0).toFixed(0); }",
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'currency',
+                'currency' => 'USD',
+                'decimals' => 0,
+                'showLabel' => FALSE,
+              ]),
             ],
           ],
         ],
