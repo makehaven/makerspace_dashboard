@@ -12,7 +12,7 @@ class EducationParticipantAgeChartBuilder extends EducationEventsChartBuilderBas
   protected const CHART_ID = 'demographics_age';
   protected const WEIGHT = 90;
   protected const RANGE_DEFAULT = '1y';
-  protected const RANGE_OPTIONS = ['1m', '3m', '1y', '2y', 'all'];
+  protected const RANGE_OPTIONS = ['1m', '3m', '1y', '2y'];
 
   /**
    * {@inheritdoc}
