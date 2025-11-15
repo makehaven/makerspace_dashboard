@@ -19,6 +19,8 @@ class EducationEventSkillLevelsChartBuilder extends EducationEventsChartBuilderB
    */
   public function build(array $filters = []): ?ChartDefinition {
     $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
+    $logLine = sprintf("[%s] skill_levels range=%s filters=%s\n", date('c'), $activeRange, var_export($filters, TRUE));
+    @file_put_contents('/tmp/makerspace_range.log', $logLine, FILE_APPEND);
     $bounds = $this->calculateRangeBounds($activeRange, $this->now());
     $skills = $this->eventsMembershipDataService->getSkillLevelBreakdown($bounds['start'], $bounds['end']);
     if (empty($skills['levels'])) {
