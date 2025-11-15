@@ -128,3 +128,18 @@ By following this template every chart will:
 - Share the same JSON contract consumed by the React app and CSV exporter.
 - Respect consistent styling/options (legend placement, tooltips, etc.).
 - Remain independently testable, making it easy to load via `/makerspace-dashboard/api/chart/{section}/{chart}` without rendering the whole section.
+
+## 4. Date Range Checklist
+
+Many Education charts expose selectable date ranges via `RangeSelectionTrait`. Keep these lessons in mind when adding new range-enabled charts:
+
+- **Frontend sync** – The React wrapper (`DashboardChart.tsx`) is the single source of truth for `range` state. Don’t try to mirror that logic in PHP; just pass the active range into the chart metadata via `$this->buildRangeMetadata()`.
+- **Cache contexts** – The JSON controller must vary on `url.query_args:range` so `/makerspace-dashboard/api/chart/...` can serve different datasets per selection. This is already handled in `DashboardDataController`; just be aware that bypassing it (e.g., custom endpoints) needs the same cache context.
+- **Service caching** – When your data service caches aggregates (e.g., in `EventsMembershipDataService`), include both start and end timestamps in the cache ID. Otherwise, “1 year” data will be reused for “3 months” and the chart won’t change.
+- **No ambiguous “All” presets** – Avoid offering an `all` range unless the chart explicitly communicates the covered time span. If a chart doesn’t render an axis showing the window, stick to bounded ranges (`1m`, `3m`, `1y`, `2y`).
+- **Verification steps**:
+  1. Use the selector in the UI, watch the Network panel for `?range=...`.
+  2. Fetch the API manually for two ranges with `curl` and confirm `range.active` and the dataset arrays differ.
+  3. Tail `/tmp/makerspace_chart_api.log` to ensure the builder receives the requested range.
+
+For more troubleshooting tips, see `docs/range-filters.md`.
