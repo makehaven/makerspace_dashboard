@@ -6,8 +6,10 @@ use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Link;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Url;
+use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
 use Drupal\makerspace_dashboard\Service\InfrastructureDataService;
 use Drupal\makerspace_dashboard\Service\KpiDataService;
+use Drupal\makerspace_dashboard\Service\UtilizationWindowService;
 
 /**
  * Displays tool availability and maintenance signals.
@@ -30,13 +32,19 @@ class InfrastructureSection extends DashboardSectionBase {
   protected KpiDataService $kpiDataService;
 
   /**
+   * Utilization window metrics.
+   */
+  protected UtilizationWindowService $utilizationWindowService;
+
+  /**
    * Constructs the section.
    */
-  public function __construct(InfrastructureDataService $data_service, DateFormatterInterface $date_formatter, KpiDataService $kpi_data_service) {
-    parent::__construct();
+  public function __construct(InfrastructureDataService $data_service, DateFormatterInterface $date_formatter, KpiDataService $kpi_data_service, UtilizationWindowService $utilization_window_service, ChartBuilderManager $chart_builder_manager) {
+    parent::__construct(NULL, $chart_builder_manager);
     $this->dataService = $data_service;
     $this->dateFormatter = $date_formatter;
     $this->kpiDataService = $kpi_data_service;
+    $this->utilizationWindowService = $utilization_window_service;
   }
 
   /**
@@ -60,82 +68,54 @@ class InfrastructureSection extends DashboardSectionBase {
     $build = [];
     $weight = 0;
 
-    $statusCounts = $this->dataService->getToolStatusCounts();
-    $totalTools = array_sum($statusCounts);
-
     $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('infrastructure'));
     $build['kpi_table']['#weight'] = $weight++;
 
-    $build['charts_section_heading'] = [
-      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
+    $utilMetrics = $this->utilizationWindowService->getWindowMetrics();
+    $rangeStart = $this->dateFormatter->format($utilMetrics['rolling_start']->getTimestamp(), 'custom', 'M j, Y');
+    $rangeEnd = $this->dateFormatter->format($utilMetrics['end_of_day']->getTimestamp(), 'custom', 'M j, Y');
+    $build['utilization_intro'] = $this->buildIntro($this->t('Aggregates door access requests into unique members per day to highlight peak usage windows. Showing @start – @end.', [
+      '@start' => $rangeStart,
+      '@end' => $rangeEnd,
+    ]));
+    $build['utilization_intro']['#weight'] = $weight++;
+
+    $summaryItems = [
+      $this->t('Total entries in last @days days: @total', ['@days' => $utilMetrics['summary']['days'], '@total' => $utilMetrics['summary']['total_entries']]),
+      $this->t('Average per day: @avg', ['@avg' => $utilMetrics['summary']['average_per_day']]),
+      $this->t('Busiest day: @day (@count members)', [
+        '@day' => $utilMetrics['summary']['max_label'],
+        '@count' => $utilMetrics['summary']['max_value'],
+      ]),
+    ];
+    if ($utilMetrics['summary']['slope'] !== NULL) {
+      $summaryItems[] = $this->t('Rolling trend: Δ = @per_day members/day', ['@per_day' => round($utilMetrics['summary']['slope'], 3)]);
+    }
+    $build['utilization_summary'] = [
+      '#theme' => 'item_list',
+      '#items' => $summaryItems,
+      '#attributes' => ['class' => ['makerspace-dashboard-summary']],
       '#weight' => $weight++,
     ];
 
-    if (!empty($statusCounts)) {
-      $labels = array_keys($statusCounts);
-      $counts = array_values($statusCounts);
+    $build['utilization_definition'] = [
+      '#type' => 'markup',
+      '#markup' => $this->t('An entry counts every access-control request. A unique entry counts each member once per day, even if they badge multiple times.'),
+      '#prefix' => '<div class="makerspace-dashboard-definition">',
+      '#suffix' => '</div>',
+      '#weight' => $weight++,
+    ];
 
-      $chart_id = 'tool_status_breakdown';
-      $chart = [
-        '#type' => 'chart',
-        '#chart_type' => 'bar',
-        '#chart_library' => 'chartjs',
-        '#raw_options' => [
-          'options' => [
-            'plugins' => [
-              'legend' => ['display' => FALSE],
-              'tooltip' => [
-                'callbacks' => [
-                  'label' => 'function(context){ const value = context.parsed.y ?? context.raw; return value.toLocaleString() + " tools"; }',
-                ],
-              ],
-            ],
-            'scales' => [
-              'y' => [
-                'ticks' => [
-                  'precision' => 0,
-                  'callback' => 'function(value){ return value.toLocaleString(); }',
-                ],
-              ],
-            ],
-          ],
-        ],
-      ];
-      $chart['series'] = [
-        '#type' => 'chart_data',
-        '#title' => $this->t('Tools'),
-        '#data' => $counts,
-        '#color' => '#0ea5e9',
-      ];
-      $chart['xaxis'] = [
-        '#type' => 'chart_xaxis',
-        '#labels' => array_map('strval', $labels),
-      ];
-      $chart['yaxis'] = [
-        '#type' => 'chart_yaxis',
-        '#title' => $this->t('Count of tools'),
-      ];
-
-      $build[$chart_id] = $this->buildChartContainer(
-        $chart_id,
-        $this->t('Tools by Status'),
-        $this->t('Counts published equipment records by their current status taxonomy term.'),
-        $chart,
-        [
-          $this->t('Source: Published item nodes joined to field_item_status and taxonomy term labels.'),
-          $this->t('Processing: Counts each tool once regardless of category; status “Unspecified” captures items missing a taxonomy assignment.'),
-          $this->t('Definitions: Status vocabulary is maintained in taxonomy.vocabulary.item_status—align naming conventions to keep the legend concise.'),
-        ]
-      );
-      $build[$chart_id]['#weight'] = $weight++;
-    }
-    else {
-      $build['tool_status_breakdown_empty'] = [
-        '#markup' => $this->t('No tool records were found. Populate item nodes with status assignments to enable this chart.'),
-        '#prefix' => '<div class="makerspace-dashboard-empty">',
-        '#suffix' => '</div>',
+    $charts = $this->buildChartsFromDefinitions($filters);
+    if ($charts) {
+      $build['charts_section_heading'] = [
+        '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
         '#weight' => $weight++,
       ];
+      foreach ($charts as $chart_id => $chart_render_array) {
+        $chart_render_array['#weight'] = $weight++;
+        $build[$chart_id] = $chart_render_array;
+      }
     }
 
     $attention = $this->dataService->getToolsNeedingAttention(12);

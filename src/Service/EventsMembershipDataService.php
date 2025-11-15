@@ -124,10 +124,18 @@ class EventsMembershipDataService {
         $monthly_averages[$event_month]['count']++;
     }
 
-    $data = [];
-    foreach ($monthly_averages as $month => $values) {
-        $data[] = $values['count'] > 0 ? $values['total_days'] / $values['count'] : 0;
+    ksort($monthly_averages);
+    $labels = [];
+    $values = [];
+    foreach ($monthly_averages as $month => $info) {
+      $labels[] = $month;
+      $values[] = $info['count'] > 0 ? round($info['total_days'] / $info['count'], 2) : 0;
     }
+
+    $data = [
+      'labels' => $labels,
+      'values' => $values,
+    ];
 
     $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['civicrm_participant_list', 'user_list', 'profile_list']);
 

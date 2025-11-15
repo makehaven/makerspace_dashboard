@@ -25,6 +25,7 @@ export function useChartData({ sectionId, chartId, range }: UseChartDataArgs): C
     if (range) {
       url.searchParams.set('range', range);
     }
+    url.searchParams.set('_cb', Date.now().toString());
 
     fetch(url.toString(), { signal: controller.signal, headers: { Accept: 'application/json' } })
       .then((response) => {

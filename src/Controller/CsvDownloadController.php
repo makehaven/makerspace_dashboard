@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
+use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
 use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -21,6 +22,11 @@ class CsvDownloadController extends ControllerBase {
   protected DashboardSectionManager $dashboardSectionManager;
 
   /**
+   * Chart builder manager.
+   */
+  protected ChartBuilderManager $chartBuilderManager;
+
+  /**
    * Backwards compatibility alias for legacy property access.
    *
    * @var \Drupal\makerspace_dashboard\Service\DashboardSectionManager
@@ -33,9 +39,10 @@ class CsvDownloadController extends ControllerBase {
    * @param \Drupal\makerspace_dashboard\Service\DashboardSectionManager $dashboard_section_manager
    *   The dashboard section manager.
    */
-  public function __construct(DashboardSectionManager $dashboard_section_manager) {
+  public function __construct(DashboardSectionManager $dashboard_section_manager, ChartBuilderManager $chart_builder_manager) {
     $this->dashboardSectionManager = $dashboard_section_manager;
     $this->sectionManager = $dashboard_section_manager;
+    $this->chartBuilderManager = $chart_builder_manager;
   }
 
   /**
@@ -43,7 +50,8 @@ class CsvDownloadController extends ControllerBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('makerspace_dashboard.section_manager')
+      $container->get('makerspace_dashboard.section_manager'),
+      $container->get('makerspace_dashboard.chart_builder_manager')
     );
   }
 
@@ -59,22 +67,19 @@ class CsvDownloadController extends ControllerBase {
    *   A streamed response containing the CSV file.
    */
   public function downloadCsv(string $sid, string $chart_id): StreamedResponse {
-    $section = $this->dashboardSectionManager->getSection($sid);
-    if (!$section) {
+    $definition = $this->buildChartDefinition($sid, $chart_id);
+    if (!$definition) {
       throw new NotFoundHttpException();
     }
 
-    $build = $section->build();
-    $chart_container = $build[$chart_id] ?? NULL;
-    $chart = $chart_container['chart'] ?? NULL;
-
-    if (!$chart) {
+    $visualization = $definition['visualization'] ?? [];
+    if (($visualization['type'] ?? '') !== 'chart' || empty($visualization['data']['datasets'])) {
       throw new NotFoundHttpException();
     }
 
-    $response = new StreamedResponse(function () use ($chart) {
+    $response = new StreamedResponse(function () use ($visualization) {
       $handle = fopen('php://output', 'w');
-      $this->generateCsv($chart, $handle);
+      $this->generateCsvFromVisualization($visualization, $handle);
       fclose($handle);
     });
 
@@ -85,42 +90,51 @@ class CsvDownloadController extends ControllerBase {
   }
 
   /**
-   * Generates the CSV data from the chart's render array.
+   * Generates the CSV data from the chart visualization metadata.
    *
-   * @param array $chart
-   *   The chart's render array.
+   * @param array $visualization
+   *   Visualization payload from the chart definition.
    * @param resource $handle
    *   The file handle to write the CSV data to.
    */
-  protected function generateCsv(array $chart, $handle): void {
-    $labels = $chart['xaxis']['#labels'] ?? [];
-    $series = [];
-
-    foreach ($chart as $key => $value) {
-      if (strpos($key, 'series') === 0 && isset($value['#type']) && $value['#type'] === 'chart_data') {
-        $series[] = $value;
-      }
-    }
-
-    if (empty($series)) {
+  protected function generateCsvFromVisualization(array $visualization, $handle): void {
+    $data = $visualization['data'] ?? [];
+    $labels = $data['labels'] ?? [];
+    $datasets = $data['datasets'] ?? [];
+    if (!$datasets || !$labels) {
       return;
     }
 
     // Write the header row.
     $header = ['Label'];
-    foreach ($series as $s) {
-      $header[] = $s['#title'];
+    foreach ($datasets as $dataset) {
+      $header[] = $dataset['label'] ?? 'Series';
     }
     fputcsv($handle, $header);
 
     // Write the data rows.
     foreach ($labels as $i => $label) {
       $row = [$label];
-      foreach ($series as $s) {
-        $row[] = $s['#data'][$i] ?? '';
+      foreach ($datasets as $dataset) {
+        $values = $dataset['data'] ?? [];
+        $row[] = $values[$i] ?? '';
       }
       fputcsv($handle, $row);
     }
+  }
+
+  /**
+   * Builds chart metadata either from a builder or legacy render array.
+   */
+  protected function buildChartDefinition(string $sectionId, string $chartId): ?array {
+    if ($builder = $this->chartBuilderManager->getBuilder($sectionId, $chartId)) {
+      $definition = $builder->build();
+      if ($definition) {
+        return $definition->toMetadata();
+      }
+    }
+
+    return $this->dashboardSectionManager->getChartDefinition($sectionId, $chartId);
   }
 
 }

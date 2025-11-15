@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\Controller;
 
+use Drupal\Core\Cache\CacheableJsonResponse;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -42,6 +43,7 @@ class DashboardDataController extends ControllerBase {
     $range = $request->query->get('range');
     if (is_string($range) && $range !== '') {
       $filters['ranges'][$chart] = $range;
+      $filters['range'] = $range;
     }
 
     $definition = $this->sectionManager->getChartDefinition($section, $chart, $filters);
@@ -49,7 +51,10 @@ class DashboardDataController extends ControllerBase {
       return new JsonResponse(['error' => 'Chart not found.'], 404);
     }
 
-    return new JsonResponse($definition);
+    $response = new CacheableJsonResponse($definition);
+    $response->setMaxAge(0);
+    $response->headers->set('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+    return $response;
   }
 
 }

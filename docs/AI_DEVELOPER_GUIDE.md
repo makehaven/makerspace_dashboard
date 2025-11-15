@@ -21,26 +21,24 @@ An AI cannot guess where data comes from. You must update the "menus" so the AI 
     - **Action:** Create a new `*DataService.php` file in `src/Service/`. Follow the existing services as a template (e.g., use caching, inject dependencies).
     - **Action:** Add your new service to `docs/services.md`.
 
-### 3. Implement the Dashboard Section
-This is where you build the chart itself.
+### 3. Implement the Chart Builder
+Each visualization now lives in a dedicated chart builder class so that querying, shaping, and rendering logic stay reusable and easy to test.
 
-- **Create a new `*Section.php` file** in `src/DashboardSection/`.
-    - **File:** `src/DashboardSection/NewSectionName.php`
-    - **Action:** Extend `DashboardSectionBase`.
-- **Define the service in YAML.**
-    - **File:** `makerspace_dashboard.services.yml`
-    - **Action:** Add a new service definition for your section.
-        - Give it the `makerspace_dashboard.section` tag.
-        - Inject the data service(s) you need as `arguments`.
-- **Implement the `build()` method.**
-    - **File:** `src/DashboardSection/NewSectionName.php`
-    - **Action:**
-        1. Call the data service to get your data.
-        2. Build a Drupal render array using the `charts` module API (line, bar, pie, etc.). The React serializer still expects the `chart_data` structures provided by that module even though the markup is no longer rendered server-side.
-        3. **Important:** Set the legend position to `top` for Pie/Doughnut charts to avoid library bugs.
-        4. **Important:** Explicitly cast all chart labels to strings (`array_map('strval', ...)`).
-        5. Add the appropriate cache tags from your data service.
-        6. Return the render array. `buildChartContainer()` will serialize the chart into JSON for `/makerspace-dashboard/api/chart/{section}/{chart}` and inject the React placeholder automatically—no manual JS is required.
+- **Start from the template.**
+  - **File:** `docs/chart-builder-template.md`
+  - **Action:** Copy the PHP + YAML snippets into `src/Chart/Builder/<Section>/<ChartName>ChartBuilder.php` and adjust the namespace, injected services, and visualization payload.
+- **Extend `ChartBuilderBase`.**
+  - Set `SECTION_ID`, `CHART_ID`, and (optionally) `WEIGHT`.
+  - Inject only the services you need (e.g., a data service plus, if required, the translation service).
+  - Return a `ChartDefinition` with title, description, notes, visualization data, and optional range metadata.
+- **Register the builder.**
+  - **File:** `makerspace_dashboard.services.yml`
+  - **Action:** Add a service definition tagged with `makerspace_dashboard.chart_builder`.
+- **Expose the builder in its section.**
+  - Ensure the section’s service definition injects `@makerspace_dashboard.chart_builder_manager`.
+  - In `build()`, call `$this->buildChartsFromDefinitions($filters)` to render every registered builder.
+  - **Legacy note:** If a section still constructs render arrays inline, migrate one chart at a time by adding builders and gradually deleting the old inline code.
+- **CSV downloads only appear for single Chart.js datasets.** Container definitions (e.g., goal/actual pairs) suppress the link; if you need CSV support, expose a single combined dataset via the builder.
 
 ## Standardized Dashboard Structure
 
@@ -72,6 +70,15 @@ To add the KPI table to a section, you must:
 1.  Inject the `KpiDataService` into the section's constructor.
 2.  Call the `buildKpiTable()` method in the section's `build()` method, passing the result of `KpiDataService::getKpiData()` as the argument.
 3.  Update the section's service definition in `makerspace_dashboard.services.yml` to include the new `KpiDataService` dependency.
+
+### Chart Builder Workflow Checklist
+
+1. Update `docs/TODO.md` with the purpose of your new chart.
+2. Document or extend the relevant data service in `docs/services.md` / `docs/data-sources.md`.
+3. Create the builder (`src/Chart/Builder/...`) using `docs/chart-builder-template.md`.
+4. Register the builder service with the `makerspace_dashboard.chart_builder` tag.
+5. Confirm the owning section receives `ChartBuilderManager` and renders `$this->buildChartsFromDefinitions()`.
+6. Verify the JSON output at `/makerspace-dashboard/api/chart/{section}/{chart}` and download the CSV to ensure datasets export correctly.
 
 ### 4. Update the React Bundle (If Necessary)
 Most interactions are handled by the shared React app under `js/react-app`. If you need new client-side behavior:

@@ -9,7 +9,7 @@ The primary goal is to transition all dashboard sections from placeholders or es
 ### 1.1. Implement Placeholder Sections
 The following `DashboardSection` plugins are currently placeholders and need to be fully implemented to query their respective services and build charts.
 
-- `src/DashboardSection/GovernanceSection.php`
+- ~~`src/DashboardSection/GovernanceSection.php`~~ (board composition charts now use builders + Google Sheets service)
 - `src/DashboardSection/InfrastructureSection.php`
 - `src/DashboardSection/EntrepreneurshipSection.php`
 - `src/DashboardSection/DevelopmentSection.php`
@@ -35,6 +35,14 @@ Existing services need significant enhancements to meet strategic plan requireme
 - **`EventsMembershipDataService`**:
     - Add filters to distinguish between event types (e.g., 'Workshop', 'Institutional Program').
     - Add joins to demographic data (from Drupal profile via `uf_match`) to calculate participant diversity.
+
+### 1.4. Finish Chart Builder Migration
+The React chart renderer now expects each visualization to be defined via `ChartDefinition` objects produced by dedicated chart builder classes. Finance and Overview have been migrated; the remaining sections still construct render arrays inline, which makes CSV downloads inconsistent and multiplies effort when we change chart styles.
+
+- **Action:** For each section below, port its charts to builder classes (see `docs/chart-builder-template.md`) and ensure the section injects `ChartBuilderManager`:
+    - ~~Governance (goal vs. actual layouts still rely on inline render arrays).~~
+    - ~~Education~~, ~~Outreach~~, Development, Entrepreneurship.
+- **Action:** Once all sections emit `ChartDefinition` metadata, remove the legacy serialization path (`DashboardSectionBase::serializeRenderable()`) and simplify the CSV controller accordingly.
 
 ## 2. Data Sourcing Strategy (Drupal & CiviCRM)
 

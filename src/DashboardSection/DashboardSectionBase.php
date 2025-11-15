@@ -5,15 +5,19 @@ namespace Drupal\makerspace_dashboard\DashboardSection;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
+use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\DashboardSectionInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
+use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
+use Drupal\makerspace_dashboard\Support\RangeSelectionTrait;
 /**
  * Provides shared helpers for Makerspace dashboard sections.
  */
 abstract class DashboardSectionBase implements DashboardSectionInterface {
 
   use StringTranslationTrait;
+  use RangeSelectionTrait;
 
   /**
    * Default KPI year columns.
@@ -23,38 +27,18 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   protected const KPI_DEFAULT_YEARS = ['2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
   /**
-   * Supported time range presets.
+   * Chart builder manager.
    */
-  protected const RANGE_PRESETS = [
-    '1m' => [
-      'label' => '1 month',
-      'modifier' => '-1 month',
-    ],
-    '3m' => [
-      'label' => '3 months',
-      'modifier' => '-3 months',
-    ],
-    '1y' => [
-      'label' => '1 year',
-      'modifier' => '-1 year',
-    ],
-    '2y' => [
-      'label' => '2 years',
-      'modifier' => '-2 years',
-    ],
-    'all' => [
-      'label' => 'All',
-      'modifier' => NULL,
-    ],
-  ];
+  protected ?ChartBuilderManager $chartBuilderManager = NULL;
 
   /**
    * Constructs a new dashboard section.
    */
-  public function __construct(?TranslationInterface $string_translation = NULL) {
+  public function __construct(?TranslationInterface $string_translation = NULL, ?ChartBuilderManager $chart_builder_manager = NULL) {
     if ($string_translation) {
       $this->setStringTranslation($string_translation);
     }
+    $this->chartBuilderManager = $chart_builder_manager;
   }
 
   /**
@@ -332,13 +316,14 @@ SVG;
       'title' => (string) $title,
       'description' => (string) $description,
       'notes' => $this->stringifyInfoItems($info),
-      'downloadUrl' => Url::fromRoute('makerspace_dashboard.download_chart_csv', [
-        'sid' => $this->getId(),
-        'chart_id' => $chart_id,
-      ])->toString(),
       'range' => NULL,
       'visualization' => $this->serializeRenderable($chart),
     ];
+    $supportsDownload = $this->renderSupportsCsv($chart);
+    $metadata['downloadUrl'] = $supportsDownload ? Url::fromRoute('makerspace_dashboard.download_chart_csv', [
+      'sid' => $this->getId(),
+      'chart_id' => $chart_id,
+    ])->toString() : NULL;
 
     $container = [
       '#type' => 'container',
@@ -361,7 +346,6 @@ SVG;
         ],
       ],
       'info' => $this->buildChartInfo($info),
-      'download' => $this->buildCsvDownloadLink($this->getId(), $chart_id),
     ];
 
     $container['#attached']['library'][] = 'makerspace_dashboard/react_app';
@@ -369,6 +353,65 @@ SVG;
       'sectionId' => $this->getId(),
       'chartId' => $chart_id,
     ];
+
+    if ($supportsDownload) {
+      $container['download'] = $this->buildCsvDownloadLink($this->getId(), $chart_id);
+    }
+
+    return $container;
+  }
+
+  /**
+   * Builds a standardized container using a chart definition object.
+   */
+  protected function buildChartRenderableFromDefinition(ChartDefinition $definition): array {
+    $chart_id = $definition->getChartId();
+    $placeholder_id = $this->buildChartDomId($chart_id);
+    $metadata = $definition->toMetadata();
+    $metadata['notes'] = $this->stringifyInfoItems($definition->getNotes());
+    $visualization = $definition->getVisualization();
+    $downloadable = $this->visualizationSupportsCsv($visualization);
+    $metadata['downloadUrl'] = $downloadable ? Url::fromRoute('makerspace_dashboard.download_chart_csv', [
+      'sid' => $definition->getSectionId(),
+      'chart_id' => $chart_id,
+    ])->toString() : NULL;
+
+    $container = [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['metric-container']],
+      '#react_placeholder_id' => $placeholder_id,
+      '#makerspace_chart' => $metadata,
+      'title' => ['#markup' => '<h3>' . Html::escape($definition->getTitle()) . '</h3>'],
+      'description' => ['#markup' => '<p>' . Html::escape($definition->getDescription()) . '</p>'],
+      'chart_placeholder' => [
+        '#type' => 'container',
+        '#attributes' => [
+          'id' => $placeholder_id,
+          'class' => ['makerspace-dashboard-react-chart'],
+          'data-section-id' => $definition->getSectionId(),
+          'data-chart-id' => $chart_id,
+          'data-react-id' => $placeholder_id,
+        ],
+        'fallback' => [
+          '#markup' => '<div class="makerspace-dashboard-react-chart__status">' . $this->t('Loading chart…') . '</div>',
+        ],
+      ],
+      'info' => $this->buildChartInfo($definition->getNotes()),
+    ];
+
+    if ($downloadable) {
+      $container['download'] = $this->buildCsvDownloadLink($definition->getSectionId(), $chart_id);
+    }
+
+    $container['#attached']['library'][] = 'makerspace_dashboard/react_app';
+    $settings = [
+      'sectionId' => $definition->getSectionId(),
+      'chartId' => $chart_id,
+    ];
+    if ($definition->getRange()) {
+      $settings['ranges'] = $definition->getRange();
+    }
+    $container['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholder_id] = $settings;
 
     return $container;
   }
@@ -717,6 +760,9 @@ SVG;
    * Returns a single chart render array for a given chart id.
    */
   public function buildChart(string $chartId, array $filters = []): ?array {
+    if ($definition = $this->buildDefinitionForChart($chartId, $filters)) {
+      return $this->buildChartRenderableFromDefinition($definition);
+    }
     $build = $this->build($filters);
     return $build[$chartId] ?? NULL;
   }
@@ -815,51 +861,76 @@ SVG;
   }
 
   /**
-   * Selects the active range based on filters and defaults.
+   * Retrieves chart definitions provided by registered builders.
+   *
+   * @return \Drupal\makerspace_dashboard\Chart\ChartDefinition[]
+   *   Ordered chart definitions.
    */
-  protected function resolveSelectedRange(array $filters, string $chartId, string $defaultRange, array $allowedRanges): string {
-    $allowed = array_keys($this->getRangePresets($allowedRanges));
-    $selected = $filters['ranges'][$chartId] ?? $defaultRange;
-    if (!in_array($selected, $allowed, TRUE)) {
-      return $defaultRange;
+  protected function getChartDefinitions(array $filters = []): array {
+    if (!$this->chartBuilderManager) {
+      return [];
     }
-    return $selected;
-  }
 
-  /**
-   * Returns the available presets restricted to supplied keys.
-   */
-  protected function getRangePresets(?array $allowedKeys = NULL): array {
-    $presets = [];
-    foreach (self::RANGE_PRESETS as $key => $info) {
-      if ($allowedKeys === NULL || in_array($key, $allowedKeys, TRUE)) {
-        $presets[$key] = [
-          'label' => $this->t($info['label']),
-          'modifier' => $info['modifier'],
-        ];
+    $definitions = [];
+    foreach ($this->chartBuilderManager->getBuilders($this->getId()) as $builder) {
+      $definition = $builder->build($filters);
+      if ($definition) {
+        $definitions[] = $definition;
       }
     }
-    return $presets;
+
+    usort($definitions, static function (ChartDefinition $a, ChartDefinition $b) {
+      return $a->getWeight() <=> $b->getWeight();
+    });
+
+    return $definitions;
   }
 
   /**
-   * Calculates start/end bounds for a given range key.
+   * Builds render arrays from chart definitions for inclusion in sections.
    */
-  protected function calculateRangeBounds(string $rangeKey, \DateTimeImmutable $endDate): array {
-    $presets = $this->getRangePresets();
-    $preset = $presets[$rangeKey] ?? NULL;
-    if (!$preset) {
-      $preset = $presets['1y'];
+  protected function buildChartsFromDefinitions(array $filters = []): array {
+    $rendered = [];
+    foreach ($this->getChartDefinitions($filters) as $definition) {
+      $rendered[$definition->getChartId()] = $this->buildChartRenderableFromDefinition($definition);
     }
+    return $rendered;
+  }
 
-    $end = $endDate;
-    $modifier = $preset['modifier'];
-    $start = $modifier ? $end->modify($modifier) : NULL;
+  /**
+   * Builds a single chart definition by id when a builder is registered.
+   */
+  protected function buildDefinitionForChart(string $chartId, array $filters = []): ?ChartDefinition {
+    if (!$this->chartBuilderManager) {
+      return NULL;
+    }
+    $builder = $this->chartBuilderManager->getBuilder($this->getId(), $chartId);
+    if (!$builder) {
+      return NULL;
+    }
+    return $builder->build($filters);
+  }
 
-    return [
-      'start' => $start,
-      'end' => $end,
-    ];
+  /**
+   * Determines if a visualization structure can be exported as CSV.
+   */
+  protected function visualizationSupportsCsv(array $visualization): bool {
+    return (($visualization['type'] ?? '') === 'chart') && !empty($visualization['data']['datasets']);
+  }
+
+  /**
+   * Determines if a legacy render array supports CSV export.
+   */
+  protected function renderSupportsCsv(array $element): bool {
+    if (($element['#type'] ?? '') !== 'chart') {
+      return FALSE;
+    }
+    foreach ($element as $child) {
+      if (is_array($child) && ($child['#type'] ?? '') === 'chart_data' && !empty($child['#data'])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
 }
