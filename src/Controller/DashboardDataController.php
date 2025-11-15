@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\Controller;
 
 use Drupal\Core\Cache\CacheableJsonResponse;
+use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Url;
 use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
@@ -67,6 +68,10 @@ class DashboardDataController extends ControllerBase {
     $response = new CacheableJsonResponse($definition);
     $response->setMaxAge(0);
     $response->headers->set('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+    $cacheability = (new CacheableMetadata())
+      ->setCacheMaxAge(0)
+      ->addCacheContexts(['user.permissions', 'url.query_args:range']);
+    $response->addCacheableDependency($cacheability);
 
     return $response;
   }
