@@ -2,7 +2,10 @@
 
 namespace Drupal\makerspace_dashboard\Chart\Builder\Governance;
 
+use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
+use Drupal\makerspace_dashboard\Service\DemographicsDataService;
+use Drupal\makerspace_dashboard\Service\GovernanceBoardDataService;
 
 /**
  * Builds the board age distribution container chart.
@@ -18,8 +21,14 @@ class GovernanceBoardAgeRangeChartBuilder extends GovernanceChartBuilderBase {
     '40-49' => '#38bdf8',
     '50-59' => '#0ea5e9',
     '60+' => '#2563eb',
-    'Unknown' => '#94a3b8',
   ];
+
+  protected DemographicsDataService $demographicsDataService;
+
+  public function __construct(GovernanceBoardDataService $boardDataService, DemographicsDataService $demographicsDataService, ?TranslationInterface $stringTranslation = NULL) {
+    parent::__construct($boardDataService, $stringTranslation);
+    $this->demographicsDataService = $demographicsDataService;
+  }
 
   /**
    * {@inheritdoc}
@@ -38,20 +47,91 @@ class GovernanceBoardAgeRangeChartBuilder extends GovernanceChartBuilderBase {
       return NULL;
     }
 
+    $membershipSummary = $this->demographicsDataService->getMembershipAgeBucketPercentages();
+    $membershipPercentages = $membershipSummary['percentages'] ?? [];
+    unset($membershipPercentages['Unknown']);
+    $rebasedMembership = $this->normalizePercentSubset($membershipPercentages);
+    $membershipValues = $this->formatPercentValues($rebasedMembership);
+
+    $labels = array_keys(self::COLOR_MAP);
+    $boardData = [];
+    $membershipData = [];
+    foreach ($labels as $label) {
+      $boardData[] = (float) ($actualValues[$label] ?? 0);
+      $membershipData[] = (float) ($membershipValues[$label] ?? 0);
+    }
+
     $visualization = [
-      'type' => 'container',
-      'attributes' => ['class' => ['pie-chart-pair-container']],
-      'children' => [
-        'goal' => $this->buildPieVisualization((string) $this->t('Goal %'), $goalValues, self::COLOR_MAP),
-        'actual' => $this->buildPieVisualization((string) $this->t('Actual %'), $actualValues, self::COLOR_MAP),
+      'type' => 'chart',
+      'library' => 'chartjs',
+      'chartType' => 'bar',
+      'data' => [
+        'labels' => $labels,
+        'datasets' => [
+          [
+            'type' => 'line',
+            'label' => (string) $this->t('Membership %'),
+            'data' => $membershipData,
+            'borderColor' => '#f97316',
+            'backgroundColor' => 'rgba(249, 115, 22, 0.2)',
+            'tension' => 0.35,
+            'borderWidth' => 2,
+            'pointRadius' => 4,
+            'yAxisID' => 'y',
+            'fill' => FALSE,
+          ],
+          [
+            'type' => 'bar',
+            'label' => (string) $this->t('Board %'),
+            'data' => $boardData,
+            'backgroundColor' => '#2563eb',
+            'borderRadius' => 4,
+            'order' => 1,
+          ],
+        ],
+      ],
+      'options' => [
+        'responsive' => TRUE,
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'plugins' => [
+          'legend' => ['position' => 'bottom'],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'percent',
+                'decimals' => 1,
+              ]),
+            ],
+          ],
+        ],
+        'scales' => [
+          'y' => [
+            'beginAtZero' => TRUE,
+            'max' => 100,
+            'ticks' => [
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'percent',
+                'decimals' => 0,
+                'showLabel' => FALSE,
+              ]),
+            ],
+            'title' => [
+              'display' => TRUE,
+              'text' => (string) $this->t('Share of members (%)'),
+            ],
+          ],
+          'x' => [
+            'stacked' => FALSE,
+          ],
+        ],
       ],
     ];
 
     $notes = array_merge(
       [$this->buildSourceNote()],
       [
-        (string) $this->t('Processing: Birthdates from the Board-Roster tab are bucketed into the shown ranges; missing or invalid dates fall into "Unknown".'),
-        (string) $this->t('Definitions: Goals use goal_age_* rows; values represent the share of board seats in each age range.'),
+        (string) $this->t('Processing: Board ages come from the Board-Roster tab; membership ages use profile birthdates bucketed into the same ranges.'),
+        (string) $this->t('Definitions: This comparison highlights whether the board’s age mix reflects the broader membership, using percentages rather than raw counts.'),
       ]
     );
 
@@ -61,6 +141,21 @@ class GovernanceBoardAgeRangeChartBuilder extends GovernanceChartBuilderBase {
       $visualization,
       $notes,
     );
+  }
+
+  /**
+   * Converts bucket percentages into a normalized subset excluding Unknown.
+   */
+  private function normalizePercentSubset(array $values): array {
+    $sum = array_sum($values);
+    if ($sum <= 0) {
+      return $values;
+    }
+    $normalized = [];
+    foreach ($values as $label => $value) {
+      $normalized[$label] = $value / $sum;
+    }
+    return $normalized;
   }
 
 }

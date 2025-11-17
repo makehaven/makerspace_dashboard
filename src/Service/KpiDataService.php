@@ -69,6 +69,13 @@ class KpiDataService {
   protected $utilizationDataService;
 
   /**
+   * Governance board composition data service.
+   *
+   * @var \Drupal\makerspace_dashboard\Service\GovernanceBoardDataService
+   */
+  protected $governanceBoardDataService;
+
+  /**
    * Sheet-sourced KPI goal overrides cache.
    *
    * @var array|null
@@ -102,7 +109,7 @@ class KpiDataService {
    * @param \Drupal\makerspace_dashboard\Service\UtilizationDataService $utilization_data_service
    *   The utilization data service.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service) {
+  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service) {
     $this->configFactory = $config_factory;
     $this->financialDataService = $financial_data_service;
     $this->googleSheetClientService = $google_sheet_client_service;
@@ -111,6 +118,7 @@ class KpiDataService {
     $this->snapshotDataService = $snapshot_data_service;
     $this->membershipMetricsService = $membership_metrics_service;
     $this->utilizationDataService = $utilization_data_service;
+    $this->governanceBoardDataService = $governance_board_data_service;
   }
 
   /**
@@ -242,7 +250,7 @@ class KpiDataService {
    * @return array
    *   A normalized KPI payload.
    */
-  private function buildKpiResult(array $kpi_info, array $annualOverrides = [], array $trend = [], ?float $ttm12 = NULL, ?float $ttm3 = NULL, ?string $lastUpdated = NULL, $current = NULL, ?string $kpiId = NULL): array {
+  private function buildKpiResult(array $kpi_info, array $annualOverrides = [], array $trend = [], ?float $ttm12 = NULL, ?float $ttm3 = NULL, ?string $lastUpdated = NULL, $current = NULL, ?string $kpiId = NULL, ?string $displayFormat = NULL): array {
     $annual = $kpi_info['annual_values'] ?? [];
     foreach ($annualOverrides as $year => $value) {
       $annual[(string) $year] = $value;
@@ -269,6 +277,7 @@ class KpiDataService {
       'description' => $kpi_info['description'] ?? '',
       'last_updated' => $lastUpdated,
       'current' => $current ?? 'TBD',
+      'display_format' => $displayFormat,
     ];
   }
 
@@ -491,6 +500,114 @@ class KpiDataService {
       $series['current'] ?? NULL,
       'reserve_funds_months'
     );
+  }
+
+  /**
+   * Gets the data for the "Membership Diversity (% BIPOC)" KPI.
+   *
+   * @param array $kpi_info
+   *   The KPI configuration info.
+   *
+   * @return array
+   *   The KPI data.
+   */
+  private function getMembershipDiversityBipocData(array $kpi_info): array {
+    $summary = $this->demographicsDataService->getMembershipEthnicitySummary();
+    $current = isset($summary['percentage']) ? (float) $summary['percentage'] : NULL;
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'membership_diversity_bipoc',
+      'percent'
+    );
+  }
+
+  /**
+   * Gets the data for the "Board Gender Diversity" KPI.
+   */
+  private function getBoardGenderDiversityData(array $kpi_info): array {
+    try {
+      $composition = $this->governanceBoardDataService->getBoardComposition();
+    }
+    catch (\Throwable $exception) {
+      return $this->getPlaceholderData($kpi_info, 'board_gender_diversity');
+    }
+    $gender = $composition['gender']['actual_pct'] ?? [];
+    $maleShare = isset($gender['Male']) ? (float) $gender['Male'] : 0.0;
+    $current = max(0.0, 1.0 - $maleShare);
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'board_gender_diversity',
+      'percent'
+    );
+  }
+
+  /**
+   * Gets the data for the "Board Ethnic Diversity" KPI.
+   */
+  private function getBoardEthnicDiversityData(array $kpi_info): array {
+    try {
+      $composition = $this->governanceBoardDataService->getBoardComposition();
+    }
+    catch (\Throwable $exception) {
+      return $this->getPlaceholderData($kpi_info, 'board_ethnic_diversity');
+    }
+    $ethnicity = $composition['ethnicity']['actual_pct'] ?? [];
+    $current = $this->sumPercentages($ethnicity, $this->getBoardBipocLabels());
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'board_ethnic_diversity',
+      'percent'
+    );
+  }
+
+  /**
+   * Sums the provided percentage labels, ignoring missing entries.
+   */
+  private function sumPercentages(array $values, array $labels): float {
+    $total = 0.0;
+    foreach ($labels as $label) {
+      $total += isset($values[$label]) ? (float) $values[$label] : 0.0;
+    }
+    return $total;
+  }
+
+  /**
+   * Returns the BIPOC-focused labels for board composition summaries.
+   */
+  private function getBoardBipocLabels(): array {
+    return [
+      'Asian',
+      'Black or African American',
+      'Middle Eastern or North African',
+      'Native Hawaiian or Pacific Islander',
+      'Hispanic or Latino',
+      'American Indian or Alaska Native',
+      'Other / Multi',
+    ];
   }
 
   /**
@@ -913,12 +1030,9 @@ class KpiDataService {
       return $fallback;
     }
 
-    foreach ($allYears as $year) {
-      if ($year > $referenceYear && (isset($annual[(string) $year]) || isset($sheetAnnual[(string) $year]))) {
-        return $year;
-      }
-    }
-
+    // Avoid jumping ahead to a future goal year when the current year has not
+    // been configured yet. Showing the reference year keeps the UI aligned with
+    // the current reporting window even if values are still "n/a".
     return $referenceYear;
   }
 
@@ -1139,18 +1253,6 @@ class KpiDataService {
           'base_2025' => 0.40,
           'goal_2030' => 0.50,
           'description' => 'Calculation: "Equitable (+-20%)Gender split". Implementation Note: Manual entry, same as above.',
-        ],
-        'active_titled_recurring_volunteers' => [
-          'label' => 'Count of Active Titled Recurring Volunteers',
-          'base_2025' => 50,
-          'goal_2030' => 100,
-          'description' => 'Calculation: "Count of individuals who has a titled volunteer position with a job description for 3+ months...". Implementation Note: Manual entry, same as above.',
-        ],
-        'active_committee_participation' => [
-          'label' => 'Active Committee Participation',
-          'base_2025' => 30,
-          'goal_2030' => 60,
-          'description' => 'Calculation: The total number of unique volunteers participating in committees. Implementation Note: The annual `SnapshotService` will call `GoogleSheetClientService` to read the "MakeHaven Key KPIs 2025" spreadsheet. It will navigate to the "Committees" tab, read the "Volunteers Participating" column (Column B), and `SUM()` the values starting from row 2.',
         ],
       ],
       'finance' => [

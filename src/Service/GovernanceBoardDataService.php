@@ -136,27 +136,33 @@ class GovernanceBoardDataService {
     array_shift($goals);
     foreach ($goals as $row) {
       if (!empty($row[0]) && isset($row[1])) {
-        $goalLookup[trim((string) $row[0])] = (float) $row[1];
+        $key = strtolower(trim((string) $row[0]));
+        $value = $row[1];
+        if (is_string($value) && str_contains($value, '%')) {
+          $value = str_replace('%', '', $value);
+        }
+        $goalLookup[$key] = is_numeric($value) ? (float) $value : 0.0;
       }
     }
 
     $goalGender = [
-      'Male' => $goalLookup['goal_gender_male'] ?? 0,
-      'Female' => $goalLookup['goal_gender_female'] ?? 0,
-      'Non-Binary' => $goalLookup['goal_gender_nonbinary'] ?? 0,
-      'Other/Unknown' => 0,
+      'Male' => $this->normalizeGoalPercentValue($goalLookup['goal_gender_male'] ?? 0),
+      'Female' => $this->normalizeGoalPercentValue($goalLookup['goal_gender_female'] ?? 0),
+      'Non-Binary' => $this->normalizeGoalPercentValue($goalLookup['goal_gender_nonbinary'] ?? 0),
+      'Other/Unknown' => $this->normalizeGoalPercentValue($goalLookup['goal_gender_other'] ?? 0),
     ];
+    $goalGender = $this->normalizeGoalGenderTargets($goalGender);
     $goalAge = [
-      '<30' => $goalLookup['goal_age_lt30'] ?? 0,
-      '30-39' => $goalLookup['goal_age_30_39'] ?? 0,
-      '40-49' => $goalLookup['goal_age_40_49'] ?? 0,
-      '50-59' => $goalLookup['goal_age_50_59'] ?? 0,
-      '60+' => $goalLookup['goal_age_60plus'] ?? 0,
+      '<30' => $this->normalizeGoalPercentValue($goalLookup['goal_age_lt30'] ?? 0),
+      '30-39' => $this->normalizeGoalPercentValue($goalLookup['goal_age_30_39'] ?? 0),
+      '40-49' => $this->normalizeGoalPercentValue($goalLookup['goal_age_40_49'] ?? 0),
+      '50-59' => $this->normalizeGoalPercentValue($goalLookup['goal_age_50_59'] ?? 0),
+      '60+' => $this->normalizeGoalPercentValue($goalLookup['goal_age_60plus'] ?? 0),
       'Unknown' => 0,
     ];
     $goalEthnicity = [];
     foreach ($ethnicityMap as $machine => $label) {
-      $goalEthnicity[$label] = $goalLookup['goal_ethnicity_' . $machine] ?? 0;
+      $goalEthnicity[$label] = $this->normalizeGoalPercentValue($this->resolveEthnicityGoalValue($goalLookup, $machine));
     }
 
     $this->composition = [
@@ -201,6 +207,45 @@ class GovernanceBoardDataService {
       $normalized[$label] = round(((float) $count) / $total, 4);
     }
     return $normalized;
+  }
+
+  /**
+   * Ensures goal gender targets include the non-male share when only male is provided.
+   */
+  protected function normalizeGoalGenderTargets(array $targets): array {
+    $male = isset($targets['Male']) ? (float) $targets['Male'] : 0.0;
+    $nonMaleTotal = (isset($targets['Female']) ? (float) $targets['Female'] : 0.0)
+      + (isset($targets['Non-Binary']) ? (float) $targets['Non-Binary'] : 0.0)
+      + (isset($targets['Other/Unknown']) ? (float) $targets['Other/Unknown'] : 0.0);
+
+    if ($nonMaleTotal <= 0 && $male > 0 && $male < 1) {
+      $targets['Female'] = max(0, 1 - $male);
+    }
+
+    return $targets;
+  }
+
+  /**
+   * Normalizes sheet-sourced goal percentages whether they are stored as 0-1 or 0-100.
+   */
+  protected function normalizeGoalPercentValue($value): float {
+    $numeric = (float) $value;
+    if ($numeric > 1) {
+      $numeric = $numeric / 100;
+    }
+    return max(0.0, min(1.0, $numeric));
+  }
+
+  /**
+   * Resolves ethnicity goal values, preferring board-specific keys.
+   */
+  protected function resolveEthnicityGoalValue(array $goalLookup, string $machine): float {
+    $boardKey = 'goal_board_ethnicity_' . $machine;
+    $generalKey = 'goal_ethnicity_' . $machine;
+    if (isset($goalLookup[$boardKey])) {
+      return $goalLookup[$boardKey];
+    }
+    return $goalLookup[$generalKey] ?? 0;
   }
 
 }

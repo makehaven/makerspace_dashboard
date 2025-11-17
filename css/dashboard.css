@@ -179,3 +179,19 @@
   color: #64748b;
   text-align: right;
 }
+
+.kpi-table .kpi-progress {
+  font-weight: 600;
+}
+
+.kpi-progress--good {
+  color: #15803d;
+}
+
+.kpi-progress--warning {
+  color: #d97706;
+}
+
+.kpi-progress--poor {
+  color: #b91c1c;
+}

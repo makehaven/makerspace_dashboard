@@ -39,20 +39,6 @@ governance:
       2028: 0.46
       2029: 0.48
       2030: 0.50
-  active_titled_recurring_volunteers:
-    label: 'Count of Active Titled Recurring Volunteers'
-    base_2025: 50
-    goal_2030: 100
-    annual_values:
-      2026: 60
-      2027: 70
-      2028: 80
-      2029: 90
-      2030: 100
-  active_committee_participation:
-    label: 'Active Committee Participation'
-    base_2025: 30
-    goal_2030: 60
 
 finance:
   reserve_funds_months:

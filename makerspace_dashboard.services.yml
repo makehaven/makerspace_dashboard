@@ -73,6 +73,7 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Governance\GovernanceBoardGenderIdentityChartBuilder
     arguments:
       - '@makerspace_dashboard.governance_board_data'
+      - '@makerspace_dashboard.demographics_data'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
@@ -81,6 +82,7 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Governance\GovernanceBoardAgeRangeChartBuilder
     arguments:
       - '@makerspace_dashboard.governance_board_data'
+      - '@makerspace_dashboard.demographics_data'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
@@ -478,6 +480,7 @@ services:
       - '@makerspace_dashboard.snapshot_data'
       - '@makerspace_dashboard.membership_metrics'
       - '@makerspace_dashboard.utilization_data'
+      - '@makerspace_dashboard.governance_board_data'
 
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager

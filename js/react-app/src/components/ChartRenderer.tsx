@@ -48,17 +48,20 @@ function ensureNumber(value: unknown): number | null {
 }
 
 function extractContextValue(context: any): number | null {
-  if (context?.parsed?.y !== undefined) {
-    return ensureNumber(context.parsed.y);
-  }
-  if (context?.parsed !== undefined && typeof context.parsed !== 'object') {
-    return ensureNumber(context.parsed);
-  }
   if (context?.raw !== undefined) {
     return ensureNumber(context.raw);
   }
   if (context?.value !== undefined) {
     return ensureNumber(context.value);
+  }
+  if (context?.parsed !== undefined && typeof context.parsed !== 'object') {
+    return ensureNumber(context.parsed);
+  }
+  if (context?.parsed?.x !== undefined) {
+    return ensureNumber(context.parsed.x);
+  }
+  if (context?.parsed?.y !== undefined) {
+    return ensureNumber(context.parsed.y);
   }
   return null;
 }

@@ -112,11 +112,12 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
 
     $main_rows = [];
     foreach ($kpi_data as $kpi) {
+      $format = $kpi['display_format'] ?? NULL;
       $main_rows[] = [
         $kpi['label'] ?? '',
-        $this->formatKpiValue($kpi['goal_2030'] ?? NULL),
-        $this->formatKpiValue($kpi['goal_current_year'] ?? NULL),
-        $this->formatKpiValue($kpi['current'] ?? NULL),
+        $this->formatKpiValue($kpi['goal_2030'] ?? NULL, $format),
+        $this->formatKpiValue($kpi['goal_current_year'] ?? NULL, $format),
+        $this->buildCurrentValueCell($kpi, $format),
         [
           'data' => [
             '#type' => 'container',
@@ -139,7 +140,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     foreach ($kpi_data as $kpi) {
       $row = [$kpi['label'] ?? ''];
       foreach ($year_columns as $year) {
-        $row[] = $this->formatKpiValue($kpi['annual_values'][$year] ?? NULL);
+        $row[] = $this->formatKpiValue($kpi['annual_values'][$year] ?? NULL, $kpi['display_format'] ?? NULL);
       }
       $annual_rows[] = $row;
     }
@@ -259,7 +260,7 @@ SVG;
       if (!empty($kpi['goal_current_year_label'])) {
         $normalized = $this->normalizeGoalYearLabel($kpi['goal_current_year_label'], $currentYear);
         if ($normalized !== NULL) {
-          return $normalized;
+          return max($normalized, $currentYear);
         }
       }
     }
@@ -332,9 +333,18 @@ SVG;
    * @return string
    *   The formatted value.
    */
-  protected function formatKpiValue($value): string {
+  protected function formatKpiValue($value, ?string $format = NULL): string {
     if ($value === NULL || $value === '' || $value === 'n/a') {
       return (string) $this->t('n/a');
+    }
+    if ($format === 'percent' && is_numeric($value)) {
+      $normalized = (float) $value;
+      if (abs($normalized) > 1) {
+        $normalized = $normalized / 100;
+      }
+      $percentage = $normalized * 100;
+      $decimals = abs($percentage) < 10 ? 1 : 0;
+      return number_format($percentage, $decimals) . '%';
     }
     if (is_numeric($value)) {
       $float = (float) $value;
@@ -349,6 +359,64 @@ SVG;
       return number_format($float, $precision);
     }
     return (string) $value;
+  }
+
+  /**
+   * Builds the current KPI value cell with conditional styling.
+   */
+  protected function buildCurrentValueCell(array $kpi, ?string $format) {
+    $formatted = $this->formatKpiValue($kpi['current'] ?? NULL, $format);
+    $class = $this->determinePerformanceClass($kpi['current'] ?? NULL, $kpi['goal_current_year'] ?? NULL);
+    if (!$class) {
+      return $formatted;
+    }
+
+    return [
+      'data' => [
+        '#markup' => Markup::create(sprintf('<span class="kpi-progress %s">%s</span>', $class, Html::escape($formatted))),
+      ],
+    ];
+  }
+
+  /**
+   * Determines the progress class based on goal vs. current values.
+   */
+  protected function determinePerformanceClass($current, $goal): ?string {
+    if ($goal === NULL || $current === NULL) {
+      return NULL;
+    }
+    $goalValue = $this->normalizePercentOrAbsoluteValue($goal);
+    $currentValue = $this->normalizePercentOrAbsoluteValue($current);
+    if ($goalValue === NULL || $currentValue === NULL || $goalValue == 0.0) {
+      return NULL;
+    }
+    $isPercent = abs($goalValue) <= 1.5;
+    if ($currentValue >= $goalValue) {
+      return 'kpi-progress--good';
+    }
+    if ($isPercent) {
+      if ($currentValue >= $goalValue - 0.08) {
+        return 'kpi-progress--warning';
+      }
+    }
+    elseif ($currentValue >= ($goalValue * 0.9)) {
+      return 'kpi-progress--warning';
+    }
+    return 'kpi-progress--poor';
+  }
+
+  /**
+   * Normalizes values that may be stored as percentages or raw numbers.
+   */
+  protected function normalizePercentOrAbsoluteValue($value): ?float {
+    if (!is_numeric($value)) {
+      return NULL;
+    }
+    $numeric = (float) $value;
+    if (abs($numeric) > 1.5 && abs($numeric) <= 100) {
+      return $numeric / 100;
+    }
+    return $numeric;
   }
 
   /**

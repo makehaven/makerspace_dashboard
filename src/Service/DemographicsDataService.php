@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\SelectInterface;
 
 /**
  * Provides aggregated demographic metrics for the dashboard.
@@ -187,6 +188,45 @@ class DemographicsDataService {
     $this->cache->set($cid, $output, $expire, ['profile_list', 'user_list']);
 
     return $output;
+  }
+
+  /**
+   * Returns membership gender percentages mapped to board categories.
+   */
+  public function getMembershipGenderPercentages(): array {
+    $distribution = $this->getGenderDistribution(0);
+    $buckets = [
+      'Male' => 0,
+      'Female' => 0,
+      'Non-Binary' => 0,
+      'Other/Unknown' => 0,
+    ];
+    $total = 0;
+
+    foreach ($distribution as $row) {
+      $count = (int) ($row['count'] ?? 0);
+      $total += $count;
+      $label = isset($row['label']) ? strtolower((string) $row['label']) : '';
+      if (str_contains($label, 'male') && !str_contains($label, 'fe')) {
+        $buckets['Male'] += $count;
+      }
+      elseif (str_contains($label, 'female')) {
+        $buckets['Female'] += $count;
+      }
+      elseif (str_contains($label, 'non') || str_contains($label, 'nb') || str_contains($label, 'gender')) {
+        $buckets['Non-Binary'] += $count;
+      }
+      else {
+        $buckets['Other/Unknown'] += $count;
+      }
+    }
+
+    $percentages = [];
+    foreach ($buckets as $bucket => $count) {
+      $percentages[$bucket] = $total > 0 ? $count / $total : 0;
+    }
+
+    return $percentages;
   }
 
   /**
@@ -472,6 +512,63 @@ class DemographicsDataService {
   }
 
   /**
+   * Provides membership age buckets with counts and percentages.
+   *
+   * @return array
+   *   Array with keys:
+   *   - counts: Bucket => count map.
+   *   - percentages: Bucket => decimal percent map.
+   *   - total_members: Total members considered.
+   */
+  public function getMembershipAgeBucketPercentages(): array {
+    $buckets = $this->getAgeBucketDefinitions();
+    $counts = array_fill_keys(array_keys($buckets), 0);
+    $total = 0;
+
+    $query = $this->buildActiveMemberContactQuery();
+    $query->addField('c', 'birth_date', 'birth_date');
+    $results = $query->execute();
+    $now = new \DateTimeImmutable('now', new \DateTimeZone(date_default_timezone_get()));
+
+    foreach ($results as $row) {
+      $birthRaw = $row->birth_date ?? NULL;
+      if (empty($birthRaw)) {
+        $counts['Unknown']++;
+        $total++;
+        continue;
+      }
+      try {
+        $birthDate = new \DateTimeImmutable($birthRaw, new \DateTimeZone('UTC'));
+      }
+      catch (\Exception $e) {
+        $counts['Unknown']++;
+        $total++;
+        continue;
+      }
+      $age = (int) $birthDate->diff($now)->y;
+      $bucket = $this->resolveAgeBucket($age, $buckets);
+      if ($bucket === NULL) {
+        $counts['Unknown']++;
+      }
+      else {
+        $counts[$bucket]++;
+      }
+      $total++;
+    }
+
+    $percentages = [];
+    foreach ($counts as $bucket => $count) {
+      $percentages[$bucket] = $total > 0 ? $count / $total : 0;
+    }
+
+    return [
+      'counts' => $counts,
+      'percentages' => $percentages,
+      'total_members' => $total,
+    ];
+  }
+
+  /**
    * Normalizes stored strings into human-readable labels.
    */
   protected function formatLabel(string $raw, string $fallback): string {
@@ -515,6 +612,201 @@ class DemographicsDataService {
     // counts for all non-white identities, and divide by the total responses.
     // This will be called by the 'annual' snapshot.
     return 0.18;
+  }
+
+  /**
+   * Defines the canonical age buckets used across charts.
+   */
+  protected function getAgeBucketDefinitions(): array {
+    return [
+      '<30' => [NULL, 29],
+      '30-39' => [30, 39],
+      '40-49' => [40, 49],
+      '50-59' => [50, 59],
+      '60+' => [60, NULL],
+      'Unknown' => [NULL, NULL],
+    ];
+  }
+
+  /**
+   * Resolves which bucket an age falls into.
+   */
+  protected function resolveAgeBucket(int $age, array $buckets): ?string {
+    foreach ($buckets as $label => $range) {
+      [$min, $max] = $range;
+      if ($label === 'Unknown') {
+        continue;
+      }
+      if (($min === NULL || $age >= $min) && ($max === NULL || $age <= $max)) {
+        return $label;
+      }
+    }
+    if ($age >= 60) {
+      return '60+';
+    }
+    return NULL;
+  }
+
+  /**
+   * Builds a summary of member-reported ethnicity data.
+   *
+   * @return array
+   *   Summary array containing:
+   *   - active_members: Total active members evaluated.
+   *   - reported_members: Members who provided an ethnicity response (excluding
+   *     "decline"/"prefer not to say").
+   *   - bipoc_members: Members who reported at least one BIPOC identity.
+   *   - percentage: Decimal percentage of reported members who are BIPOC.
+   *   - distribution: Raw counts keyed by ethnicity machine value.
+   */
+  public function getMembershipEthnicitySummary(): array {
+    $cid = 'makerspace_dashboard:demographics:ethnicity_summary';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    $ethnicityTable = $schema->tableExists('civicrm_value_demographics_15') ? 'civicrm_value_demographics_15' : NULL;
+    $ethnicityField = NULL;
+    if ($ethnicityTable) {
+      foreach (['custom_46', 'ethnicity_46'] as $candidate) {
+        if ($schema->fieldExists($ethnicityTable, $candidate)) {
+          $ethnicityField = $candidate;
+          break;
+        }
+      }
+    }
+
+    $query = $this->buildActiveMemberContactQuery();
+    if ($ethnicityTable && $ethnicityField) {
+      $query->leftJoin($ethnicityTable, 'demo', 'demo.entity_id = c.id');
+      $query->addExpression("LOWER(COALESCE(demo.$ethnicityField, ''))", 'ethnicity_value');
+    }
+    else {
+      $query->addExpression("''", 'ethnicity_value');
+    }
+
+    $results = $query->execute();
+
+    $activeMembers = [];
+    $reportedMembers = [];
+    $bipocMembers = [];
+    $distribution = [];
+    $ignored = $this->getIgnoredEthnicityValues();
+    $bipocValues = $this->getBipocEthnicityValues();
+
+    foreach ($results as $record) {
+      $contactId = (int) ($record->id ?? 0);
+      $value = trim((string) ($record->ethnicity_value ?? ''));
+      $activeMembers[$contactId] = TRUE;
+
+      $values = array_unique(array_filter($this->explodeCustomFieldValues($value)));
+      $normalizedValues = [];
+      foreach ($values as $entry) {
+        $normalized = strtolower($entry);
+        if ($normalized === '' || in_array($normalized, $ignored, TRUE)) {
+          continue;
+        }
+        $normalizedValues[] = $normalized;
+      }
+
+      if (!$normalizedValues) {
+        $distribution['not_specified'] = ($distribution['not_specified'] ?? 0) + 1;
+        continue;
+      }
+
+      if (count($normalizedValues) > 1) {
+        $distribution['multi'] = ($distribution['multi'] ?? 0) + 1;
+        $reportedMembers[$contactId] = TRUE;
+        $bipocMembers[$contactId] = TRUE;
+        continue;
+      }
+
+      $single = $normalizedValues[0];
+      $distribution[$single] = ($distribution[$single] ?? 0) + 1;
+      $reportedMembers[$contactId] = TRUE;
+      if (in_array($single, $bipocValues, TRUE)) {
+        $bipocMembers[$contactId] = TRUE;
+      }
+    }
+
+    $reportedCount = count($reportedMembers);
+    $bipocCount = count($bipocMembers);
+    $summary = [
+      'active_members' => count($activeMembers),
+      'reported_members' => $reportedCount,
+      'bipoc_members' => $bipocCount,
+      'percentage' => $reportedCount > 0 ? $bipocCount / $reportedCount : 0.0,
+      'distribution' => $distribution,
+    ];
+
+    $expire = time() + $this->ttl;
+    $this->cache->set($cid, $summary, $expire, ['profile_list', 'user_list', 'civicrm_contact_list']);
+
+    return $summary;
+  }
+
+  /**
+   * Returns ethnicity values counted toward the BIPOC percentage.
+   */
+  protected function getBipocEthnicityValues(): array {
+    return [
+      'asian',
+      'black',
+      'middleeast',
+      'mena',
+      'hispanic',
+      'native',
+      'aian',
+      'islander',
+      'nhpi',
+      'multi',
+      'other',
+    ];
+  }
+
+  /**
+   * Returns ethnicity values ignored for reporting purposes.
+   */
+  protected function getIgnoredEthnicityValues(): array {
+    return [
+      '',
+      'decline',
+      'prefer_not_to_say',
+      'prefer_not_to_disclose',
+      'not_specified',
+    ];
+  }
+
+  /**
+   * Builds a query selecting active Drupal members linked to CiviCRM contacts.
+   */
+  protected function buildActiveMemberContactQuery(): SelectInterface {
+    $query = $this->database->select('users_field_data', 'u');
+    $query->addField('c', 'id');
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = u.uid');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = u.uid');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
+    $query->condition('u.status', 1);
+    $query->condition('c.is_deleted', 0);
+    $query->distinct();
+    return $query;
+  }
+
+  /**
+   * Breaks multi-select custom field values into individual entries.
+   */
+  protected function explodeCustomFieldValues(?string $value): array {
+    if ($value === NULL || $value === '') {
+      return [];
+    }
+    $normalized = str_replace(["\x01", "\x02", '|'], ',', $value);
+    $parts = array_map('trim', array_filter(explode(',', $normalized), static fn($part) => $part !== ''));
+    if (!$parts) {
+      return [$value];
+    }
+    return $parts;
   }
 
 }
