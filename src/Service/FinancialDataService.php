@@ -5,6 +5,7 @@ namespace Drupal\makerspace_dashboard\Service;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Datetime\DateFormatterInterface;
+use DateTimeImmutable;
 
 /**
  * Service to query financial data for the dashboard.
@@ -119,10 +120,127 @@ class FinancialDataService {
   }
 
   /**
+   * Retrieves quarterly payment mix snapshots built from plan snapshots.
+   *
+   * @param int $quarterLimit
+   *   Maximum number of quarters to return.
+   *
+   * @return array
+   *   Structured snapshot data with plan labels and per-quarter counts.
+   */
+  public function getPaymentMixSnapshots(int $quarterLimit = 6): array {
+    $quarterLimit = max(1, $quarterLimit);
+    $cid = sprintf('makerspace_dashboard:payment_mix_snapshots:%d', $quarterLimit);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('ms_snapshot') || !$schema->tableExists('ms_fact_plan_snapshot')) {
+      return [];
+    }
+
+    $rangeMonths = max(12, ($quarterLimit * 3) + 9);
+    $rangeStart = (new DateTimeImmutable('first day of this month'))->modify(sprintf('-%d months', $rangeMonths));
+
+    $query = $this->database->select('ms_snapshot', 's');
+    $query->innerJoin('ms_fact_plan_snapshot', 'p', 'p.snapshot_id = s.id');
+    $query->fields('s', ['snapshot_date']);
+    $query->fields('p', ['plan_code', 'plan_label', 'count_members']);
+    $query->condition('s.definition', 'plan');
+    $query->condition('s.snapshot_date', $rangeStart->format('Y-m-01'), '>=');
+    $query->orderBy('s.snapshot_date', 'ASC');
+
+    $records = $query->execute();
+    if (!$records) {
+      return [];
+    }
+
+    $planLabels = [];
+    $quarters = [];
+
+    foreach ($records as $record) {
+      $dateString = $record->snapshot_date ?? '';
+      $date = DateTimeImmutable::createFromFormat('Y-m-d', $dateString);
+      if (!$date) {
+        continue;
+      }
+      $year = (int) $date->format('Y');
+      $month = (int) $date->format('n');
+      $quarterNumber = (int) ceil($month / 3);
+      $quarterKey = sprintf('%04d-Q%d', $year, $quarterNumber);
+      $quarterLabel = sprintf('Q%d %d', $quarterNumber, $year);
+
+      $code = $this->normalizePlanCode($record->plan_code ?? '');
+      $label = trim((string) ($record->plan_label ?? ''));
+      if ($label === '') {
+        $label = $code;
+      }
+      $planLabels[$code] = $label;
+
+      if (!isset($quarters[$quarterKey]) || $date > $quarters[$quarterKey]['date']) {
+        $quarters[$quarterKey] = [
+          'date' => $date,
+          'label' => $quarterLabel,
+          'counts' => [],
+        ];
+      }
+      if ($date < $quarters[$quarterKey]['date']) {
+        continue;
+      }
+      if ($date > $quarters[$quarterKey]['date']) {
+        $quarters[$quarterKey]['date'] = $date;
+        $quarters[$quarterKey]['counts'] = [];
+      }
+      $quarters[$quarterKey]['counts'][$code] = (int) ($record->count_members ?? 0);
+    }
+
+    if (!$quarters) {
+      return [];
+    }
+
+    uasort($quarters, static function (array $a, array $b): int {
+      return $a['date'] <=> $b['date'];
+    });
+    $quarters = array_slice($quarters, -1 * $quarterLimit, NULL, TRUE);
+
+    $series = [];
+    foreach ($quarters as $key => $info) {
+      $counts = $info['counts'];
+      $series[] = [
+        'key' => $key,
+        'label' => $info['label'],
+        'date' => $info['date']->format('Y-m-d'),
+        'counts' => $counts,
+        'total' => array_sum($counts),
+      ];
+    }
+
+    $data = [
+      'plans' => $planLabels,
+      'quarters' => $series,
+    ];
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['makerspace_snapshot:plan']);
+
+    return $data;
+  }
+
+  /**
+   * Normalizes plan codes pulled from snapshots.
+   */
+  private function normalizePlanCode($code): string {
+    $value = strtoupper(trim((string) $code));
+    if ($value === '' || strpos($value, '@') !== FALSE) {
+      return 'UNASSIGNED';
+    }
+    return $value;
+  }
+
+  /**
    * Computes average recorded monthly payment amount by membership type.
    */
   public function getAverageMonthlyPaymentByType(): array {
-    $cid = 'makerspace_dashboard:avg_payment_by_type';
+    $cid = 'makerspace_dashboard:avg_payment_by_type:v2';
     if ($cache = $this->cache->get($cid)) {
       return $cache->data;
     }
@@ -138,11 +256,39 @@ class FinancialDataService {
     $query->condition('p.is_default', 1);
     $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
     $query->condition('u.status', 1);
+    $query->innerJoin('user__roles', 'member_role', "member_role.entity_id = u.uid AND member_role.roles_target_id = 'member'");
+    $schema = $this->database->schema();
+    $hasChargebeePause = $schema->tableExists('user__field_chargebee_payment_pause');
+    $hasManualPause = $schema->tableExists('user__field_manual_pause');
+    if ($hasChargebeePause) {
+      $query->leftJoin('user__field_chargebee_payment_pause', 'chargebee_pause', 'chargebee_pause.entity_id = u.uid AND chargebee_pause.deleted = 0');
+    }
+    if ($hasManualPause) {
+      $query->leftJoin('user__field_manual_pause', 'manual_pause', 'manual_pause.entity_id = u.uid AND manual_pause.deleted = 0');
+    }
     $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
     $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
     $query->condition('payment.deleted', 0);
     $query->isNotNull('payment.field_member_payment_monthly_value');
     $query->where("payment.field_member_payment_monthly_value <> ''");
+    $query->condition('payment.field_member_payment_monthly_value', 0, '>');
+
+    if ($hasChargebeePause || $hasManualPause) {
+      $activeGroup = $query->andConditionGroup();
+      if ($hasChargebeePause) {
+        $chargebeeNotPaused = $query->orConditionGroup()
+          ->isNull('chargebee_pause.field_chargebee_payment_pause_value')
+          ->condition('chargebee_pause.field_chargebee_payment_pause_value', 0);
+        $activeGroup->condition($chargebeeNotPaused);
+      }
+      if ($hasManualPause) {
+        $manualNotPaused = $query->orConditionGroup()
+          ->isNull('manual_pause.field_manual_pause_value')
+          ->condition('manual_pause.field_manual_pause_value', 0);
+        $activeGroup->condition($manualNotPaused);
+      }
+      $query->condition($activeGroup);
+    }
 
     $query->addExpression("COALESCE(term.name, 'Unknown')", 'membership_type');
     $query->addExpression('AVG(payment.field_member_payment_monthly_value)', 'avg_payment');

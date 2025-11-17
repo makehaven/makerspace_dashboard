@@ -154,4 +154,20 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
     return $trend;
   }
 
+  /**
+   * Provides a default palette for dataset colors.
+   */
+  protected function defaultColorPalette(): array {
+    return [
+      '#2563eb',
+      '#16a34a',
+      '#f97316',
+      '#dc2626',
+      '#7c3aed',
+      '#0d9488',
+      '#6366f1',
+      '#f59e0b',
+    ];
+  }
+
 }

@@ -168,6 +168,17 @@ const callbackFactories: Record<string, CallbackFactory> = {
       `${translate('Inactive')}: ${formatNumeric(inactive, { format: 'integer' })}`,
     ];
   },
+  payment_mix_members_count: () => (context: any) => {
+    const datasetCounts = Array.isArray(context?.dataset?.makerspaceCounts)
+      ? context.dataset.makerspaceCounts
+      : [];
+    const index = context?.dataIndex ?? 0;
+    const members = ensureNumber(datasetCounts[index]);
+    if (members === null) {
+      return '';
+    }
+    return `${translate('Members')}: ${formatNumeric(members, { format: 'integer' })}`;
+  },
 };
 
 function hydrateLegacyFunction(source: string): (() => unknown) | null {

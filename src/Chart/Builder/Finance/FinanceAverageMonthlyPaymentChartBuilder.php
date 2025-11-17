@@ -36,8 +36,20 @@ class FinanceAverageMonthlyPaymentChartBuilder extends ChartBuilderBase {
       return NULL;
     }
 
-    $labels = array_map('strval', array_keys($types));
-    $values = array_map(static fn(array $row) => round((float) ($row['average'] ?? 0), 2), $types);
+    $filtered = array_filter($types, static function ($row, $label) {
+      $normalized = strtolower(trim((string) $label));
+      return $normalized !== 'unknown' && $normalized !== 'unknown / not provided';
+    }, ARRAY_FILTER_USE_BOTH);
+    if (!$filtered) {
+      return NULL;
+    }
+
+    uasort($filtered, static function (array $a, array $b) {
+      return ($b['average'] ?? 0) <=> ($a['average'] ?? 0);
+    });
+
+    $labels = array_values(array_map('strval', array_keys($filtered)));
+    $values = array_values(array_map(static fn(array $row) => round((float) ($row['average'] ?? 0), 2), $filtered));
 
     $visualization = [
       'type' => 'chart',
@@ -57,14 +69,7 @@ class FinanceAverageMonthlyPaymentChartBuilder extends ChartBuilderBase {
         'plugins' => [
           'legend' => ['display' => FALSE],
           'tooltip' => [
-            'callbacks' => [
-              'label' => $this->chartCallback('series_value', [
-                'format' => 'currency',
-                'currency' => 'USD',
-                'decimals' => 2,
-                'showLabel' => FALSE,
-              ]),
-            ],
+            'enabled' => FALSE,
           ],
         ],
         'scales' => [
