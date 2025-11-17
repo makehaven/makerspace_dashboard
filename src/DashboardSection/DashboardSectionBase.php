@@ -366,7 +366,7 @@ SVG;
    */
   protected function buildCurrentValueCell(array $kpi, ?string $format) {
     $formatted = $this->formatKpiValue($kpi['current'] ?? NULL, $format);
-    $class = $this->determinePerformanceClass($kpi['current'] ?? NULL, $kpi['goal_current_year'] ?? NULL);
+    $class = $this->determinePerformanceClass($kpi['current'] ?? NULL, $kpi['goal_current_year'] ?? NULL, $format);
     if (!$class) {
       return $formatted;
     }
@@ -381,16 +381,16 @@ SVG;
   /**
    * Determines the progress class based on goal vs. current values.
    */
-  protected function determinePerformanceClass($current, $goal): ?string {
+  protected function determinePerformanceClass($current, $goal, ?string $format = NULL): ?string {
     if ($goal === NULL || $current === NULL) {
       return NULL;
     }
-    $goalValue = $this->normalizePercentOrAbsoluteValue($goal);
-    $currentValue = $this->normalizePercentOrAbsoluteValue($current);
+    $goalValue = $this->normalizePercentOrAbsoluteValue($goal, $format);
+    $currentValue = $this->normalizePercentOrAbsoluteValue($current, $format);
     if ($goalValue === NULL || $currentValue === NULL || $goalValue == 0.0) {
       return NULL;
     }
-    $isPercent = abs($goalValue) <= 1.5;
+    $isPercent = ($format === 'percent') || abs($goalValue) <= 1.5;
     if ($currentValue >= $goalValue) {
       return 'kpi-progress--good';
     }
@@ -408,12 +408,12 @@ SVG;
   /**
    * Normalizes values that may be stored as percentages or raw numbers.
    */
-  protected function normalizePercentOrAbsoluteValue($value): ?float {
+  protected function normalizePercentOrAbsoluteValue($value, ?string $format = NULL): ?float {
     if (!is_numeric($value)) {
       return NULL;
     }
     $numeric = (float) $value;
-    if (abs($numeric) > 1.5 && abs($numeric) <= 100) {
+    if ($format === 'percent' && abs($numeric) > 1.5 && abs($numeric) <= 100) {
       return $numeric / 100;
     }
     return $numeric;

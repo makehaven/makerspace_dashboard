@@ -18,7 +18,7 @@ class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
   protected const SECTION_ID = 'overview';
   protected const CHART_ID = 'reserve_funds_months';
   protected const WEIGHT = 40;
-  protected const RANGE_DEFAULT = '1y';
+  protected const RANGE_DEFAULT = 'all';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
 
   /**

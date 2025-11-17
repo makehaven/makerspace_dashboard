@@ -772,6 +772,9 @@ class KpiDataService {
    *   A DateTime object when parsing succeeds, otherwise NULL.
    */
   private function parseSheetDate($value): ?\DateTimeImmutable {
+    if (is_numeric($value)) {
+      $value = (string) $value;
+    }
     if (!is_string($value)) {
       return NULL;
     }
@@ -781,12 +784,129 @@ class KpiDataService {
       return NULL;
     }
 
+    $normalized = trim($trimmed, "'\"");
+    if ($normalized === '') {
+      return NULL;
+    }
+    $normalized = preg_replace('/\s+/', ' ', $normalized);
+
+    if (preg_match('/^\d{8}$/', $normalized)) {
+      $year = (int) substr($normalized, 0, 4);
+      $month = (int) substr($normalized, 4, 2);
+      $day = (int) substr($normalized, 6, 2);
+      return $this->createDateFromParts($year, $month, $day);
+    }
+
+    if (preg_match('/^\d{6}$/', $normalized)) {
+      $year = (int) substr($normalized, 0, 4);
+      $month = (int) substr($normalized, 4, 2);
+      return $this->createMonthEndDate($year, $month);
+    }
+
+    if (preg_match('/^\d{4}$/', $normalized)) {
+      $year = (int) $normalized;
+      return $this->createMonthEndDate($year, 12);
+    }
+
+    if ($monthYearDate = $this->parseMonthYearLabel($normalized)) {
+      return $monthYearDate;
+    }
+
+    if (is_numeric($normalized)) {
+      $serial = (float) $normalized;
+      if ($serial > 20000) {
+        if ($excelDate = $this->convertExcelSerialToDate($serial)) {
+          return $excelDate;
+        }
+      }
+    }
+
     try {
-      return new \DateTimeImmutable($trimmed);
+      return new \DateTimeImmutable($normalized);
     }
     catch (\Exception $e) {
-      return $this->parseQuarterLabel($trimmed);
+      return $this->parseQuarterLabel($normalized);
     }
+  }
+
+  /**
+   * Converts Excel serial date numbers into DateTime objects.
+   */
+  private function convertExcelSerialToDate(float $serial): ?\DateTimeImmutable {
+    if ($serial <= 0) {
+      return NULL;
+    }
+
+    $days = (int) floor($serial);
+    $seconds = (int) round(($serial - $days) * 86400);
+
+    try {
+      $date = (new \DateTimeImmutable('1899-12-30'))->modify(sprintf('+%d days', $days));
+      if ($seconds) {
+        $date = $date->modify(sprintf('+%d seconds', $seconds));
+      }
+      return $date;
+    }
+    catch (\Exception $e) {
+      return NULL;
+    }
+  }
+
+  /**
+   * Creates a date from discrete components.
+   */
+  private function createDateFromParts(int $year, int $month, int $day): ?\DateTimeImmutable {
+    if ($month < 1 || $month > 12) {
+      return NULL;
+    }
+    if ($day < 1 || $day > 31) {
+      return NULL;
+    }
+    try {
+      return new \DateTimeImmutable(sprintf('%04d-%02d-%02d', $year, $month, $day));
+    }
+    catch (\Exception $e) {
+      return NULL;
+    }
+  }
+
+  /**
+   * Builds a month-end date for the supplied year/month combination.
+   */
+  private function createMonthEndDate(int $year, int $month): ?\DateTimeImmutable {
+    if ($month < 1 || $month > 12) {
+      return NULL;
+    }
+
+    try {
+      $firstOfMonth = new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month));
+    }
+    catch (\Exception $e) {
+      return NULL;
+    }
+    $lastDay = (int) $firstOfMonth->format('t');
+    return $this->createDateFromParts($year, $month, $lastDay);
+  }
+
+  /**
+   * Parses month-year labels such as "Jan-23" or "January 2024".
+   */
+  private function parseMonthYearLabel(string $value): ?\DateTimeImmutable {
+    if (!preg_match('/^([A-Za-z]+)[\\s\\-\\/]+(\\d{2,4})$/', $value, $matches)) {
+      return NULL;
+    }
+
+    $month = $this->monthNameToNumber($matches[1]);
+    if ($month === NULL) {
+      return NULL;
+    }
+
+    $year = (int) $matches[2];
+    if ($year < 100) {
+      $year += ($year >= 70) ? 1900 : 2000;
+    }
+
+    return $this->createMonthEndDate($year, $month);
   }
 
   /**
@@ -1128,28 +1248,13 @@ class KpiDataService {
 
     ksort($entries, SORT_STRING);
 
-    // Ensure we only include a contiguous monthly run. If the sheet contains
-    // future placeholders that skip one or more months, truncate at the first
-    // detected gap so the chart reflects only the populated data.
-    $contiguousEntries = [];
-    $previousDate = NULL;
+    // Exclude future or in-progress months so historical charts remain stable.
     $now = new \DateTimeImmutable('first day of this month');
-    foreach ($entries as $monthKey => $entry) {
-      if ($entry['date'] >= $now) {
-        break;
-      }
-      if ($previousDate !== NULL) {
-        $diff = $this->diffInMonths($previousDate, $entry['date']);
-        if ($diff > 1) {
-          break;
-        }
-      }
-      $contiguousEntries[$monthKey] = $entry;
-      $previousDate = $entry['date'];
-    }
-
-    if ($contiguousEntries) {
-      $entries = $contiguousEntries;
+    $entries = array_filter($entries, static function (array $entry) use ($now): bool {
+      return isset($entry['date']) && $entry['date'] instanceof \DateTimeImmutable && $entry['date'] < $now;
+    });
+    if (!$entries) {
+      return [];
     }
 
     $items = [];

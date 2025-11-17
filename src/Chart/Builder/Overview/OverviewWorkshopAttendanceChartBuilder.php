@@ -20,6 +20,7 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
   protected const WEIGHT = 30;
   protected const RANGE_DEFAULT = '1y';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
+  protected const MINIMUM_ALL_RANGE_START = '2023-10-01';
 
   /**
    * Constructs the builder.
@@ -39,6 +40,12 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
     $rangeEnd = new \DateTimeImmutable('first day of this month');
     $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
     $startDate = $bounds['start'] ?? $rangeEnd->modify('-20 years');
+    if ($activeRange === 'all') {
+      $minimumStart = new \DateTimeImmutable(self::MINIMUM_ALL_RANGE_START);
+      if ($startDate < $minimumStart) {
+        $startDate = $minimumStart;
+      }
+    }
     $endDate = $bounds['end']->modify('-1 day');
     if ($startDate > $endDate) {
       return NULL;
