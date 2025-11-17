@@ -129,6 +129,8 @@ By following this template every chart will:
 - Respect consistent styling/options (legend placement, tooltips, etc.).
 - Remain independently testable, making it easy to load via `/makerspace-dashboard/api/chart/{section}/{chart}` without rendering the whole section.
 
+> **Front-end build reminder:** When you tweak React/TypeScript under `js/react-app/src/**` or shared dashboard CSS (e.g., `css/react-dashboard.css`), rebuild the assets with `npm --prefix js/react-app run build` so Drupal serves the updated bundle.
+
 ## 4. Date Range Checklist
 
 Many Education charts expose selectable date ranges via `RangeSelectionTrait`. Keep these lessons in mind when adding new range-enabled charts:

@@ -6,15 +6,20 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\Builder\ChartBuilderBase;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\Service\FinancialDataService;
+use Drupal\makerspace_dashboard\Support\RangeSelectionTrait;
 
 /**
  * Builds the Overview MRR Trend chart.
  */
 class OverviewMrrTrendChartBuilder extends ChartBuilderBase {
 
+  use RangeSelectionTrait;
+
   protected const SECTION_ID = 'overview';
   protected const CHART_ID = 'mrr_trend';
   protected const WEIGHT = 10;
+  protected const RANGE_DEFAULT = '1y';
+  protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
 
   /**
    * Constructs the builder.
@@ -30,8 +35,16 @@ class OverviewMrrTrendChartBuilder extends ChartBuilderBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): ?ChartDefinition {
-    $endDate = new \DateTimeImmutable();
-    $startDate = $endDate->modify('-6 months');
+    $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
+    $rangeEnd = new \DateTimeImmutable('first day of this month');
+    $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
+    $startDate = $bounds['start'] ?? $rangeEnd->modify('-20 years');
+    $endDate = $bounds['end']->modify('-1 day');
+
+    if ($startDate > $endDate) {
+      return NULL;
+    }
+
     $trend = $this->financialDataService->getMrrTrend($startDate, $endDate);
     $values = array_map('floatval', $trend['data'] ?? []);
     if (empty(array_filter($values))) {
@@ -105,7 +118,11 @@ class OverviewMrrTrendChartBuilder extends ChartBuilderBase {
       $visualization,
       [
         (string) $this->t('Source: Member join dates paired with membership type taxonomy terms.'),
-        (string) $this->t('Processing: Includes joins within the selected six-month window and multiplies counts by assumed monthly values.'),
+        (string) $this->t('Processing: Includes joins within the selected time window and multiplies counts by assumed monthly values.'),
+      ],
+      [
+        'active' => $activeRange,
+        'options' => $this->getRangePresets(self::RANGE_OPTIONS),
       ],
     );
   }

@@ -6,15 +6,20 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\Builder\ChartBuilderBase;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\Service\KpiDataService;
+use Drupal\makerspace_dashboard\Support\RangeSelectionTrait;
 
 /**
  * Builds the reserve funds coverage chart.
  */
 class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
 
+  use RangeSelectionTrait;
+
   protected const SECTION_ID = 'overview';
   protected const CHART_ID = 'reserve_funds_months';
   protected const WEIGHT = 40;
+  protected const RANGE_DEFAULT = '1y';
+  protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
 
   /**
    * Constructs the builder.
@@ -31,8 +36,41 @@ class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
    */
   public function build(array $filters = []): ?ChartDefinition {
     $series = $this->kpiDataService->getReserveFundsMonthlySeries();
-    $labels = array_map('strval', $series['labels'] ?? []);
-    $values = array_map(static fn($value) => round((float) $value, 2), $series['values'] ?? []);
+    $items = $series['items'] ?? [];
+    if (!$items) {
+      return NULL;
+    }
+
+    $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
+    $rangeEnd = new \DateTimeImmutable('first day of this month');
+    $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
+    $startDate = $bounds['start'];
+    $endDate = $bounds['end'];
+
+    $filteredItems = array_filter($items, static function (array $item) use ($startDate, $endDate) {
+      $date = $item['date'] ?? NULL;
+      if (!$date instanceof \DateTimeImmutable) {
+        return FALSE;
+      }
+      if ($startDate && $date < $startDate) {
+        return FALSE;
+      }
+      if ($date >= $endDate) {
+        return FALSE;
+      }
+      return TRUE;
+    });
+
+    if (!$filteredItems) {
+      return NULL;
+    }
+
+    $labels = [];
+    $values = [];
+    foreach ($filteredItems as $item) {
+      $labels[] = (string) ($item['label'] ?? '');
+      $values[] = round((float) ($item['months'] ?? 0), 2);
+    }
 
     if (!$labels || !array_filter($values)) {
       return NULL;
@@ -122,6 +160,10 @@ class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
       (string) $this->t('Tracks how many months of operating expense current cash reserves can sustain, showing trends over time.'),
       $visualization,
       $notes,
+      [
+        'active' => $activeRange,
+        'options' => $this->getRangePresets(self::RANGE_OPTIONS),
+      ],
     );
   }
 

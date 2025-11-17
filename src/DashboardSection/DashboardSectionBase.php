@@ -257,10 +257,70 @@ SVG;
     $currentYear = $this->getCurrentGoalYear();
     foreach ($kpi_data as $kpi) {
       if (!empty($kpi['goal_current_year_label'])) {
-        return (int) $kpi['goal_current_year_label'];
+        $normalized = $this->normalizeGoalYearLabel($kpi['goal_current_year_label'], $currentYear);
+        if ($normalized !== NULL) {
+          return $normalized;
+        }
       }
     }
     return $currentYear;
+  }
+
+  /**
+   * Normalizes a goal year label into a four digit year.
+   *
+   * @param mixed $rawYear
+   *   The raw year label value.
+   * @param int $referenceYear
+   *   The current year used to infer the century for short labels.
+   *
+   * @return int|null
+   *   The normalized year or NULL if it cannot be determined.
+   */
+  private function normalizeGoalYearLabel($rawYear, int $referenceYear): ?int {
+    $rawString = (string) $rawYear;
+    if (preg_match('/(20\d{2})/', $rawString, $matches)) {
+      return (int) $matches[1];
+    }
+
+    $digits = preg_replace('/[^0-9]/', '', $rawString);
+    if ($digits === '') {
+      return NULL;
+    }
+
+    if (strlen($digits) >= 4) {
+      return (int) substr($digits, -4);
+    }
+
+    $trimmed = ltrim($digits, '0');
+    if ($trimmed === '') {
+      $trimmed = '0';
+    }
+
+    // Treat short labels as the trailing two digits of the year. When only a
+    // single digit is provided (e.g., "Goal 5"), assume it refers to 2025-2029.
+    if (strlen($trimmed) === 1) {
+      $twoDigitYear = (int) $trimmed + 20;
+      if ($twoDigitYear >= 100) {
+        $twoDigitYear -= 100;
+      }
+    }
+    else {
+      $twoDigitYear = (int) substr($digits, -2);
+    }
+
+    $century = (int) floor($referenceYear / 100) * 100;
+    $candidate = $century + $twoDigitYear;
+
+    // Keep the inferred year close to the reference to avoid 1900/2100 jumps.
+    if ($candidate < $referenceYear - 50) {
+      $candidate += 100;
+    }
+    elseif ($candidate > $referenceYear + 50) {
+      $candidate -= 100;
+    }
+
+    return $candidate;
   }
 
   /**

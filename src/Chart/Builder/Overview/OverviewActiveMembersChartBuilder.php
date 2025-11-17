@@ -7,15 +7,20 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\Builder\ChartBuilderBase;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\Service\SnapshotDataService;
+use Drupal\makerspace_dashboard\Support\RangeSelectionTrait;
 
 /**
  * Builds the active members monthly snapshot chart.
  */
 class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
 
+  use RangeSelectionTrait;
+
   protected const SECTION_ID = 'overview';
   protected const CHART_ID = 'snapshot_monthly';
   protected const WEIGHT = 20;
+  protected const RANGE_DEFAULT = '1y';
+  protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
 
   /**
    * Constructs the builder.
@@ -37,7 +42,27 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
       return NULL;
     }
 
-    $recent = array_slice($series, -12);
+    $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
+    $rangeEnd = new \DateTimeImmutable('first day of this month');
+    $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
+    $startDate = $bounds['start'];
+    $endDate = $bounds['end'];
+
+    $filtered = array_filter($series, static function (array $row) use ($startDate, $endDate) {
+      $periodDate = $row['period_date'] ?? NULL;
+      if (!$periodDate instanceof \DateTimeImmutable) {
+        return FALSE;
+      }
+      if ($startDate && $periodDate < $startDate) {
+        return FALSE;
+      }
+      if ($periodDate >= $endDate) {
+        return FALSE;
+      }
+      return TRUE;
+    });
+
+    $recent = array_values($filtered);
     if (!$recent) {
       return NULL;
     }
@@ -106,6 +131,10 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
       [
         (string) $this->t('Source: makerspace_snapshot membership_totals snapshots.'),
         (string) $this->t('Processing: Groups snapshots by calendar month and keeps the most recent capture in each month.'),
+      ],
+      [
+        'active' => $activeRange,
+        'options' => $this->getRangePresets(self::RANGE_OPTIONS),
       ],
     );
   }

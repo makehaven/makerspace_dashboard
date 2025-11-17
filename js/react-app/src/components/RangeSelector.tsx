@@ -19,46 +19,43 @@ export const RangeSelector = ({ options, activeRange, pendingRange, onSelect, ar
   }
 
   const currentValue = pendingRange ?? activeRange ?? entries[0][0] ?? '';
-  const selectId = `${controlId}-select`;
   const legendId = `${controlId}-legend`;
 
   return (
     <fieldset className={`makerspace-dashboard-range-selector${pendingRange ? ' is-pending' : ''}`} aria-label={ariaLabel} aria-busy={pendingRange ? 'true' : undefined}>
       <legend id={legendId}>{translate('Date range')}</legend>
-      <div className="makerspace-dashboard-range-selector__options" role="radiogroup" aria-labelledby={legendId}>
+      <div className="makerspace-dashboard-range-selector__pill-group" role="radiogroup" aria-labelledby={legendId}>
         {entries.map(([key, config]) => {
+          const isActive = currentValue === key;
           const isPending = pendingRange === key;
+          const optionClasses = [
+            'makerspace-dashboard-range-selector__pill',
+            isActive ? 'is-active' : '',
+            isPending ? 'is-loading' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
           return (
-            <label key={key} className="makerspace-dashboard-range-selector__option">
+            <label key={key} className={optionClasses}>
               <input
                 type="radio"
                 name={controlId}
                 value={key}
-                checked={currentValue === key}
+                checked={isActive}
                 onChange={() => onSelect(key)}
-                disabled={isPending}
+                disabled={Boolean(pendingRange)}
               />
-              <span className="makerspace-dashboard-range-selector__label">
-                <span className="makerspace-dashboard-range-selector__title">{config.label}</span>
-                <span className="makerspace-dashboard-range-selector__hint">{key.toUpperCase()}</span>
-              </span>
+              <span className="makerspace-dashboard-range-selector__pill-label">{config.label}</span>
             </label>
           );
         })}
       </div>
-      <div className="makerspace-dashboard-range-selector__dropdown">
-        <label htmlFor={selectId}>{translate('Jump to range')}</label>
-        <div className="makerspace-dashboard-range-selector__select-wrapper">
-          <select id={selectId} value={currentValue} onChange={(event) => onSelect(event.target.value)} disabled={Boolean(pendingRange)}>
-            {entries.map(([key, config]) => (
-              <option key={key} value={key}>
-                {config.label}
-              </option>
-            ))}
-          </select>
-          {pendingRange && <span className="makerspace-dashboard-range-selector__spinner" aria-hidden="true" />}
+      {pendingRange && (
+        <div className="makerspace-dashboard-range-selector__pending">
+          <span aria-hidden="true" className="makerspace-dashboard-range-selector__spinner" />
+          <span>{translate('Updating data…')}</span>
         </div>
-      </div>
+      )}
     </fieldset>
   );
 };
