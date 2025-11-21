@@ -273,3 +273,39 @@
   color: #64748b;
   font-size: 0.85em;
 }
+
+.chart-tier {
+  margin-bottom: 2rem;
+}
+
+.chart-tier--key {
+  padding: 1rem 1.25rem;
+  border: 1px solid #cfd7e6;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #f5f8ff 0%, #f2f6fc 100%);
+}
+
+.chart-tier--key > .heading {
+  margin-bottom: 1rem;
+}
+
+.chart-tier.chart-tier--supplemental,
+.chart-tier.chart-tier--experimental {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 0.75rem 1rem 1rem;
+  background-color: #ffffff;
+  margin-bottom: 1.5rem;
+}
+
+.chart-tier.chart-tier--supplemental[open],
+.chart-tier.chart-tier--experimental[open] {
+  padding-bottom: 1.25rem;
+}
+
+.chart-tier summary {
+  margin: 0 0 0.75rem;
+  color: #475569;
+  font-size: 1.15rem;
+  font-weight: 600;
+}

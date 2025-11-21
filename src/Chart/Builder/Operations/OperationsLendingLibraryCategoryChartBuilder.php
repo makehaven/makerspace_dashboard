@@ -74,13 +74,17 @@ class OperationsLendingLibraryCategoryChartBuilder extends OperationsChartBuilde
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Lending Library Loans by Category'),
+      (string) $this->t('Lending Library: Loans by category'),
       (string) $this->t('Distribution of loans over the last 90 days by top categories.'),
       $visualization,
       [
         (string) $this->t('Source: lending_library stats collector top_categories dataset.'),
         (string) $this->t('Processing: matches the category breakdown chart inside the Lending Library dashboard.'),
       ],
+      NULL,
+      NULL,
+      [],
+      'supplemental',
     );
   }
 

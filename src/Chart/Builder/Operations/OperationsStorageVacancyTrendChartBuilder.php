@@ -124,13 +124,17 @@ class OperationsStorageVacancyTrendChartBuilder extends OperationsChartBuilderBa
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Storage vacancy trend'),
+      (string) $this->t('Storage: Vacancy trend'),
       (string) $this->t('Shows how many storage units are empty versus the overall vacancy rate each month.'),
       $visualization,
       [
         (string) $this->t('Source: live storage assignments and unit counts from storage_manager.'),
         (string) $this->t('Processing: Counts assignments active within each calendar month.'),
       ],
+      NULL,
+      NULL,
+      [],
+      'supplemental',
     );
   }
 

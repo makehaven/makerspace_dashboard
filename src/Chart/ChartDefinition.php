@@ -39,6 +39,7 @@ class ChartDefinition {
     protected ?array $range = NULL,
     protected int $weight = 0,
     protected array $cache = [],
+    protected string $tier = 'key',
   ) {
   }
 
@@ -106,6 +107,13 @@ class ChartDefinition {
   }
 
   /**
+   * Gets the tier designation for this chart.
+   */
+  public function getTier(): string {
+    return $this->tier;
+  }
+
+  /**
    * Converts the definition into array metadata for React/JSON responses.
    */
   public function toMetadata(): array {
@@ -117,6 +125,7 @@ class ChartDefinition {
       'notes' => $this->notes,
       'visualization' => $this->normalizeVisualization($this->visualization),
       'range' => $this->range,
+      'tier' => $this->tier,
     ];
   }
 

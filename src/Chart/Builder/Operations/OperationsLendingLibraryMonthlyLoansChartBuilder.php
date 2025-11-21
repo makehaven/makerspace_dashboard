@@ -70,7 +70,7 @@ class OperationsLendingLibraryMonthlyLoansChartBuilder extends OperationsChartBu
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Lending Library Loans (Monthly)'),
+      (string) $this->t('Lending Library: Loans (Monthly)'),
       (string) $this->t('Trailing 12 month loan volume for the lending library.'),
       $visualization,
       [

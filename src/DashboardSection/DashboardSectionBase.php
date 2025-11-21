@@ -26,6 +26,17 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    */
   protected const KPI_DEFAULT_YEARS = ['2023', '2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
+  protected const CHART_TIER_LABELS = [
+    'key' => 'Key insights',
+    'supplemental' => 'Supplemental context',
+    'experimental' => 'In development',
+  ];
+
+  protected const CHART_TIER_DESCRIPTIONS = [
+    'supplemental' => 'Additional charts and tables providing deeper context.',
+    'experimental' => 'Early or in-progress charts that are still being refined.',
+  ];
+
   /**
    * Chart builder manager.
    */
@@ -1058,6 +1069,57 @@ SVG;
       $rendered[$definition->getChartId()] = $this->buildChartRenderableFromDefinition($definition);
     }
     return $rendered;
+  }
+
+  /**
+   * Builds tiered chart containers (key, supplemental, experimental).
+   */
+  protected function buildTieredChartContainers(array $filters = [], array $tierOrder = []): array {
+    $definitions = $this->getChartDefinitions($filters);
+    if (empty($definitions)) {
+      return [];
+    }
+
+    $grouped = [];
+    foreach ($definitions as $definition) {
+      $tier = $definition->getTier();
+      $grouped[$tier][] = $definition;
+    }
+
+    $tiers = [];
+    $order = $tierOrder ?: array_keys(self::CHART_TIER_LABELS);
+    foreach ($order as $tier) {
+      if (empty($grouped[$tier])) {
+        continue;
+      }
+      $label = self::CHART_TIER_LABELS[$tier] ?? ucfirst($tier);
+      if ($tier === 'key') {
+        $container = [
+          '#type' => 'container',
+          '#attributes' => ['class' => ['chart-tier', 'chart-tier--' . $tier]],
+          'heading' => ['#markup' => '<h2>' . $this->t($label) . '</h2>'],
+        ];
+      }
+      else {
+        $titleText = isset(self::CHART_TIER_DESCRIPTIONS[$tier])
+          ? $this->t('@label – @desc', ['@label' => $label, '@desc' => self::CHART_TIER_DESCRIPTIONS[$tier]])
+          : $this->t($label);
+        $container = [
+          '#type' => 'details',
+          '#open' => FALSE,
+          '#title' => $titleText,
+          '#attributes' => ['class' => ['chart-tier', 'chart-tier--' . $tier]],
+        ];
+      }
+
+      foreach ($grouped[$tier] as $definition) {
+        $renderable = $this->buildChartRenderableFromDefinition($definition);
+        $container[$definition->getChartId()] = $renderable;
+      }
+      $tiers[$tier] = $container;
+    }
+
+    return $tiers;
   }
 
   /**

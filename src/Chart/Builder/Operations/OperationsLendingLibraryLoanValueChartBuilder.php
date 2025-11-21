@@ -115,13 +115,17 @@ class OperationsLendingLibraryLoanValueChartBuilder extends OperationsChartBuild
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Loan value versus volume'),
+      (string) $this->t('Lending Library: Loan value versus volume'),
       (string) $this->t('Tracks how many items are checked out alongside the total replacement value borrowed each month.'),
       $visualization,
       [
         (string) $this->t('Source: lending_library stats collector monthly withdraw dataset.'),
         (string) $this->t('Processing: Each transaction contributes its item replacement value during the month it is checked out.'),
       ],
+      NULL,
+      NULL,
+      [],
+      'supplemental',
     );
   }
 

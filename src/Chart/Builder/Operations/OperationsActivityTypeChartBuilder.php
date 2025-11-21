@@ -94,10 +94,14 @@ class OperationsActivityTypeChartBuilder extends OperationsChartBuilderBase {
     $notes[] = (string) $this->t('Processing: Shows the top activity types over the past 12 months; additional types are grouped into "Other activity types".');
 
     return $this->newDefinition(
-      (string) $this->t('Activities by Type'),
+      (string) $this->t('Tours & Orientation: Activities by type'),
       (string) $this->t('Stacked totals for the most common activity types (e.g., tours, orientations) over the past year.'),
       $visualization,
       $notes,
+      NULL,
+      NULL,
+      [],
+      'experimental',
     );
   }
 

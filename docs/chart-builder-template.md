@@ -94,6 +94,7 @@ class ExampleMetricChartBuilder extends ChartBuilderBase {
 
 - Always `array_map('strval', $labels)` and `array_map('floatval', $values)` to keep serialization predictable.
 - Use the helper methods in `ChartBuilderBase` (`buildTrendDataset()`, `newDefinition()`, etc.) so options stay consistent.
+- Set the chart tier by passing `'supplemental'` or `'experimental'` as the final argument to `newDefinition()` whenever a visualization belongs in those expandable sections. Omit the argument for key insights.
 - Return `NULL` when there is no data—sections will automatically skip empty charts.
 
 ## 2. Service Definition
@@ -113,14 +114,14 @@ makerspace_dashboard.chart_builder.example_metric:
 ## 3. Section Wiring Checklist
 
 1. Ensure the owning section’s service definition injects `@makerspace_dashboard.chart_builder_manager`.
-2. In the section’s `build()` method:
+2. In the section’s `build()` method render builders via the tiered helper:
    ```php
-   $charts = $this->buildChartsFromDefinitions($filters);
-   foreach ($charts as $chart_id => $chart_render_array) {
-     $chart_render_array['#weight'] = $weight++;
-     $build[$chart_id] = $chart_render_array;
+   foreach ($this->buildTieredChartContainers($filters) as $tier => $container) {
+     $container['#weight'] = $weight++;
+     $build['tier_' . $tier] = $container;
    }
    ```
+   This automatically groups charts into **Key insights**, **Supplemental context**, and **In development** accordions based on the `tier` argument you pass to `newDefinition()`. Use `'supplemental'` when a chart provides extra depth and `'experimental'` when it is still being validated. Leave it unset for key charts.
 3. If the section still uses legacy inline charts, migrate one chart at a time: add the builder, verify the React/CSV output, then delete the old inline render array.
 
 By following this template every chart will:

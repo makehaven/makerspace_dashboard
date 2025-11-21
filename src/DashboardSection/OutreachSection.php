@@ -48,16 +48,9 @@ class OutreachSection extends DashboardSectionBase {
     $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('outreach'));
     $build['kpi_table']['#weight'] = $weight++;
 
-    $charts = $this->buildChartsFromDefinitions($filters);
-    if ($charts) {
-      $build['charts_section_heading'] = [
-        '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
-        '#weight' => $weight++,
-      ];
-      foreach ($charts as $chart_id => $chart_render_array) {
-        $chart_render_array['#weight'] = $weight++;
-        $build[$chart_id] = $chart_render_array;
-      }
+    foreach ($this->buildTieredChartContainers($filters) as $tier => $container) {
+      $container['#weight'] = $weight++;
+      $build['tier_' . $tier] = $container;
     }
 
     $build['#cache'] = [

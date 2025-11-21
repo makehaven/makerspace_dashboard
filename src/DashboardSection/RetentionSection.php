@@ -84,17 +84,9 @@ class RetentionSection extends DashboardSectionBase {
     $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('retention'));
     $build['kpi_table']['#weight'] = $weight++;
 
-    $build['charts_section_heading'] = [
-      '#markup' => '<h2>' . $this->t('Charts') . '</h2>',
-      '#weight' => $weight++,
-    ];
-
-    $builderCharts = $this->buildChartsFromDefinitions($filters);
-    if ($builderCharts) {
-      foreach ($builderCharts as $chart_id => $chart_render_array) {
-        $chart_render_array['#weight'] = $weight++;
-        $build[$chart_id] = $chart_render_array;
-      }
+    foreach ($this->buildTieredChartContainers($filters) as $tier => $container) {
+      $container['#weight'] = $weight++;
+      $build['tier_' . $tier] = $container;
     }
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
