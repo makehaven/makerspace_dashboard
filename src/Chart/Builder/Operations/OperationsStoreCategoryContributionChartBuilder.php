@@ -95,10 +95,14 @@ class OperationsStoreCategoryContributionChartBuilder extends OperationsChartBui
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Store category contribution'),
+      (string) $this->t('Store: Category contribution'),
       (string) $this->t('Highlights which material categories represent the most inventory value.'),
       $visualization,
       $notes,
+      NULL,
+      NULL,
+      [],
+      'supplemental',
     );
   }
 

@@ -36,22 +36,20 @@ Each visualization now lives in a dedicated chart builder class so that querying
   - **Action:** Add a service definition tagged with `makerspace_dashboard.chart_builder`.
 - **Expose the builder in its section.**
   - Ensure the section’s service definition injects `@makerspace_dashboard.chart_builder_manager`.
-  - In `build()`, call `$this->buildChartsFromDefinitions($filters)` to render every registered builder.
+  - In `build()`, call `$this->buildTieredChartContainers($filters)` and add the returned containers (`key`, `supplemental`, `experimental`) to your render array. This keeps the UI consistent across sections.
   - **Legacy note:** If a section still constructs render arrays inline, migrate one chart at a time by adding builders and gradually deleting the old inline code.
 - **CSV downloads only appear for single Chart.js datasets.** Container definitions (e.g., goal/actual pairs) suppress the link; if you need CSV support, expose a single combined dataset via the builder.
 
 ## Standardized Dashboard Structure
 
-To ensure a consistent user experience, all dashboard sections should follow a standardized structure. The `DashboardSectionBase` class provides helper methods to build these standard elements.
+Every section now uses the same tiered layout so staff can immediately find the most important insights and dive deeper on demand. The helpers in `DashboardSectionBase` make this straightforward.
 
-The standard structure is as follows:
+1.  **Intro / context:** Optionally start with `buildIntro()` or a short summary list explaining what the tab represents.
+2.  **Key Performance Indicators (KPIs):** Always show the KPI table first via `buildKpiTable()`.
+3.  **Tiered charts:** Render chart builders through `buildTieredChartContainers()`. Charts default to the **Key insights** container; pass `'supplemental'` or `'experimental'` as the final argument to `newDefinition()` to move them into those expandable accordions with descriptive subtitles.
+4.  **Supplemental tables/text:** If you have legacy tables or summaries, place them alongside the chart containers (e.g., inject them into the supplemental tier, or render them immediately before/after the tiers with clear headings). Keep the “key” block focused on the highest-value KPIs and charts.
 
-1.  **Introduction:** A brief text block that explains the purpose of the section.
-2.  **Key Performance Indicators (KPIs):** A table that displays the most important metrics for the section.
-3.  **Data Tables:** Additional data tables that provide more detailed information.
-4.  **Charts:** A collection of charts that visualize the data.
-
-The `build()` method in each section should be organized in this order, using the `#weight` property to ensure the correct rendering order.
+Use the `#weight` property to keep this order predictable.
 
 ### Helper Methods
 
@@ -77,7 +75,7 @@ To add the KPI table to a section, you must:
 2. Document or extend the relevant data service in `docs/services.md` / `docs/data-sources.md`.
 3. Create the builder (`src/Chart/Builder/...`) using `docs/chart-builder-template.md`.
 4. Register the builder service with the `makerspace_dashboard.chart_builder` tag.
-5. Confirm the owning section receives `ChartBuilderManager` and renders `$this->buildChartsFromDefinitions()`.
+5. Confirm the owning section receives `ChartBuilderManager` and renders `$this->buildTieredChartContainers()` so your chart lands in the correct tier.
 6. Verify the JSON output at `/makerspace-dashboard/api/chart/{section}/{chart}` and download the CSV to ensure datasets export correctly.
 
 ### 4. Update the React Bundle (If Necessary)

@@ -11,37 +11,6 @@ use Drupal\storage_manager\Service\StatisticsService;
  */
 class OperationsSection extends DashboardSectionBase {
 
-  protected const SUBSECTIONS = [
-    'store' => [
-      'label' => 'Store',
-      'chart_ids' => [
-        'store_category_contribution',
-        'store_sales_velocity',
-      ],
-    ],
-    'lending' => [
-      'label' => 'Lending Library',
-      'chart_ids' => [
-        'lending_monthly_loans',
-        'lending_value_vs_items',
-        'lending_category_breakdown',
-      ],
-    ],
-    'storage' => [
-      'label' => 'Storage',
-      'chart_ids' => [
-        'storage_occupancy',
-        'storage_vacancy_trend',
-      ],
-    ],
-    'engagement' => [
-      'label' => 'Tours & Orientation',
-      'chart_ids' => [
-        'activity_types',
-      ],
-    ],
-  ];
-
   protected StatisticsService $statisticsService;
 
   public function __construct(ChartBuilderManager $chart_builder_manager, StatisticsService $statisticsService) {
@@ -67,52 +36,33 @@ class OperationsSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): array {
-    $charts = $this->buildChartsFromDefinitions($filters);
-
     $build = [
       '#type' => 'container',
       '#attributes' => ['class' => ['operations-dashboard']],
     ];
 
-    foreach (self::SUBSECTIONS as $subsection_id => $info) {
-      $section_build = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['operations-subsection']],
-        'heading' => [
-          '#markup' => '<h2>' . $this->t($info['label']) . '</h2>',
-        ],
-      ];
-      $weight = 0;
+    $tiers = $this->buildTieredChartContainers($filters);
 
-      foreach ($info['chart_ids'] as $chart_id) {
-        if (isset($charts[$chart_id])) {
-          $section_build[$chart_id] = $charts[$chart_id];
-          $section_build[$chart_id]['#weight'] = $weight++;
-          unset($charts[$chart_id]);
-        }
+    $tables = $this->buildStorageTables();
+    if ($tables) {
+      if (isset($tiers['supplemental'])) {
+        $tiers['supplemental']['storage_tables'] = $tables;
       }
-
-      if ($subsection_id === 'storage') {
-        $tables = $this->buildStorageTables($weight);
-        if ($tables) {
-          $section_build['storage_tables'] = $tables;
-        }
-      }
-
-      if (count($section_build) > 1) {
-        $build[$subsection_id] = $section_build;
+      else {
+        $tiers['supplemental'] = [
+          '#type' => 'details',
+          '#open' => FALSE,
+          '#title' => $this->t('Supplemental context'),
+          '#attributes' => ['class' => ['chart-tier', 'chart-tier--supplemental']],
+          'storage_tables' => $tables,
+        ];
       }
     }
 
-    if (!empty($charts)) {
-      $build['misc'] = [
-        '#type' => 'container',
-        '#attributes' => ['class' => ['operations-subsection']],
-        'heading' => ['#markup' => '<h2>' . $this->t('Other metrics') . '</h2>'],
-      ];
-      foreach ($charts as $chart_id => $chart_render_array) {
-        $build['misc'][$chart_id] = $chart_render_array;
-      }
+    $weight = 0;
+    foreach ($tiers as $tier => $container) {
+      $container['#weight'] = $weight++;
+      $build['tier_' . $tier] = $container;
     }
 
     return $build;
@@ -121,7 +71,7 @@ class OperationsSection extends DashboardSectionBase {
   /**
    * Builds the legacy storage overview tables from storage_manager.
    */
-  protected function buildStorageTables(int $weight): array {
+  protected function buildStorageTables(): array {
     $stats = $this->statisticsService->getStatistics();
     if (empty($stats)) {
       return [];
@@ -130,7 +80,6 @@ class OperationsSection extends DashboardSectionBase {
     $container = [
       '#type' => 'container',
       '#attributes' => ['class' => ['operations-storage-tables']],
-      '#weight' => $weight,
     ];
 
     $container['overview'] = [

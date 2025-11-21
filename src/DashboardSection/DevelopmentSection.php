@@ -47,16 +47,9 @@ class DevelopmentSection extends DashboardSectionBase {
     $build['ytd_comparison']['#weight'] = $weight++;
 
     if ($this->chartBuilderManager) {
-      $charts = $this->buildChartsFromDefinitions($filters);
-      if ($charts) {
-        $build['charts_section_heading'] = [
-          '#markup' => '<h2>' . $this->t('Giving trends') . '</h2>',
-          '#weight' => $weight++,
-        ];
-        foreach ($charts as $chart_id => $chart_render_array) {
-          $chart_render_array['#weight'] = $weight++;
-          $build[$chart_id] = $chart_render_array;
-        }
+      foreach ($this->buildTieredChartContainers($filters) as $tier => $container) {
+        $container['#weight'] = $weight++;
+        $build['tier_' . $tier] = $container;
       }
     }
 

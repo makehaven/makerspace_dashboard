@@ -81,7 +81,7 @@ class OperationsStorageOccupancyChartBuilder extends OperationsChartBuilderBase 
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Storage Occupancy by Unit Type'),
+      (string) $this->t('Storage: Occupancy by unit type'),
       (string) $this->t('Highlights how many storage units are occupied versus vacant for each unit type.'),
       $visualization,
       [

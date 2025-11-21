@@ -102,10 +102,14 @@ class OperationsStoreSalesVelocityChartBuilder extends OperationsChartBuilderBas
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Sales & consumption velocity'),
+      (string) $this->t('Store: Sales & consumption velocity'),
       (string) $this->t('Quantifies how quickly material inventory is added versus used each month.'),
       $visualization,
       $notes,
+      NULL,
+      NULL,
+      [],
+      'supplemental',
     );
   }
 
