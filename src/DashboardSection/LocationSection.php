@@ -3,11 +3,14 @@
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\makerspace_dashboard\Support\LocationMapTrait;
 
 /**
  * Provides a map of member locations.
  */
 class LocationSection extends DashboardSectionBase {
+
+  use LocationMapTrait;
 
   /**
    * {@inheritdoc}
@@ -29,14 +32,7 @@ class LocationSection extends DashboardSectionBase {
   public function build(array $filters = []): array {
     $build = [];
 
-    $build['map_container'] = [
-      '#type' => 'container',
-      '#attributes' => ['id' => 'member-location-map', 'style' => 'height: 500px;'],
-    ];
-
-    $build['#attached']['library'][] = 'makerspace_dashboard/leaflet';
-    $build['#attached']['library'][] = 'makerspace_dashboard/location_map';
-    $build['#attached']['drupalSettings']['makerspace_dashboard']['locations_url'] = '/makerspace-dashboard/api/locations';
+    $build['map_container'] = $this->buildLocationMapRenderable();
 
     $build['#cache'] = [
       'max-age' => 3600,

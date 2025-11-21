@@ -24,6 +24,7 @@ location_map:
   dependencies:
     - core/drupal
     - core/drupalSettings
+    - core/once
     - makerspace_dashboard/leaflet
 
 react_app:

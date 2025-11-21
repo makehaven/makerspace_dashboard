@@ -72,6 +72,13 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getAnnualRetentionPoc(): float` - gets the annual retention rate for POC members.
 - **Notes**: Relies on profile join/end date fields and membership type taxonomy; caches tagged with `profile_list`, `user_list`.
 
+## MembershipLocationDataService
+- **Class**: `Drupal\makerspace_dashboard\Service\MembershipLocationDataService`
+- **Constructor args**: `Connection`, `CacheBackendInterface`, `GeocodingService`, optional TTL.
+- **Core Method**:
+  - `getMemberLocations(): array` – returns an array of latitude/longitude pairs for active members, suitable for the Leaflet heat map.
+- **Notes**: Pulls primary address data directly from CiviCRM (`civicrm_membership`, `civicrm_contact`, `civicrm_address`, `civicrm_state_province`). Only memberships whose status is marked `is_current_member = 1` are considered. Unique city/state pairs are geocoded through the shared `GeocodingService` and cached at `makerspace_dashboard:membership:locations` with tags `profile_list`, `user_list`. The cache is skipped when the dataset is empty so retries can occur once addresses are populated.
+
 ## UtilizationDataService
 - **Class**: `Drupal\makerspace_dashboard\Service\UtilizationDataService`
 - **Constructor args**: `Connection`, `CacheBackendInterface`, `TimeInterface`, optional TTL, member roles.

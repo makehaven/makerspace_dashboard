@@ -33,19 +33,13 @@ class MembershipLocationDataService {
   protected int $ttl;
 
   /**
-   * Role machine names that indicate active membership.
-   */
-  protected array $memberRoles;
-
-  /**
    * Constructs the service.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, GeocodingService $geocoding, array $member_roles = NULL, int $ttl = 1800) {
+  public function __construct(Connection $database, CacheBackendInterface $cache, GeocodingService $geocoding, int $ttl = 1800) {
     $this->database = $database;
     $this->cache = $cache;
     $this->geocoding = $geocoding;
     $this->ttl = $ttl;
-    $this->memberRoles = $member_roles ?: ['current_member', 'member'];
   }
 
   /**
@@ -60,34 +54,57 @@ class MembershipLocationDataService {
       return $cache->data;
     }
 
-    $query = $this->database->select('profile', 'p');
-    $query->addField('addr', 'field_member_address_locality', 'locality');
-    $query->addField('addr', 'field_member_address_administrative_area', 'administrative_area');
-    $query->condition('p.type', 'main');
-    $query->condition('p.status', 1);
-    $query->condition('p.is_default', 1);
+    $query = $this->database->select('civicrm_membership', 'm');
+    $query->addField('addr', 'city', 'locality');
+    $query->condition('m.is_test', 0);
 
-    $query->leftJoin('profile__field_member_address', 'addr', 'addr.entity_id = p.profile_id AND addr.deleted = 0 AND addr.delta = 0');
-    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->condition('u.status', 1);
-    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
-    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('civicrm_membership_status', 'ms', 'ms.id = m.status_id AND ms.is_current_member = 1');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = m.contact_id');
+    $query->condition('c.is_deleted', 0);
 
+    $query->innerJoin('civicrm_address', 'addr', 'addr.contact_id = c.id AND addr.is_primary = 1');
+    $query->leftJoin('civicrm_state_province', 'state', 'state.id = addr.state_province_id');
+    $query->addExpression('COALESCE(state.abbreviation, state.name)', 'state_code');
+    $query->condition('addr.city', '', '<>');
+    $query->isNotNull('addr.city');
+    $query->isNotNull('addr.state_province_id');
+
+    $query->distinct();
     $results = $query->execute();
 
     $coordinates = [];
+    $seen = [];
     foreach ($results as $record) {
-      if (!empty($record->locality) && !empty($record->administrative_area)) {
-        $location_string = $record->locality . ', ' . $record->administrative_area;
-        $geocode_result = $this->geocoding->geocode($location_string);
-        if ($geocode_result) {
-            $coordinates[] = $geocode_result;
-        }
+      $city = trim((string) $record->locality);
+      $state = trim((string) ($record->state_code ?? ''));
+      if ($city === '' || $state === '') {
+        continue;
+      }
+      $key = mb_strtolower($city . '|' . $state);
+      if (isset($seen[$key])) {
+        continue;
+      }
+      $seen[$key] = TRUE;
+
+      $location_string = $city . ', ' . $state;
+      $geocode_result = $this->geocoding->geocode($location_string);
+      if ($geocode_result) {
+        $coordinates[] = $geocode_result;
       }
     }
 
-    $expire = time() + $this->ttl;
-    $this->cache->set($cid, $coordinates, $expire, ['profile_list', 'user_list']);
+    if (!empty($coordinates)) {
+      $expire = time() + $this->ttl;
+      $this->cache->set($cid, $coordinates, $expire, [
+        'civicrm_contact_list',
+        'civicrm_membership_list',
+        'civicrm_address_list',
+      ]);
+    }
+    else {
+      // Avoid caching empty payloads so the service can retry later.
+      $this->cache->delete($cid);
+    }
 
     return $coordinates;
   }

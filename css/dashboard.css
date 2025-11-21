@@ -199,6 +199,31 @@
   color: #d97706;
 }
 
+.makerspace-dashboard-location-map {
+  position: relative;
+  min-height: 360px;
+  height: min(60vh, 520px);
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.makerspace-dashboard-location-notice {
+  margin: 0;
+  padding: 2rem;
+  text-align: center;
+  font-size: 0.95rem;
+  color: #475569;
+}
+
+.makerspace-dashboard-location-map--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f8fafc;
+}
+
 .kpi-progress--poor {
   color: #b91c1c;
 }
