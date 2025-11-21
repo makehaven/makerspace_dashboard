@@ -112,6 +112,18 @@ function resolveSeriesOptions(options: SeriesFormatOptions, context: any): BaseF
   return resolved;
 }
 
+const datasetMembersCountFactory = () => (context: any) => {
+  const datasetCounts = Array.isArray(context?.dataset?.makerspaceCounts)
+    ? context.dataset.makerspaceCounts
+    : [];
+  const index = context?.dataIndex ?? 0;
+  const members = ensureNumber(datasetCounts[index]);
+  if (members === null) {
+    return '';
+  }
+  return `${translate('Members')}: ${formatNumeric(members, { format: 'integer' })}`;
+};
+
 const callbackFactories: Record<string, CallbackFactory> = {
   series_value: (optionsInput) => {
     const baseOptions = optionsInput as SeriesFormatOptions;
@@ -168,17 +180,8 @@ const callbackFactories: Record<string, CallbackFactory> = {
       `${translate('Inactive')}: ${formatNumeric(inactive, { format: 'integer' })}`,
     ];
   },
-  payment_mix_members_count: () => (context: any) => {
-    const datasetCounts = Array.isArray(context?.dataset?.makerspaceCounts)
-      ? context.dataset.makerspaceCounts
-      : [];
-    const index = context?.dataIndex ?? 0;
-    const members = ensureNumber(datasetCounts[index]);
-    if (members === null) {
-      return '';
-    }
-    return `${translate('Members')}: ${formatNumeric(members, { format: 'integer' })}`;
-  },
+  dataset_members_count: datasetMembersCountFactory,
+  payment_mix_members_count: datasetMembersCountFactory,
 };
 
 function hydrateLegacyFunction(source: string): (() => unknown) | null {

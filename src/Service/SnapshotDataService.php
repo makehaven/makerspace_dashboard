@@ -168,6 +168,138 @@ class SnapshotDataService {
   }
 
   /**
+   * Returns membership type breakdown snapshots grouped by granularity.
+   *
+   * @param string $granularity
+   *   One of day, month, or year.
+   * @param bool $includeTests
+   *   Whether to include rows flagged as test snapshots.
+   * @param array|null $snapshotTypes
+   *   Optional list of snapshot_type values to include.
+   * @param int|null $limit
+   *   Optional maximum number of periods to return.
+   *
+   * @return array
+   *   Ordered list of associative arrays with keys:
+   *   - period_key: Canonical string key for the grouping period.
+   *   - period_date: DateTimeImmutable representing the period anchor.
+   *   - snapshot_date: DateTimeImmutable of the source snapshot.
+   *   - snapshot_type: Snapshot cadence string.
+   *   - members_total: Total members recorded in the snapshot.
+   *   - types: Associative array keyed by membership type label with counts.
+   */
+  public function getMembershipTypeSeries(string $granularity = 'month', bool $includeTests = FALSE, ?array $snapshotTypes = NULL, ?int $limit = NULL): array {
+    $granularity = $this->normalizeGranularity($granularity);
+
+    $cacheIdParts = [
+      'makerspace_dashboard:snapshot:membership_types',
+      $granularity,
+      $includeTests ? 'with_tests' : 'production',
+    ];
+    if ($snapshotTypes) {
+      $cacheIdParts[] = md5(implode('|', $snapshotTypes));
+    }
+    if ($limit !== NULL) {
+      $cacheIdParts[] = 'limit:' . max(0, (int) $limit);
+    }
+    $cacheId = implode(':', $cacheIdParts);
+
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('ms_snapshot') || !$schema->tableExists('ms_fact_membership_type_snapshot')) {
+      return [];
+    }
+
+    $query = $this->database->select('ms_snapshot', 's');
+    $hasTestFlag = $this->snapshotHasTestFlag();
+    $query->innerJoin('ms_fact_membership_type_snapshot', 't', 't.snapshot_id = s.id');
+    $snapshotFields = ['id', 'snapshot_date', 'snapshot_type'];
+    if ($hasTestFlag) {
+      $snapshotFields[] = 'is_test';
+    }
+    $query->fields('s', $snapshotFields);
+    $query->fields('t', ['term_label', 'member_count', 'members_total']);
+    $query->condition('s.definition', 'membership_types');
+
+    if ($snapshotTypes) {
+      $query->condition('s.snapshot_type', $snapshotTypes, 'IN');
+    }
+
+    if (!$includeTests && $hasTestFlag) {
+      $query->condition('s.is_test', 0);
+    }
+
+    $query->orderBy('s.snapshot_date', 'ASC');
+    $query->orderBy('t.term_label', 'ASC');
+
+    $records = $query->execute()->fetchAll();
+    if (!$records) {
+      return [];
+    }
+
+    $periods = [];
+    foreach ($records as $record) {
+      $snapshotDate = DateTimeImmutable::createFromFormat('Y-m-d', $record->snapshot_date);
+      if (!$snapshotDate) {
+        continue;
+      }
+      $periodDate = $this->normalizeDateForGranularity($snapshotDate, $granularity);
+      $periodKey = $periodDate->format($this->periodFormat($granularity));
+      $snapshotTimestamp = $snapshotDate->getTimestamp();
+
+      if (!isset($periods[$periodKey]) || $snapshotTimestamp > $periods[$periodKey]['snapshot_timestamp']) {
+        $periods[$periodKey] = [
+          'period_key' => $periodKey,
+          'period_date' => $periodDate,
+          'snapshot_date' => $snapshotDate,
+          'snapshot_type' => $record->snapshot_type,
+          'members_total' => (int) ($record->members_total ?? 0),
+          'types' => [],
+          'snapshot_timestamp' => $snapshotTimestamp,
+        ];
+      }
+      elseif ($snapshotTimestamp < $periods[$periodKey]['snapshot_timestamp']) {
+        // Older snapshot for the period; ignore because a newer capture exists.
+        continue;
+      }
+
+      $label = trim((string) ($record->term_label ?? ''));
+      if ($label === '') {
+        $label = 'Unlabeled';
+      }
+      $periods[$periodKey]['types'][$label] = (int) ($record->member_count ?? 0);
+      $periods[$periodKey]['members_total'] = (int) ($record->members_total ?? $periods[$periodKey]['members_total']);
+    }
+
+    if (!$periods) {
+      return [];
+    }
+
+    $ordered = array_values($periods);
+    usort($ordered, static function (array $a, array $b) {
+      return $a['period_date'] <=> $b['period_date'];
+    });
+
+    if ($limit !== NULL && $limit > 0) {
+      $ordered = array_slice($ordered, -$limit);
+    }
+
+    foreach ($ordered as &$row) {
+      unset($row['snapshot_timestamp']);
+      ksort($row['types'], SORT_NATURAL | SORT_FLAG_CASE);
+    }
+    unset($row);
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $ordered, $expire, ['makerspace_snapshot:membership_types']);
+
+    return $ordered;
+  }
+
+  /**
    * Returns the stored KPI metric series for a given KPI ID.
    */
   public function getKpiMetricSeries(string $kpiId, bool $includeTests = FALSE, ?array $snapshotTypes = NULL, ?int $limit = NULL): array {

@@ -103,6 +103,30 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.education_event_satisfaction:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationEventSatisfactionChartBuilder
+    arguments:
+      - '@makerspace_dashboard.education_evaluation_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.education_event_net_promoter:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationEventNetPromoterChartBuilder
+    arguments:
+      - '@makerspace_dashboard.education_evaluation_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.education_event_evaluation_completion:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationEvaluationCompletionChartBuilder
+    arguments:
+      - '@makerspace_dashboard.education_evaluation_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.education_event_time_to_join:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationEventTimeToJoinChartBuilder
     arguments:
@@ -175,6 +199,145 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.outreach_prejoin_events_type:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationPreJoinEventsByTypeChartBuilder
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_prejoin_events_demographics:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationPreJoinEventsByDemographicsChartBuilder
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.development_member_donor_trend:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Development\DevelopmentMemberDonorTrendChartBuilder
+    arguments:
+      - '@makerspace_dashboard.development_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.development_recurring_vs_onetime:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Development\DevelopmentRecurringGivingChartBuilder
+    arguments:
+      - '@makerspace_dashboard.development_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_appointment_onboarding:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionAppointmentOnboardingChartBuilder
+    arguments:
+      - '@makerspace_dashboard.appointment_insights'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_appointment_feedback:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionAppointmentFeedbackChartBuilder
+    arguments:
+      - '@makerspace_dashboard.appointment_insights'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.entrepreneur_goal_trend:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Entrepreneurship\EntrepreneurshipGoalTrendChartBuilder
+    arguments:
+      - '@makerspace_dashboard.entrepreneurship_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.entrepreneur_active_goal_share:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Entrepreneurship\EntrepreneurshipActiveGoalShareChartBuilder
+    arguments:
+      - '@makerspace_dashboard.entrepreneurship_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.entrepreneur_experience:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Entrepreneurship\EntrepreneurshipExperienceChartBuilder
+    arguments:
+      - '@makerspace_dashboard.entrepreneurship_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_lending_monthly_loans:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsLendingLibraryMonthlyLoansChartBuilder
+    arguments:
+      - '@lending_library.stats_collector'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_lending_value_vs_items:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsLendingLibraryLoanValueChartBuilder
+    arguments:
+      - '@lending_library.stats_collector'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_lending_category_breakdown:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsLendingLibraryCategoryChartBuilder
+    arguments:
+      - '@lending_library.stats_collector'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_storage_occupancy:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsStorageOccupancyChartBuilder
+    arguments:
+      - '@storage_manager.statistics_service'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_storage_vacancy_trend:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsStorageVacancyTrendChartBuilder
+    arguments:
+      - '@storage_manager.statistics_service'
+      - '@entity_type.manager'
+      - '@date.formatter'
+      - '@datetime.time'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_activity_types:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsActivityTypeChartBuilder
+    arguments:
+      - '@makerspace_dashboard.activity_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_store_category_contribution:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsStoreCategoryContributionChartBuilder
+    arguments:
+      - '@makerspace_dashboard.store_inventory_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.operations_store_sales_velocity:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsStoreSalesVelocityChartBuilder
+    arguments:
+      - '@makerspace_dashboard.store_inventory_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.education_badge_funnel:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationBadgeFunnelChartBuilder
     arguments:
@@ -238,6 +401,14 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachDiscoverySourcesChartBuilder
     arguments:
       - '@makerspace_dashboard.demographics_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_contact_growth:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachContactGrowthChartBuilder
+    arguments:
+      - '@makerspace_dashboard.contact_data'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
@@ -318,6 +489,24 @@ services:
 
   makerspace_dashboard.chart_builder.retention_snapshot_monthly:
     class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionMonthlySnapshotChartBuilder
+    arguments:
+      - '@makerspace_dashboard.snapshot_data'
+      - '@date.formatter'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_snapshot_membership_type_counts:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionMembershipTypeCountsChartBuilder
+    arguments:
+      - '@makerspace_dashboard.snapshot_data'
+      - '@date.formatter'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_snapshot_membership_type_share:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionMembershipTypeShareChartBuilder
     arguments:
       - '@makerspace_dashboard.snapshot_data'
       - '@date.formatter'
@@ -414,6 +603,13 @@ services:
       - '@database'
       - '@cache.default'
 
+  makerspace_dashboard.entrepreneurship_data:
+    class: Drupal\makerspace_dashboard\Service\EntrepreneurshipDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+
   makerspace_dashboard.membership_metrics:
     class: Drupal\makerspace_dashboard\Service\MembershipMetricsService
     arguments:
@@ -442,6 +638,30 @@ services:
       - '@database'
       - '@config.factory'
       - '@datetime.time'
+
+  makerspace_dashboard.appointment_insights:
+    class: Drupal\makerspace_dashboard\Service\AppointmentInsightsService
+    arguments:
+      - '@database'
+      - '@cache.default'
+
+  makerspace_dashboard.activity_data:
+    class: Drupal\makerspace_dashboard\Service\ActivityDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+
+  makerspace_dashboard.contact_data:
+    class: Drupal\makerspace_dashboard\Service\ContactDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+
+  makerspace_dashboard.education_evaluation_data:
+    class: Drupal\makerspace_dashboard\Service\EducationEvaluationDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
 
   makerspace_dashboard.events_membership_data:
     class: Drupal\makerspace_dashboard\Service\EventsMembershipDataService
@@ -575,6 +795,24 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\EntrepreneurshipSection
     arguments:
       - '@makerspace_dashboard.kpi_data'
+      - '@makerspace_dashboard.chart_builder_manager'
+      - '@makerspace_dashboard.entrepreneurship_data'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.store_inventory_data:
+    class: Drupal\makerspace_dashboard\Service\StoreInventoryData
+    arguments:
+      - '@entity_type.manager'
+      - '@datetime.time'
+
+  makerspace_dashboard.section.operations:
+    class: Drupal\makerspace_dashboard\DashboardSection\OperationsSection
+    arguments:
+      - '@makerspace_dashboard.chart_builder_manager'
+      - '@storage_manager.statistics_service'
     tags:
       - { name: makerspace_dashboard.section }
     calls:
@@ -585,6 +823,7 @@ services:
     arguments:
       - '@makerspace_dashboard.kpi_data'
       - '@makerspace_dashboard.development_data'
+      - '@makerspace_dashboard.chart_builder_manager'
     tags:
       - { name: makerspace_dashboard.section }
     calls:

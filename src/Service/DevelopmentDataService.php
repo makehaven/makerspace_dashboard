@@ -5,6 +5,7 @@ namespace Drupal\makerspace_dashboard\Service;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\Core\Database\Query\SelectInterface;
 use Drupal\Component\Datetime\TimeInterface;
 
 /**
@@ -45,7 +46,7 @@ class DevelopmentDataService {
    */
   public function getAnnualGivingSummary(int $limit = 6): array {
     if (!$this->tablesExist(['ms_snapshot', 'ms_fact_donation_snapshot'])) {
-      return [];
+      return $this->buildContributionAnnualSummary($limit);
     }
 
     $limit = max(1, $limit);
@@ -84,6 +85,18 @@ class DevelopmentDataService {
         'average_gift' => $gifts > 0 ? round($amount / $gifts, 2) : 0.0,
       ];
     }
+
+    $contributionFallback = $this->buildContributionAnnualSummary($limit * 2);
+    $existingYears = array_column($entries, 'year');
+    foreach ($contributionFallback as $row) {
+      if (!in_array($row['year'], $existingYears, TRUE)) {
+        $entries[] = $row;
+      }
+    }
+    usort($entries, static function (array $a, array $b) {
+      return $b['year'] <=> $a['year'];
+    });
+    $entries = array_slice($entries, 0, $limit);
 
     $this->cache->set($cid, $entries, $this->time->getRequestTime() + $this->ttl);
     return $entries;
@@ -177,6 +190,9 @@ class DevelopmentDataService {
       'ranges' => array_values($rangeRows),
       'totals' => $totals,
     ];
+    if ($totals['donors'] === 0 && $totals['amount'] === 0.0) {
+      return $this->buildGiftRangeFromContributions($targetYear);
+    }
     $this->cache->set($cid, $result, $this->time->getRequestTime() + $this->ttl);
 
     return $result;
@@ -187,7 +203,7 @@ class DevelopmentDataService {
    */
   public function getYearToDateComparison(int $lookback = 2): array {
     if (!$this->tablesExist(['ms_snapshot', 'ms_fact_donation_snapshot'])) {
-      return [];
+      return $this->buildContributionYtdComparison($lookback);
     }
 
     $lookback = max(0, $lookback);
@@ -217,8 +233,123 @@ class DevelopmentDataService {
       }
     }
 
+    if (!$comparisons) {
+      return $this->buildContributionYtdComparison($lookback);
+    }
+
     $this->cache->set($cid, $comparisons, $this->time->getRequestTime() + $this->ttl);
     return $comparisons;
+  }
+
+  /**
+   * Returns a monthly trend of member vs. non-member donors.
+   */
+  public function getMemberDonorTrend(int $months = 12): array {
+    $months = max(1, $months);
+    $now = $this->now();
+    $monthMap = $this->buildMonthSeries($now, $months);
+    $keys = array_keys($monthMap);
+    $labels = array_values($monthMap);
+    if (!$keys) {
+      return [];
+    }
+
+    $start = $this->createDateFromKey(reset($keys))->setTime(0, 0, 0);
+    $end = $this->createDateFromKey(end($keys))->modify('last day of this month')->setTime(23, 59, 59);
+
+    $data = [
+      'member' => [
+        'donors' => array_fill(0, count($labels), 0),
+        'amounts' => array_fill(0, count($labels), 0.0),
+      ],
+      'non_member' => [
+        'donors' => array_fill(0, count($labels), 0),
+        'amounts' => array_fill(0, count($labels), 0.0),
+      ],
+    ];
+    $indexMap = array_flip($keys);
+
+    $query = $this->baseContributionQuery();
+    $query->addExpression("DATE_FORMAT(c.receive_date, '%Y-%m')", 'month_key');
+    $membershipExpr = $this->getMembershipExpression();
+    $query->addExpression($membershipExpr, 'segment');
+    $query->addExpression('COUNT(DISTINCT c.contact_id)', 'donors');
+    $query->addExpression('SUM(c.total_amount)', 'amount');
+    $query->condition('c.receive_date', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->groupBy('month_key');
+    $query->groupBy('segment');
+
+    foreach ($query->execute() as $row) {
+      $monthKey = (string) $row->month_key;
+      if (!isset($indexMap[$monthKey])) {
+        continue;
+      }
+      $segment = $row->segment === 'member' ? 'member' : 'non_member';
+      $index = $indexMap[$monthKey];
+      $data[$segment]['donors'][$index] = (int) $row->donors;
+      $data[$segment]['amounts'][$index] = round((float) $row->amount, 2);
+    }
+
+    return [
+      'labels' => $labels,
+      'member' => $data['member'],
+      'non_member' => $data['non_member'],
+    ];
+  }
+
+  /**
+   * Returns recurring vs. one-time giving over time.
+   */
+  public function getRecurringVsOnetimeSeries(int $months = 12): array {
+    $months = max(1, $months);
+    $now = $this->now();
+    $monthMap = $this->buildMonthSeries($now, $months);
+    $keys = array_keys($monthMap);
+    $labels = array_values($monthMap);
+    if (!$keys) {
+      return [];
+    }
+
+    $start = $this->createDateFromKey(reset($keys))->setTime(0, 0, 0);
+    $end = $this->createDateFromKey(end($keys))->modify('last day of this month')->setTime(23, 59, 59);
+
+    $data = [
+      'recurring' => [
+        'donors' => array_fill(0, count($labels), 0),
+        'amounts' => array_fill(0, count($labels), 0.0),
+      ],
+      'one_time' => [
+        'donors' => array_fill(0, count($labels), 0),
+        'amounts' => array_fill(0, count($labels), 0.0),
+      ],
+    ];
+    $indexMap = array_flip($keys);
+
+    $query = $this->baseContributionQuery();
+    $query->addExpression("DATE_FORMAT(c.receive_date, '%Y-%m')", 'month_key');
+    $query->addExpression("CASE WHEN c.contribution_recur_id IS NULL OR c.contribution_recur_id = 0 THEN 'one_time' ELSE 'recurring' END", 'segment');
+    $query->addExpression('COUNT(DISTINCT c.contact_id)', 'donors');
+    $query->addExpression('SUM(c.total_amount)', 'amount');
+    $query->condition('c.receive_date', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->groupBy('month_key');
+    $query->groupBy('segment');
+
+    foreach ($query->execute() as $row) {
+      $monthKey = (string) $row->month_key;
+      if (!isset($indexMap[$monthKey])) {
+        continue;
+      }
+      $segment = $row->segment === 'recurring' ? 'recurring' : 'one_time';
+      $index = $indexMap[$monthKey];
+      $data[$segment]['donors'][$index] = (int) $row->donors;
+      $data[$segment]['amounts'][$index] = round((float) $row->amount, 2);
+    }
+
+    return [
+      'labels' => $labels,
+      'recurring' => $data['recurring'],
+      'one_time' => $data['one_time'],
+    ];
   }
 
   /**
@@ -373,6 +504,260 @@ class DevelopmentDataService {
       'first_time_donors' => $firstTime,
       'average_gift' => $gifts > 0 ? round($amount / $gifts, 2) : 0.0,
     ];
+  }
+
+  /**
+   * Builds annual giving stats directly from contributions.
+   */
+  protected function buildContributionAnnualSummary(int $limit): array {
+    $query = $this->baseContributionQuery();
+    $query->addExpression('YEAR(c.receive_date)', 'year');
+    $query->addExpression('COUNT(DISTINCT c.contact_id)', 'unique_donors');
+    $query->addExpression('COUNT(c.id)', 'gift_count');
+    $query->addExpression('SUM(c.total_amount)', 'total_amount');
+    $first = $this->buildFirstContributionSubquery();
+    $query->leftJoin($first, 'first', 'first.contact_id = c.contact_id');
+    $query->addExpression('COUNT(DISTINCT IF(first.first_year = YEAR(c.receive_date), c.contact_id, NULL))', 'first_time_donors');
+    $query->condition('c.receive_date', NULL, 'IS NOT NULL');
+    $query->groupBy('year');
+    $query->orderBy('year', 'DESC');
+    $query->range(0, $limit);
+
+    $entries = [];
+    foreach ($query->execute() as $record) {
+      $year = (int) $record->year;
+      $giftCount = (int) $record->gift_count;
+      $amount = (float) $record->total_amount;
+      $entries[] = [
+        'year' => $year,
+        'donors' => (int) $record->unique_donors,
+        'first_time_donors' => (int) $record->first_time_donors,
+        'gifts' => $giftCount,
+        'average_gift' => $giftCount > 0 ? round($amount / $giftCount, 2) : 0.0,
+        'total_amount' => round($amount, 2),
+      ];
+    }
+    return $entries;
+  }
+
+  /**
+   * Builds gift range distribution from live contributions.
+   */
+  protected function buildGiftRangeFromContributions(int $targetYear): array {
+    $definitions = $this->getDonationRangeDefinitions();
+    $ranges = $this->initializeRangeRows($definitions);
+    if (!$ranges) {
+      return [
+        'year' => $targetYear,
+        'month' => NULL,
+        'ranges' => [],
+        'totals' => ['donors' => 0, 'gifts' => 0, 'amount' => 0.0],
+      ];
+    }
+
+    $now = $this->now();
+    $start = (new \DateTimeImmutable(sprintf('%d-01-01 00:00:00', $targetYear), $now->getTimezone()));
+    if ($targetYear >= (int) $now->format('Y')) {
+      $end = $now;
+      $month = (int) $now->format('n');
+    }
+    else {
+      $end = (new \DateTimeImmutable(sprintf('%d-12-31 23:59:59', $targetYear), $now->getTimezone()));
+      $month = 12;
+    }
+
+    $totals = ['donors' => 0, 'gifts' => 0, 'amount' => 0.0];
+    foreach ($ranges as $key => $range) {
+      $metrics = $this->calculateContributionRangeMetrics($start, $end, $range['min'], $range['max']);
+      $ranges[$key]['donors'] = $metrics['donors'];
+      $ranges[$key]['gifts'] = $metrics['gifts'];
+      $ranges[$key]['amount'] = $metrics['amount'];
+      $totals['donors'] += $metrics['donors'];
+      $totals['gifts'] += $metrics['gifts'];
+      $totals['amount'] += $metrics['amount'];
+    }
+
+    $totals['amount'] = round($totals['amount'], 2);
+    foreach ($ranges as &$range) {
+      $range['donor_pct'] = $totals['donors'] > 0 ? round(($range['donors'] / $totals['donors']) * 100, 2) : 0.0;
+      $range['amount_pct'] = $totals['amount'] > 0 ? round(($range['amount'] / $totals['amount']) * 100, 2) : 0.0;
+    }
+    unset($range);
+
+    return [
+      'year' => $targetYear,
+      'month' => $month,
+      'ranges' => array_values($ranges),
+      'totals' => $totals,
+    ];
+  }
+
+  /**
+   * Builds YTD comparisons from contributions.
+   */
+  protected function buildContributionYtdComparison(int $lookback): array {
+    $now = $this->now();
+    $comparisons = [];
+    $currentYear = (int) $now->format('Y');
+    $targetDay = (int) $now->format('d');
+    $targetMonth = (int) $now->format('n');
+
+    for ($offset = 0; $offset <= $lookback; $offset++) {
+      $year = $currentYear - $offset;
+      $start = (new \DateTimeImmutable(sprintf('%d-01-01 00:00:00', $year), $now->getTimezone()));
+      $end = $this->matchMonthDay($year, $targetMonth, $targetDay)->setTime(23, 59, 59);
+      if ($end < $start) {
+        continue;
+      }
+      $metrics = $this->buildContributionMetricsForRange($start, $end);
+      if (!$metrics) {
+        continue;
+      }
+      $metrics['year'] = $year;
+      $metrics['month_label'] = $end->format('M j');
+      $comparisons[] = $metrics;
+    }
+    return $comparisons;
+  }
+
+  /**
+   * Calculates donors/gifts/amount for a date range.
+   */
+  protected function buildContributionMetricsForRange(\DateTimeImmutable $start, \DateTimeImmutable $end): ?array {
+    $query = $this->baseContributionQuery();
+    $query->addExpression('COUNT(DISTINCT c.contact_id)', 'donors');
+    $query->addExpression('COUNT(c.id)', 'gifts');
+    $query->addExpression('SUM(c.total_amount)', 'amount');
+    $first = $this->buildFirstContributionSubquery();
+    $query->leftJoin($first, 'first', 'first.contact_id = c.contact_id');
+    $query->addExpression('COUNT(DISTINCT IF(first.first_date BETWEEN :start_first AND :end_first, c.contact_id, NULL))', 'first_time_donors', [
+      ':start_first' => $start->format('Y-m-d H:i:s'),
+      ':end_first' => $end->format('Y-m-d H:i:s'),
+    ]);
+    $query->condition('c.receive_date', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->condition('c.receive_date', NULL, 'IS NOT NULL');
+    $result = $query->execute()->fetchObject();
+    if (!$result) {
+      return NULL;
+    }
+
+    $donors = (int) $result->donors;
+    $gifts = (int) $result->gifts;
+    $amount = (float) $result->amount;
+
+    return [
+      'total_amount' => round($amount, 2),
+      'donors' => $donors,
+      'first_time_donors' => (int) $result->first_time_donors,
+      'gifts' => $gifts,
+      'average_gift' => $gifts > 0 ? round($amount / $gifts, 2) : 0.0,
+    ];
+  }
+
+  /**
+   * Calculates metrics for an individual gift range.
+   */
+  protected function calculateContributionRangeMetrics(\DateTimeImmutable $start, \DateTimeImmutable $end, float $min, ?float $max): array {
+    $query = $this->baseContributionQuery();
+    $query->addExpression('COUNT(DISTINCT c.contact_id)', 'donors');
+    $query->addExpression('COUNT(c.id)', 'gifts');
+    $query->addExpression('SUM(c.total_amount)', 'amount');
+    $query->condition('c.receive_date', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->condition('c.total_amount', $min, '>=');
+    if ($max !== NULL) {
+      $query->condition('c.total_amount', $max, '<=');
+    }
+    $result = $query->execute()->fetchObject();
+    if (!$result) {
+      return ['donors' => 0, 'gifts' => 0, 'amount' => 0.0];
+    }
+    return [
+      'donors' => (int) $result->donors,
+      'gifts' => (int) $result->gifts,
+      'amount' => round((float) $result->amount, 2),
+    ];
+  }
+
+  /**
+   * Provides the base contribution query with shared filters.
+   */
+  protected function baseContributionQuery(): SelectInterface {
+    $query = $this->database->select('civicrm_contribution', 'c');
+    $query->condition('c.contribution_status_id', 1);
+    $query->condition('c.is_test', 0);
+    $query->condition('c.total_amount', 0, '>');
+    // Exclude event registration payments; civicrm_participant_payment links contributions to event fees.
+    $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.contribution_id = c.id');
+    $query->condition('pp.participant_id', NULL, 'IS NULL');
+    return $query;
+  }
+
+  /**
+   * Builds subquery mapping contacts to their first contribution date/year.
+   */
+  protected function buildFirstContributionSubquery(): SelectInterface {
+    $sub = $this->database->select('civicrm_contribution', 'fc');
+    $sub->addField('fc', 'contact_id');
+    $sub->addExpression('MIN(fc.receive_date)', 'first_date');
+    $sub->addExpression('MIN(EXTRACT(YEAR FROM fc.receive_date))', 'first_year');
+    $sub->condition('fc.contribution_status_id', 1);
+    $sub->condition('fc.is_test', 0);
+    $sub->condition('fc.receive_date', NULL, 'IS NOT NULL');
+    $sub->groupBy('fc.contact_id');
+    return $sub;
+  }
+
+  /**
+   * Returns the EXISTS expression that flags member donors.
+   */
+  protected function getMembershipExpression(): string {
+    return "CASE WHEN EXISTS (
+      SELECT 1
+      FROM civicrm_membership m
+      INNER JOIN civicrm_membership_status ms ON ms.id = m.status_id AND ms.is_current_member = 1
+      WHERE m.contact_id = c.contact_id
+        AND (m.start_date IS NULL OR m.start_date <= c.receive_date)
+        AND (m.end_date IS NULL OR m.end_date >= c.receive_date)
+    ) THEN 'member' ELSE 'non_member' END";
+  }
+
+  /**
+   * Builds a YYYY-MM => label map for recent months.
+   */
+  protected function buildMonthSeries(\DateTimeImmutable $end, int $months): array {
+    $start = $end->modify('first day of this month')->setTime(0, 0, 0)->modify('-' . ($months - 1) . ' months');
+    $series = [];
+    for ($i = 0; $i < $months; $i++) {
+      $month = $start->modify("+$i months");
+      $series[$month->format('Y-m')] = $month->format('M Y');
+    }
+    return $series;
+  }
+
+  /**
+   * Creates a DateTime object from a month key (YYYY-MM).
+   */
+  protected function createDateFromKey(string $key): \DateTimeImmutable {
+    $key .= '-01';
+    return new \DateTimeImmutable($key, $this->now()->getTimezone());
+  }
+
+  /**
+   * Matches the provided month/day within a given year.
+   */
+  protected function matchMonthDay(int $year, int $month, int $day): \DateTimeImmutable {
+    $base = new \DateTimeImmutable(sprintf('%d-%02d-01', $year, $month), $this->now()->getTimezone());
+    $target = $base->setDate($year, $month, 1);
+    $targetDay = min($day, (int) $target->format('t'));
+    return $target->setDate($year, $month, $targetDay);
+  }
+
+  /**
+   * Returns the current timestamp wrapper.
+   */
+  protected function now(): \DateTimeImmutable {
+    return (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get() ?: 'UTC'));
   }
 
   protected function formatMonthLabel(?int $month): string {

@@ -40,10 +40,20 @@ class RetentionRecruitmentByTypeChartBuilder extends RetentionFlowChartBuilderBa
       foreach ($periodKeys as $period) {
         $series[] = (int) ($dataByPeriod[$period] ?? 0);
       }
+      $color = $colors[$index % count($colors)];
       $datasets[] = [
         'label' => $type ?: (string) $this->t('Unclassified'),
         'data' => $series,
-        'backgroundColor' => $colors[$index % count($colors)],
+        'backgroundColor' => $this->applyAlpha($color, 0.25),
+        'borderColor' => $color,
+        'type' => 'line',
+        'fill' => 'origin',
+        'tension' => 0.35,
+        'pointRadius' => 0,
+        'pointHoverRadius' => 4,
+        'pointHitRadius' => 8,
+        'borderWidth' => 2,
+        'stack' => 'membership_types',
       ];
       $index++;
     }
@@ -51,16 +61,49 @@ class RetentionRecruitmentByTypeChartBuilder extends RetentionFlowChartBuilderBa
     $visualization = [
       'type' => 'chart',
       'library' => 'chartjs',
-      'chartType' => 'bar',
+      'chartType' => 'line',
       'data' => [
         'labels' => $labels,
         'datasets' => $datasets,
       ],
       'options' => [
+        'responsive' => TRUE,
+        'interaction' => ['mode' => 'index', 'intersect' => FALSE],
+        'elements' => [
+          'line' => ['fill' => TRUE],
+          'point' => ['radius' => 0],
+        ],
         'plugins' => [
           'legend' => ['position' => 'top'],
+          'tooltip' => [
+            'callbacks' => [
+              'label' => $this->chartCallback('series_value', [
+                'format' => 'integer',
+                'showLabel' => TRUE,
+              ]),
+            ],
+          ],
         ],
-        'responsive' => TRUE,
+        'scales' => [
+          'x' => [
+            'ticks' => [
+              'autoSkip' => TRUE,
+              'maxRotation' => 0,
+              'minRotation' => 0,
+              'maxTicksLimit' => 18,
+            ],
+          ],
+          'y' => [
+            'stacked' => TRUE,
+            'beginAtZero' => TRUE,
+            'ticks' => [
+              'callback' => $this->chartCallback('value_format', [
+                'format' => 'integer',
+                'showLabel' => FALSE,
+              ]),
+            ],
+          ],
+        ],
       ],
     ];
 
@@ -74,6 +117,19 @@ class RetentionRecruitmentByTypeChartBuilder extends RetentionFlowChartBuilderBa
         (string) $this->t('Definitions: Type names come from taxonomy terms; unknown or missing terms appear as "Unclassified".'),
       ],
     );
+  }
+
+  /**
+   * Applies an alpha channel to a hex color when supported.
+   */
+  protected function applyAlpha(string $hexColor, float $alpha): string {
+    $hex = ltrim($hexColor, '#');
+    if (strlen($hex) !== 6) {
+      return $hexColor;
+    }
+    $alpha = max(0, min(1, $alpha));
+    $alphaChannel = strtoupper(str_pad(dechex((int) round($alpha * 255)), 2, '0', STR_PAD_LEFT));
+    return '#' . $hex . $alphaChannel;
   }
 
 }

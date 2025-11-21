@@ -28,6 +28,12 @@ class DashboardSectionManager {
         $this->sections[$section->getId()] = $section;
       }
     }
+
+    if (isset($this->sections['operations'])) {
+      $operations = $this->sections['operations'];
+      unset($this->sections['operations']);
+      $this->sections['operations'] = $operations;
+    }
   }
 
   /**

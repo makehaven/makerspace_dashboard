@@ -5,18 +5,6 @@
 # columns in the KPI tables on each dashboard section.
 
 overview:
-  total_active_members:
-    label: 'Total # Active Members'
-    base_2025: 1000
-    goal_2030: 1500
-  workshop_attendees:
-    label: '# of Workshop Attendees'
-    base_2025: 1200
-    goal_2030: 2000
-  reserve_funds_months:
-    label: 'Reserve Funds (as Months of Operating Expense)'
-    base_2025: 3
-    goal_2030: 6
 
 governance:
   board_ethnic_diversity:

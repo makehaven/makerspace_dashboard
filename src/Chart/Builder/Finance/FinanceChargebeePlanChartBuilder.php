@@ -141,7 +141,7 @@ class FinanceChargebeePlanChartBuilder extends ChartBuilderBase {
                 'format' => 'percent',
                 'decimals' => 1,
               ]),
-              'afterLabel' => $this->chartCallback('payment_mix_members_count', []),
+              'afterLabel' => $this->chartCallback('dataset_members_count', []),
             ],
           ],
         ],

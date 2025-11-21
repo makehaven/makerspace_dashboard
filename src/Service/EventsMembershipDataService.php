@@ -12,6 +12,16 @@ use Drupal\Core\Datetime\DrupalDateTime;
 class EventsMembershipDataService {
 
   /**
+   * Number of events-per-member buckets returned for pre-join charts.
+   */
+  private const PRE_JOIN_BUCKET_KEYS = [0, 1, 2, 3, 4];
+
+  /**
+   * Maximum number of event types to expose before grouping into "Other".
+   */
+  private const PRE_JOIN_EVENT_TYPE_LIMIT = 5;
+
+  /**
    * Database connection.
    */
   protected Connection $database;
@@ -705,6 +715,218 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Builds the distribution of events attended before members joined.
+   */
+  public function getPreJoinEventAttendance(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cid = sprintf('makerspace_dashboard:pre_join_events:%d:%d', $start_date->getTimestamp(), $end_date->getTimestamp());
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    $requiredTables = [
+      'profile__field_member_join_date',
+      'users_field_data',
+      'civicrm_uf_match',
+      'civicrm_participant',
+      'civicrm_event',
+      'civicrm_participant_status_type',
+      'civicrm_contact',
+    ];
+    foreach ($requiredTables as $table) {
+      if (!$schema->tableExists($table)) {
+        return [];
+      }
+    }
+
+    $demoTable = $schema->tableExists('civicrm_value_demographics_15') ? 'civicrm_value_demographics_15' : NULL;
+    $eventTypeLabels = $this->getOptionValueLabels('event_type');
+    $genderLabels = $this->getOptionValueLabels('gender');
+    $ethnicityLabels = $this->getOptionValueLabels('ethnicity');
+
+    $memberQuery = $this->database->select('profile__field_member_join_date', 'pmjd');
+    $memberQuery->fields('pmjd', ['entity_id', 'field_member_join_date_value']);
+    $memberQuery->condition('pmjd.deleted', 0);
+    $memberQuery->condition('pmjd.field_member_join_date_value', [
+      $start_date->format('Y-m-d'),
+      $end_date->format('Y-m-d'),
+    ], 'BETWEEN');
+    $memberQuery->innerJoin('users_field_data', 'u', 'u.uid = pmjd.entity_id');
+    $memberQuery->fields('u', ['uid']);
+    $memberQuery->leftJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = u.uid');
+    $memberQuery->addField('ufm', 'contact_id');
+    $memberQuery->leftJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
+    $memberQuery->addField('c', 'gender_id');
+    if ($demoTable) {
+      $memberQuery->leftJoin($demoTable, 'demo', 'demo.entity_id = c.id');
+      $memberQuery->addField('demo', 'ethnicity_46');
+    }
+    else {
+      $memberQuery->addExpression('NULL', 'ethnicity_46');
+    }
+
+    $members = [];
+    $contactMap = [];
+    foreach ($memberQuery->execute() as $record) {
+      $joinTimestamp = $this->buildJoinTimestamp($record->field_member_join_date_value);
+      if ($joinTimestamp === NULL) {
+        continue;
+      }
+      $contactId = $record->contact_id ? (int) $record->contact_id : NULL;
+      $key = $contactId ? 'c:' . $contactId : 'u:' . (int) $record->entity_id;
+      if (isset($members[$key])) {
+        continue;
+      }
+      $members[$key] = [
+        'contact_id' => $contactId,
+        'join_timestamp' => $joinTimestamp,
+        'total_events' => 0,
+        'type_counts' => [],
+        'gender_id' => $record->gender_id !== NULL ? (int) $record->gender_id : NULL,
+        'ethnicity_raw' => $record->ethnicity_46 ?? '',
+      ];
+      if ($contactId) {
+        $contactMap[$contactId] = $key;
+      }
+    }
+
+    if (empty($members)) {
+      return [];
+    }
+
+    if (!empty($contactMap)) {
+      $participantQuery = $this->database->select('civicrm_participant', 'p');
+      $participantQuery->fields('p', ['contact_id']);
+      $participantQuery->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+      $participantQuery->condition('pst.is_counted', 1);
+      $participantQuery->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+      $participantQuery->addField('e', 'event_type_id');
+      $participantQuery->addField('e', 'start_date', 'event_date');
+      $participantQuery->condition('p.contact_id', array_keys($contactMap), 'IN');
+      $participantQuery->orderBy('e.start_date', 'ASC');
+
+      foreach ($participantQuery->execute() as $row) {
+        $contactId = (int) $row->contact_id;
+        if (empty($contactMap[$contactId])) {
+          continue;
+        }
+        $memberKey = $contactMap[$contactId];
+        $member = &$members[$memberKey];
+        $joinTimestamp = $member['join_timestamp'];
+        $eventTimestamp = $row->event_date ? strtotime($row->event_date) : NULL;
+        if (!$eventTimestamp || !$joinTimestamp || $eventTimestamp > $joinTimestamp) {
+          continue;
+        }
+        $member['total_events']++;
+        $typeLabel = $this->resolveEventTypeLabel((int) $row->event_type_id, $eventTypeLabels);
+        $member['type_counts'][$typeLabel] = ($member['type_counts'][$typeLabel] ?? 0) + 1;
+      }
+    }
+
+    $memberCount = count($members);
+    $overallCounts = $this->bucketizePreJoinCounts(array_map(static function (array $member): int {
+      return (int) ($member['total_events'] ?? 0);
+    }, $members));
+
+    $typeTotals = [];
+    foreach ($members as $member) {
+      foreach ($member['type_counts'] as $label => $count) {
+        $typeTotals[$label] = ($typeTotals[$label] ?? 0) + (int) $count;
+      }
+    }
+    arsort($typeTotals);
+    $topTypeLabels = array_slice(array_keys($typeTotals), 0, self::PRE_JOIN_EVENT_TYPE_LIMIT);
+    $otherTypeLabels = array_diff(array_keys($typeTotals), $topTypeLabels);
+
+    $eventTypeSeries = [];
+    $eventTypeSeries[] = [
+      'id' => 'all',
+      'label' => 'all',
+      'counts' => $overallCounts,
+      'members' => $memberCount,
+    ];
+    foreach ($topTypeLabels as $label) {
+      $values = [];
+      foreach ($members as $member) {
+        $values[] = (int) ($member['type_counts'][$label] ?? 0);
+      }
+      $eventTypeSeries[] = [
+        'id' => 'type',
+        'label' => $label,
+        'counts' => $this->bucketizePreJoinCounts($values),
+        'members' => $memberCount,
+      ];
+    }
+    if (!empty($otherTypeLabels)) {
+      $values = [];
+      $otherLookup = array_flip($otherTypeLabels);
+      foreach ($members as $member) {
+        $count = 0;
+        foreach ($member['type_counts'] as $label => $value) {
+          if (isset($otherLookup[$label])) {
+            $count += (int) $value;
+          }
+        }
+        $values[] = $count;
+      }
+      if (array_sum($values) > 0) {
+        $eventTypeSeries[] = [
+          'id' => 'other',
+          'label' => 'other',
+          'counts' => $this->bucketizePreJoinCounts($values),
+          'members' => $memberCount,
+        ];
+      }
+    }
+
+    $genderGroups = [];
+    $raceGroups = [];
+    foreach ($members as $member) {
+      $bucketIndex = $this->resolvePreJoinBucketIndex((int) $member['total_events']);
+
+      $genderLabel = $this->resolveGenderLabel($member['gender_id'] ?? NULL, $genderLabels);
+      if (!isset($genderGroups[$genderLabel])) {
+        $genderGroups[$genderLabel] = $this->initializePreJoinBuckets();
+      }
+      $genderGroups[$genderLabel][$bucketIndex]++;
+
+      $raceLabel = $this->resolveRaceGroupLabel($member['ethnicity_raw'] ?? '', $ethnicityLabels);
+      if (!isset($raceGroups[$raceLabel])) {
+        $raceGroups[$raceLabel] = $this->initializePreJoinBuckets();
+      }
+      $raceGroups[$raceLabel][$bucketIndex]++;
+    }
+
+    $result = [
+      'bucket_keys' => self::PRE_JOIN_BUCKET_KEYS,
+      'member_total' => $memberCount,
+      'event_types' => $eventTypeSeries,
+      'demographics' => [
+        'gender' => array_map(function (array $row): array {
+          $row['dimension'] = 'gender';
+          return $row;
+        }, $this->normalizePreJoinGroups($genderGroups)),
+        'race' => array_map(function (array $row): array {
+          $row['dimension'] = 'race';
+          return $row;
+        }, $this->normalizePreJoinGroups($raceGroups)),
+      ],
+      'window' => [
+        'start' => $start_date->format('Y-m-d'),
+        'end' => $end_date->format('Y-m-d'),
+      ],
+    ];
+
+    $this->cache->set($cid, $result, $this->buildTtl(), [
+      'profile_list',
+      'user_list',
+      'civicrm_participant_list',
+    ]);
+
+    return $result;
+  }
+
+  /**
    * Builds an array of Y-m keyed months within range.
    */
   protected function buildMonthRange(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
@@ -716,6 +938,139 @@ class EventsMembershipDataService {
       $months[$month->format('Y-m-01')] = $month->format('M Y');
     }
     return $months;
+  }
+
+  /**
+   * Converts a Y-m-d join value into a timestamp (end of day).
+   */
+  protected function buildJoinTimestamp(?string $value): ?int {
+    if ($value === NULL || $value === '') {
+      return NULL;
+    }
+    $timestamp = strtotime($value . ' 23:59:59');
+    return $timestamp ?: NULL;
+  }
+
+  /**
+   * Initializes a zeroed bucket array for the pre-join charts.
+   */
+  protected function initializePreJoinBuckets(): array {
+    return array_fill(0, count(self::PRE_JOIN_BUCKET_KEYS), 0);
+  }
+
+  /**
+   * Resolves which bucket index a count should increment.
+   */
+  protected function resolvePreJoinBucketIndex(int $count): int {
+    if ($count <= 0) {
+      return 0;
+    }
+    if ($count === 1) {
+      return 1;
+    }
+    if ($count === 2) {
+      return 2;
+    }
+    if ($count === 3) {
+      return 3;
+    }
+    return 4;
+  }
+
+  /**
+   * Converts an array of event counts into per-bucket totals.
+   */
+  protected function bucketizePreJoinCounts(array $values): array {
+    $buckets = $this->initializePreJoinBuckets();
+    foreach ($values as $value) {
+      $index = $this->resolvePreJoinBucketIndex((int) $value);
+      $buckets[$index]++;
+    }
+    return $buckets;
+  }
+
+  /**
+   * Normalizes grouped bucket counts into a sorted list.
+   */
+  protected function normalizePreJoinGroups(array $groups): array {
+    if (!$groups) {
+      return [];
+    }
+    $normalized = [];
+    foreach ($groups as $label => $counts) {
+      $normalized[] = [
+        'label' => $label,
+        'counts' => array_values($counts),
+        'members' => array_sum($counts),
+      ];
+    }
+    usort($normalized, static function (array $a, array $b): int {
+      return ($b['members'] ?? 0) <=> ($a['members'] ?? 0);
+    });
+    return $normalized;
+  }
+
+  /**
+   * Resolves an event type label or fallback for missing IDs.
+   */
+  protected function resolveEventTypeLabel(int $typeId, array $eventTypeLabels): string {
+    if ($typeId && isset($eventTypeLabels[$typeId])) {
+      return $eventTypeLabels[$typeId];
+    }
+    return 'Unspecified';
+  }
+
+  /**
+   * Resolves a gender label or default placeholder.
+   */
+  protected function resolveGenderLabel(?int $genderId, array $genderLabels): string {
+    if ($genderId !== NULL && isset($genderLabels[$genderId])) {
+      return $genderLabels[$genderId];
+    }
+    return 'Unspecified';
+  }
+
+  /**
+   * Resolves a simplified race grouping (White, BIPOC/Multiracial, Unspecified).
+   */
+  protected function resolveRaceGroupLabel(?string $rawValues, array $ethnicityLabels): string {
+    if ($rawValues === NULL || $rawValues === '') {
+      return 'Unspecified';
+    }
+    $values = $this->explodeMultiValue($rawValues);
+    $hasWhite = FALSE;
+    $hasNonWhite = FALSE;
+    foreach ($values as $value) {
+      if ($value === '') {
+        continue;
+      }
+      $label = '';
+      if (ctype_digit($value) && isset($ethnicityLabels[(int) $value])) {
+        $label = strtolower($ethnicityLabels[(int) $value]);
+      }
+      else {
+        $label = strtolower((string) $value);
+      }
+      if ($label === '') {
+        continue;
+      }
+      if (str_contains($label, 'white')) {
+        $hasWhite = TRUE;
+      }
+      else {
+        $hasNonWhite = TRUE;
+      }
+      if ($hasWhite && $hasNonWhite) {
+        break;
+      }
+    }
+    if ($hasNonWhite) {
+      return 'BIPOC / Multiracial';
+    }
+    if ($hasWhite) {
+      return 'White';
+    }
+    return 'Unspecified';
   }
 
   /**

@@ -202,3 +202,49 @@
 .kpi-progress--poor {
   color: #b91c1c;
 }
+
+.kpi-stoplight-table {
+  margin-top: 1rem;
+}
+
+.kpi-stoplight-table td {
+  vertical-align: middle;
+}
+
+.kpi-stoplight-cell {
+  white-space: nowrap;
+}
+
+.kpi-stoplight-indicator {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 0.4rem;
+  background-color: #94a3b8;
+}
+
+.kpi-stoplight-indicator.kpi-progress--good {
+  background-color: #15803d;
+}
+
+.kpi-stoplight-indicator.kpi-progress--warning {
+  background-color: #d97706;
+}
+
+.kpi-stoplight-indicator.kpi-progress--poor {
+  background-color: #b91c1c;
+}
+
+.kpi-stoplight-indicator.kpi-progress--na {
+  background-color: #94a3b8;
+}
+
+.kpi-stoplight-text {
+  font-weight: 600;
+}
+
+.kpi-goal-label {
+  color: #64748b;
+  font-size: 0.85em;
+}

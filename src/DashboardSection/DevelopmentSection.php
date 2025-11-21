@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
 use Drupal\makerspace_dashboard\Service\DevelopmentDataService;
 use Drupal\makerspace_dashboard\Service\KpiDataService;
 
@@ -14,10 +15,13 @@ class DevelopmentSection extends DashboardSectionBase {
   protected KpiDataService $kpiDataService;
   protected DevelopmentDataService $developmentDataService;
 
-  public function __construct(KpiDataService $kpi_data_service, DevelopmentDataService $development_data_service) {
-    parent::__construct();
+  protected ?ChartBuilderManager $chartBuilderManager = NULL;
+
+  public function __construct(KpiDataService $kpi_data_service, DevelopmentDataService $development_data_service, ChartBuilderManager $chart_builder_manager) {
+    parent::__construct(NULL, $chart_builder_manager);
     $this->kpiDataService = $kpi_data_service;
     $this->developmentDataService = $development_data_service;
+    $this->chartBuilderManager = $chart_builder_manager;
   }
 
   /**
@@ -41,6 +45,20 @@ class DevelopmentSection extends DashboardSectionBase {
     $ytdData = $this->developmentDataService->getYearToDateComparison(2);
     $build['ytd_comparison'] = $this->buildYtdComparisonTable($ytdData);
     $build['ytd_comparison']['#weight'] = $weight++;
+
+    if ($this->chartBuilderManager) {
+      $charts = $this->buildChartsFromDefinitions($filters);
+      if ($charts) {
+        $build['charts_section_heading'] = [
+          '#markup' => '<h2>' . $this->t('Giving trends') . '</h2>',
+          '#weight' => $weight++,
+        ];
+        foreach ($charts as $chart_id => $chart_render_array) {
+          $chart_render_array['#weight'] = $weight++;
+          $build[$chart_id] = $chart_render_array;
+        }
+      }
+    }
 
     return $build;
   }
