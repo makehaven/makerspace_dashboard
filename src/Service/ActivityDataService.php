@@ -49,8 +49,12 @@ class ActivityDataService {
     $query = $this->database->select('civicrm_activity', 'a');
     $query->addExpression("DATE_FORMAT(a.activity_date_time, '%Y-%m')", 'month_key');
     $query->addExpression('COUNT(*)', 'activity_count');
-    $query->addExpression("COALESCE(type.label, CONCAT('Type #', a.activity_type_id))", 'type_label');
-    $query->addExpression("COALESCE(type.name, CONCAT('type_', a.activity_type_id))", 'type_key');
+    
+    $labelExpression = "COALESCE(type.label, CONCAT('Type #', a.activity_type_id))";
+    $keyExpression = "COALESCE(type.name, CONCAT('type_', a.activity_type_id))";
+    $query->addExpression($labelExpression, 'type_label');
+    $query->addExpression($keyExpression, 'type_key');
+
     $groupId = $this->getActivityTypeOptionGroupId();
     if ($groupId) {
       $query->leftJoin('civicrm_option_value', 'type', 'type.value = a.activity_type_id AND type.option_group_id = :group_id', [

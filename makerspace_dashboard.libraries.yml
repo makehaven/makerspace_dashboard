@@ -10,6 +10,23 @@ dashboard:
     - core/drupalSettings
     - core/once
 
+leaflet:
+  css:
+    theme:
+      https://unpkg.com/leaflet@1.7.1/dist/leaflet.css: { type: external, minified: true }
+  js:
+    https://unpkg.com/leaflet@1.7.1/dist/leaflet.js: { type: external, minified: true }
+    https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js: { type: external, minified: true }
+
+location_map:
+  js:
+    js/location_map.js: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+    - makerspace_dashboard/leaflet
+
 react_app:
   version: 1.x
   css:

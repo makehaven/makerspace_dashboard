@@ -689,6 +689,20 @@ services:
       - '@makerspace_dashboard.utilization_data'
       - '@datetime.time'
       - '@date.formatter'
+
+  makerspace_dashboard.geocoding:
+    class: Drupal\makerspace_dashboard\Service\GeocodingService
+    arguments:
+      - '@cache.default'
+      - '@http_client'
+
+  makerspace_dashboard.membership_location_data:
+    class: Drupal\makerspace_dashboard\Service\MembershipLocationDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@makerspace_dashboard.geocoding'
+
   makerspace_dashboard.kpi_data:
     class: Drupal\makerspace_dashboard\Service\KpiDataService
     arguments:
@@ -834,6 +848,13 @@ services:
     arguments:
       - '@makerspace_dashboard.kpi_data'
       - '@makerspace_dashboard.chart_builder_manager'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.section.location:
+    class: Drupal\makerspace_dashboard\DashboardSection\LocationSection
     tags:
       - { name: makerspace_dashboard.section }
     calls:

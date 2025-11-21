@@ -60,3 +60,10 @@ makerspace_dashboard.download_chart_csv:
     _permission: 'view makerspace dashboard'
     sid: '[a-z0-9_]+'
     chart_id: '[a-z0-9_]+'
+
+makerspace_dashboard.api.locations:
+  path: '/makerspace-dashboard/api/locations'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\LocationApiController::getLocations'
+  requirements:
+    _permission: 'view makerspace dashboard'
