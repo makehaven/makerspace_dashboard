@@ -309,3 +309,44 @@
   font-size: 1.15rem;
   font-weight: 600;
 }
+
+.makerspace-dashboard-location-map-wrapper {
+  position: relative;
+}
+
+.makerspace-dashboard-location-map-toggle {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 401; /* Leaflet is 400 */
+  display: flex;
+  gap: 0.5rem;
+}
+
+.makerspace-dashboard-location-map-toggle .button {
+  background-color: #fff;
+  border: 1px solid #ccc;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.makerspace-dashboard-location-map-toggle .button.active {
+  background-color: #f0f0f0;
+  font-weight: bold;
+}
+
+.makerspace-dashboard-location-map-info {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.875rem;
+  color: #475569;
+  text-align: center;
+}
+
+.makerspace-dashboard-location-map-info p {
+  margin: 0 0 0.5rem;
+}
+
+.makerspace-dashboard-location-map-info p:last-child {
+  margin-bottom: 0;
+}

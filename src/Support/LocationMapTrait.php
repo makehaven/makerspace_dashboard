@@ -37,7 +37,7 @@ trait LocationMapTrait {
       ];
     }
 
-    return [
+    $map_renderable = [
       '#type' => 'container',
       '#attributes' => [
         'id' => 'member-location-map',
@@ -54,6 +54,36 @@ trait LocationMapTrait {
           ],
         ],
       ],
+    ];
+
+    return [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['makerspace-dashboard-location-map-wrapper'],
+      ],
+      'toggle' => [
+        '#type' => 'container',
+        '#attributes' => [
+          'class' => ['makerspace-dashboard-location-map-toggle'],
+        ],
+        'markers' => [
+          '#type' => 'button',
+          '#value' => $this->t('Markers'),
+          '#attributes' => [
+            'class' => ['button', 'active'],
+            'data-map-view' => 'markers',
+          ],
+        ],
+        'heatmap' => [
+          '#type' => 'button',
+          '#value' => $this->t('Heatmap'),
+          '#attributes' => [
+            'class' => ['button'],
+            'data-map-view' => 'heatmap',
+          ],
+        ],
+      ],
+      'map' => $map_renderable,
     ];
   }
 

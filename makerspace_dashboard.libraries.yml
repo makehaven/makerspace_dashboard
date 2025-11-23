@@ -13,9 +13,9 @@ dashboard:
 leaflet:
   css:
     theme:
-      https://unpkg.com/leaflet@1.7.1/dist/leaflet.css: { type: external, minified: true }
+      https://unpkg.com/leaflet@1.9.4/dist/leaflet.css: { type: external, minified: true }
   js:
-    https://unpkg.com/leaflet@1.7.1/dist/leaflet.js: { type: external, minified: true }
+    https://unpkg.com/leaflet@1.9.4/dist/leaflet.js: { type: external, minified: true }
     https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js: { type: external, minified: true }
 
 location_map:

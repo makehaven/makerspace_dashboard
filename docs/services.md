@@ -77,7 +77,7 @@ Each dashboard section relies on a dedicated service for database access and cac
 - **Constructor args**: `Connection`, `CacheBackendInterface`, `GeocodingService`, optional TTL.
 - **Core Method**:
   - `getMemberLocations(): array` – returns an array of latitude/longitude pairs for active members, suitable for the Leaflet heat map.
-- **Notes**: Pulls primary address data directly from CiviCRM (`civicrm_membership`, `civicrm_contact`, `civicrm_address`, `civicrm_state_province`). Only memberships whose status is marked `is_current_member = 1` are considered. Unique city/state pairs are geocoded through the shared `GeocodingService` and cached at `makerspace_dashboard:membership:locations` with tags `profile_list`, `user_list`. The cache is skipped when the dataset is empty so retries can occur once addresses are populated.
+- **Notes**: Looks up active Drupal users (roles `current_member`/`member`), resolves their linked CiviCRM contact via `civicrm_uf_match`, and reads the contact’s primary address (`civicrm_address`, `civicrm_state_province`). Stored latitude/longitude pairs are rounded to ~100 m (3 decimals) and then deterministically jittered within ~1 km so the API never pinpoints a home, yet still shows neighborhood-level patterns; the geocoding service runs only when no stored coordinates exist. Results are cached at `makerspace_dashboard:membership:locations` with tags `civicrm_contact_list`, `civicrm_address_list`, `user_list`; empty payloads are never cached so new locations appear as soon as data is ready.
 
 ## UtilizationDataService
 - **Class**: `Drupal\makerspace_dashboard\Service\UtilizationDataService`
