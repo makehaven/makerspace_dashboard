@@ -67,3 +67,17 @@ makerspace_dashboard.api.locations:
     _controller: '\Drupal\makerspace_dashboard\Controller\LocationApiController::getLocations'
   requirements:
     _permission: 'view makerspace dashboard'
+
+makerspace_dashboard.api.join_locations:
+  path: '/makerspace-dashboard/api/join-locations'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\JoinLocationApiController::getJoinLocations'
+  requirements:
+    _permission: 'view makerspace dashboard'
+
+makerspace_dashboard.api.demographic_locations:
+  path: '/makerspace-dashboard/api/demographic-locations'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\DemographicLocationApiController::getLocations'
+  requirements:
+    _permission: 'view makerspace dashboard'

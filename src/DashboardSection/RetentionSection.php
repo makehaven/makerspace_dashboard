@@ -5,6 +5,7 @@ namespace Drupal\makerspace_dashboard\DashboardSection;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\makerspace_dashboard\Support\LocationMapTrait;
 use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
 use Drupal\makerspace_dashboard\Service\KpiDataService;
 use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
@@ -15,6 +16,8 @@ use Drupal\makerspace_dashboard\Service\RetentionFlowDataService;
  * Tracks recruitment and retention cohorts.
  */
 class RetentionSection extends DashboardSectionBase {
+
+  use LocationMapTrait;
 
   /**
    * Membership metrics service.
@@ -119,12 +122,31 @@ class RetentionSection extends DashboardSectionBase {
         '#weight' => $weight++,
       ];
     }
-
+    $build['member_locations_map'] = [
+      '#type' => 'container',
+      '#attributes' => [
+        'class' => ['makerspace-dashboard-join-map-section'],
+      ],
+      'heading' => [
+        '#markup' => '<h2>' . $this->t('Active members by home region') . '</h2>',
+      ],
+      'description' => [
+        '#markup' => '<p>' . $this->t('This view clusters active members’ primary addresses (with privacy-preserving jitter) so you can see where they reside across Connecticut.') . '</p>',
+      ],
+      'map' => $this->buildLocationMapRenderable(),
+      '#weight' => $weight++,
+    ];
 
     $build['#cache'] = [
       'max-age' => 3600,
       'contexts' => ['timezone'],
-      'tags' => ['access_control_log_list', 'user_list', 'config:makerspace_dashboard.settings'],
+      'tags' => [
+        'access_control_log_list',
+        'user_list',
+        'civicrm_contact_list',
+        'civicrm_address_list',
+        'config:makerspace_dashboard.settings',
+      ],
     ];
 
     return $build;

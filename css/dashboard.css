@@ -350,3 +350,125 @@
 .makerspace-dashboard-location-map-info p:last-child {
   margin-bottom: 0;
 }
+
+.join-location-map__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.join-location-map__button {
+  border: 2px solid #cbd5f5;
+  background-color: #fff;
+  color: #0f172a;
+  padding: 0.35rem 0.9rem;
+  cursor: pointer;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  min-width: 4.5rem;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.join-location-map__button.active {
+  color: #fff;
+}
+
+.join-location-map__wrapper {
+  position: relative;
+}
+
+.join-location-map {
+  position: relative;
+}
+
+.join-location-map.is-expanded {
+  position: fixed;
+  inset: 1.5rem;
+  z-index: 1000;
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.25);
+  display: flex;
+  flex-direction: column;
+}
+
+.join-location-map.is-expanded .join-location-map__controls {
+  flex-wrap: wrap;
+}
+
+.join-location-map.is-expanded .join-location-map__canvas {
+  height: calc(100vh - 12rem);
+}
+
+.join-location-map__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.75rem;
+  gap: 0.5rem;
+}
+
+.join-location-map__actions .button {
+  background-color: #0f172a;
+  color: #fff;
+  border: none;
+  padding: 0.2rem 0.55rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.join-location-map__actions .button:hover {
+  background-color: #1d2b50;
+}
+
+.join-location-map__canvas {
+  position: relative;
+  min-height: 360px;
+  height: min(60vh, 520px);
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.join-location-map__control-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.join-location-map__control-bar .join-location-map__controls {
+  flex: 1 1 320px;
+  margin-bottom: 0;
+}
+
+.join-location-map__summary {
+  flex: 0 1 260px;
+  margin: 0;
+  color: #475569;
+  font-size: 0.85rem;
+}
+
+.join-location-map__actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+}
+.join-location-map__actions .button {
+  background-color: #0f172a;
+  color: #fff;
+  border: none;
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}

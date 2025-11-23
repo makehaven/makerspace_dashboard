@@ -27,6 +27,15 @@ location_map:
     - core/once
     - makerspace_dashboard/leaflet
 
+join_location_map:
+  js:
+    js/join_location_map.js: {}
+  dependencies:
+    - core/drupal
+    - core/drupalSettings
+    - core/once
+    - makerspace_dashboard/leaflet
+
 react_app:
   version: 1.x
   css:

@@ -50,37 +50,7 @@ class DemographicsDataService {
       return $cache->data;
     }
 
-    $query = $this->database->select('profile', 'p');
-    $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
-    $query->addField('addr', 'field_member_address_locality', 'locality_raw');
-    $query->condition('p.type', 'main');
-    $query->condition('p.status', 1);
-    $query->condition('p.is_default', 1);
-
-    $query->leftJoin('profile__field_member_address', 'addr', 'addr.entity_id = p.profile_id AND addr.deleted = 0 AND addr.delta = 0');
-    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->condition('u.status', 1);
-    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
-    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
-
-    $query->groupBy('addr.field_member_address_locality');
-    $query->orderBy('member_count', 'DESC');
-
-    $results = $query->execute();
-
-    $aggregated = [];
-    foreach ($results as $record) {
-      $raw = trim((string) $record->locality_raw);
-      $key = $raw === '' ? '__unknown' : mb_strtolower($raw);
-      $label = $raw === '' ? 'Unknown / not provided' : $this->formatLabel($raw, '');
-      if (!isset($aggregated[$key])) {
-        $aggregated[$key] = [
-          'label' => $label,
-          'count' => 0,
-        ];
-      }
-      $aggregated[$key]['count'] += (int) $record->member_count;
-    }
+    $aggregated = $this->getLocalityCounts();
 
     $rows = array_values($aggregated);
     usort($rows, function (array $a, array $b) {
@@ -119,6 +89,61 @@ class DemographicsDataService {
     $this->cache->set($cid, $output, $expire, ['profile_list', 'user_list']);
 
     return $output;
+  }
+
+  /**
+   * Returns counts for all recorded localities.
+   */
+  public function getLocalityCounts(): array {
+    $cid = 'makerspace_dashboard:demographics:locality_counts';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $query = $this->buildLocalityQuery();
+    $results = $query->execute();
+
+    $aggregated = [];
+    foreach ($results as $record) {
+      $raw = trim((string) $record->locality_raw);
+      $key = $raw === '' ? '__unknown' : mb_strtolower($raw);
+      $label = $raw === '' ? 'Unknown / not provided' : $this->formatLabel($raw, '');
+      if (!isset($aggregated[$key])) {
+        $aggregated[$key] = [
+          'label' => $label,
+          'count' => 0,
+        ];
+      }
+      $aggregated[$key]['count'] += (int) $record->member_count;
+    }
+
+    $expire = time() + $this->ttl;
+    $this->cache->set($cid, $aggregated, $expire, ['profile_list', 'user_list']);
+
+    return $aggregated;
+  }
+
+  /**
+   * Builds the common locality aggregation query.
+   */
+  protected function buildLocalityQuery(): SelectInterface {
+    $query = $this->database->select('profile', 'p');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
+    $query->addField('addr', 'field_member_address_locality', 'locality_raw');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+
+    $query->leftJoin('profile__field_member_address', 'addr', 'addr.entity_id = p.profile_id AND addr.deleted = 0 AND addr.delta = 0');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->condition('u.status', 1);
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+
+    $query->groupBy('addr.field_member_address_locality');
+    $query->orderBy('member_count', 'DESC');
+
+    return $query;
   }
 
   /**

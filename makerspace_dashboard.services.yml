@@ -397,6 +397,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.outreach_regional_saturation:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachRegionalSaturationChartBuilder
+    arguments:
+      - '@makerspace_dashboard.demographics_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.outreach_discovery_sources:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachDiscoverySourcesChartBuilder
     arguments:
@@ -703,6 +711,20 @@ services:
       - '@cache.default'
       - '@makerspace_dashboard.geocoding'
 
+  makerspace_dashboard.member_join_location_data:
+    class: Drupal\makerspace_dashboard\Service\MemberJoinLocationDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@makerspace_dashboard.geocoding'
+
+  makerspace_dashboard.member_demographic_location_data:
+    class: Drupal\makerspace_dashboard\Service\MemberDemographicLocationDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@makerspace_dashboard.geocoding'
+
   makerspace_dashboard.kpi_data:
     class: Drupal\makerspace_dashboard\Service\KpiDataService
     arguments:
@@ -772,6 +794,7 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\OutreachSection
     arguments:
       - '@makerspace_dashboard.kpi_data'
+      - '@makerspace_dashboard.member_join_location_data'
       - '@makerspace_dashboard.chart_builder_manager'
     tags:
       - { name: makerspace_dashboard.section }
@@ -847,14 +870,8 @@ services:
     class: Drupal\makerspace_dashboard\DashboardSection\DeiSection
     arguments:
       - '@makerspace_dashboard.kpi_data'
+      - '@makerspace_dashboard.member_demographic_location_data'
       - '@makerspace_dashboard.chart_builder_manager'
-    tags:
-      - { name: makerspace_dashboard.section }
-    calls:
-      - [setStringTranslation, ['@string_translation']]
-
-  makerspace_dashboard.section.location:
-    class: Drupal\makerspace_dashboard\DashboardSection\LocationSection
     tags:
       - { name: makerspace_dashboard.section }
     calls:

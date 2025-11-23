@@ -79,6 +79,23 @@ Each dashboard section relies on a dedicated service for database access and cac
   - `getMemberLocations(): array` – returns an array of latitude/longitude pairs for active members, suitable for the Leaflet heat map.
 - **Notes**: Looks up active Drupal users (roles `current_member`/`member`), resolves their linked CiviCRM contact via `civicrm_uf_match`, and reads the contact’s primary address (`civicrm_address`, `civicrm_state_province`). Stored latitude/longitude pairs are rounded to ~100 m (3 decimals) and then deterministically jittered within ~1 km so the API never pinpoints a home, yet still shows neighborhood-level patterns; the geocoding service runs only when no stored coordinates exist. Results are cached at `makerspace_dashboard:membership:locations` with tags `civicrm_contact_list`, `civicrm_address_list`, `user_list`; empty payloads are never cached so new locations appear as soon as data is ready.
 
+## MemberJoinLocationDataService
+- **Class**: `Drupal\makerspace_dashboard\Service\MemberJoinLocationDataService`
+- **Constructor args**: `Connection`, `CacheBackendInterface`, `GeocodingService`, optional TTL.
+- **Core Methods**:
+  - `getAvailableQuarters(int $limit = 12): array` – returns the most recent quarters (year/quarter/label/value) that have recorded join dates.
+  - `getJoinLocationsForQuarter(int $year, int $quarter): array` – aggregates new-member joins by coordinate for the selected quarter, including metadata (`mappable_count`, `total_count`, `filters`).
+- **Notes**: Uses the `created` timestamp of “main” profiles (instead of the editable join-date field) to determine when a member joined, resolves each profile owner to a CiviCRM contact via `civicrm_uf_match`, and pulls the contact’s primary `civicrm_address` (with `civicrm_state_province`). Coordinates are rounded to three decimals, jittered identically to the membership heatmap, and limited to a Connecticut-focused bounding box so out-of-region outliers don’t distract from local outreach. When a primary address lacks geocodes, the shared `GeocodingService` is used to look up the city/state pair. Quarters are cached separately at `makerspace_dashboard:join_locations:<year>:<quarter>` with tags `profile_list`, `civicrm_contact_list`, and `civicrm_address_list`, and the distinct-quarter list is cached briefly to avoid repeated scans.
+
+## MemberDemographicLocationDataService
+- **Class**: `Drupal\makerspace_dashboard\Service\MemberDemographicLocationDataService`
+- **Constructor args**: `Connection`, `CacheBackendInterface`, `GeocodingService`, optional TTL.
+- **Core Methods**:
+  - `getEthnicityOptions(int $limit = 8): array` – returns the most common self-reported ethnicity values for the map controls.
+  - `getAgeBucketOptions(): array` – returns the predefined age-range buckets (Under 18 … 65+).
+  - `getLocations(string $filterType, string $filterValue): array` – aggregates member locations for a demographic filter (ethnicity or age), including jittered coordinates and mapped/total counts.
+- **Notes**: Reuses the active “main” profile query plus `civicrm_uf_match` resolution so each demographic overlay shares the same address dataset as the membership heatmap. Ethnicity filters join `profile__field_member_ethnicity`; age filters leverage `TIMESTAMPDIFF` against `profile__field_member_birthday` to bucket members server-side. Coordinates are rounded to three decimals, jittered, and constrained to a Connecticut bounding box. Payloads are cached at `makerspace_dashboard:demographic_locations:<type>:<value>` with tags `profile_list`, `civicrm_contact_list`, and `civicrm_address_list`. Front-end templates currently render marker layers only; adding heatmap overlays is a noted TODO.
+
 ## UtilizationDataService
 - **Class**: `Drupal\makerspace_dashboard\Service\UtilizationDataService`
 - **Constructor args**: `Connection`, `CacheBackendInterface`, `TimeInterface`, optional TTL, member roles.
