@@ -32,6 +32,16 @@ class EventsMembershipDataService {
   protected CacheBackendInterface $cache;
 
   /**
+   * Cached ethnicity field metadata [table, column].
+   */
+  protected ?array $ethnicityFieldMetadata = NULL;
+
+  /**
+   * Cached gender option group id.
+   */
+  protected ?int $genderOptionGroupId = NULL;
+
+  /**
    * Constructs the service.
    */
   public function __construct(Connection $database, CacheBackendInterface $cache) {
@@ -74,17 +84,23 @@ class EventsMembershipDataService {
 
     foreach ($results as $result) {
       $event_date = new DrupalDateTime($result->start_date);
-      $join_date = new DrupalDateTime($result->field_member_join_date_value);
+      $joinValue = $result->field_member_join_date_value ?? NULL;
+      if (!$joinValue) {
+        continue;
+      }
+      $join_date = new DrupalDateTime($joinValue);
       $diff = $join_date->getTimestamp() - $event_date->getTimestamp();
       $days = round($diff / (60 * 60 * 24));
-
-      if ($days >= 0 && $days <= 30) {
+      if ($days < 0) {
+        continue;
+      }
+      if ($days <= 30) {
         $joins_30_days++;
       }
-      if ($days >= 0 && $days <= 60) {
+      elseif ($days <= 60) {
         $joins_60_days++;
       }
-      if ($days >= 0 && $days <= 90) {
+      elseif ($days <= 90) {
         $joins_90_days++;
       }
     }
@@ -115,29 +131,62 @@ class EventsMembershipDataService {
     $query->join('civicrm_uf_match', 'ufm', 'p.contact_id = ufm.contact_id');
     $query->join('users_field_data', 'u', 'ufm.uf_id = u.uid');
     $query->join('profile__field_member_join_date', 'pmjd', 'u.uid = pmjd.entity_id');
+    $query->fields('ufm', ['contact_id']);
     $query->fields('e', ['start_date']);
     $query->fields('pmjd', ['field_member_join_date_value']);
-    $query->addExpression("TIMESTAMPDIFF(DAY, e.start_date, pmjd.field_member_join_date_value)", 'days_to_join');
     $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
     $query->condition('p.status_id', 1); // Attended
-    $query->where("pmjd.field_member_join_date_value IS NOT NULL");
+    $query->isNotNull('pmjd.field_member_join_date_value');
 
-    $results = $query->execute()->fetchAll();
-
-    $monthly_averages = [];
-    foreach ($results as $result) {
-        $event_month = date('Y-m', strtotime($result->start_date));
-        if (!isset($monthly_averages[$event_month])) {
-            $monthly_averages[$event_month] = ['total_days' => 0, 'count' => 0];
-        }
-        $monthly_averages[$event_month]['total_days'] += $result->days_to_join;
-        $monthly_averages[$event_month]['count']++;
+    $rows = $query->execute()->fetchAll();
+    if (!$rows) {
+      return [
+        'labels' => [],
+        'values' => [],
+      ];
     }
 
-    ksort($monthly_averages);
+    $firstTouches = [];
+    foreach ($rows as $row) {
+      $contactId = (int) ($row->contact_id ?? 0);
+      if ($contactId <= 0) {
+        continue;
+      }
+      $eventTs = strtotime($row->start_date);
+      $joinTs = strtotime($row->field_member_join_date_value ?? '');
+      if (!$eventTs || !$joinTs || $joinTs < $eventTs) {
+        continue;
+      }
+      if (!isset($firstTouches[$contactId]) || $eventTs < $firstTouches[$contactId]['event_ts']) {
+        $firstTouches[$contactId] = [
+          'event_ts' => $eventTs,
+          'join_ts' => $joinTs,
+        ];
+      }
+    }
+
+    if (!$firstTouches) {
+      return [
+        'labels' => [],
+        'values' => [],
+      ];
+    }
+
+    $buckets = [];
+    foreach ($firstTouches as $record) {
+      $eventMonth = date('Y-m', $record['event_ts']);
+      $diffDays = round(($record['join_ts'] - $record['event_ts']) / 86400);
+      if (!isset($buckets[$eventMonth])) {
+        $buckets[$eventMonth] = ['total_days' => 0, 'count' => 0];
+      }
+      $buckets[$eventMonth]['total_days'] += $diffDays;
+      $buckets[$eventMonth]['count']++;
+    }
+
+    ksort($buckets);
     $labels = [];
     $values = [];
-    foreach ($monthly_averages as $month => $info) {
+    foreach ($buckets as $month => $info) {
       $labels[] = $month;
       $values[] = $info['count'] > 0 ? round($info['total_days'] / $info['count'], 2) : 0;
     }
@@ -299,6 +348,294 @@ class EventsMembershipDataService {
     $this->cache->set($cacheId, $result, $this->buildTtl(), ['civicrm_participant_list']);
 
     return $result;
+  }
+
+  /**
+   * Returns monthly counts of first-time workshop participants.
+   *
+   * @param \DateTimeImmutable $start_date
+   *   Reporting window start date.
+   * @param \DateTimeImmutable $end_date
+   *   Reporting window end date.
+   * @param string $eventTypeLabel
+   *   Workshop label filter (default matches any workshop).
+   *
+   * @return array
+   *   Array identical to getMonthlyWorkshopAttendanceSeries() output.
+   */
+  public function getMonthlyFirstTimeWorkshopParticipantsSeries(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Workshop'): array {
+    $months = $this->buildMonthRange($start_date, $end_date);
+    if (empty($months)) {
+      return [
+        'items' => [],
+        'labels' => [],
+        'counts' => [],
+      ];
+    }
+
+    $normalizedFilter = strtolower(trim($eventTypeLabel));
+    if ($normalizedFilter === '') {
+      $normalizedFilter = 'workshop';
+    }
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:first_time_workshop:%s:%s:%s',
+      $start_date->format('Ymd'),
+      $end_date->format('Ymd'),
+      md5($normalizedFilter)
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+
+    $firstEventSubquery = $this->database->select('civicrm_participant', 'fp');
+    $firstEventSubquery->innerJoin('civicrm_event', 'fe', 'fe.id = fp.event_id');
+    $firstEventSubquery->innerJoin('civicrm_participant_status_type', 'fpst', 'fpst.id = fp.status_id');
+    $firstEventSubquery->addField('fp', 'contact_id');
+    $firstEventSubquery->addExpression('MIN(fe.start_date)', 'first_event_date');
+    $firstEventSubquery->condition('fpst.is_counted', 1);
+    $firstEventSubquery->groupBy('fp.contact_id');
+
+    $query = $this->database->select($firstEventSubquery, 'first');
+    $query->addExpression("DATE_FORMAT(first.first_event_date, '%Y-%m-01')", 'month_key');
+    $query->addExpression('COUNT(DISTINCT first.contact_id)', 'first_time_count');
+    $query->innerJoin('civicrm_participant', 'p', 'p.contact_id = first.contact_id');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id AND e.start_date = first.first_event_date');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->condition('pst.is_counted', 1);
+    $query->condition('first.first_event_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+
+    if ($eventTypeGroupId) {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $eventTypeGroupId,
+      ]);
+    }
+    else {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->addExpression("COALESCE(ov.label, 'Unknown')", 'event_type_label');
+    $query->where('LOWER(ov.label) LIKE :event_type_label', [
+      ':event_type_label' => '%' . $normalizedFilter . '%',
+    ]);
+
+    $query->groupBy('month_key');
+    $query->groupBy('event_type_label');
+    $query->orderBy('month_key', 'ASC');
+
+    $results = $query->execute();
+
+    $countsByMonth = array_fill_keys(array_keys($months), 0);
+    foreach ($results as $record) {
+      $monthKey = $record->month_key;
+      if (!isset($countsByMonth[$monthKey])) {
+        continue;
+      }
+      $countsByMonth[$monthKey] += (int) $record->first_time_count;
+    }
+
+    $items = [];
+    $labels = [];
+    $counts = [];
+    $now = new \DateTimeImmutable('first day of this month');
+    foreach ($months as $monthKey => $label) {
+      $monthDate = new \DateTimeImmutable($monthKey);
+      if ($monthDate >= $now) {
+        break;
+      }
+      $count = (int) ($countsByMonth[$monthKey] ?? 0);
+      $items[] = [
+        'month_key' => $monthKey,
+        'label' => $label,
+        'date' => $monthDate,
+        'count' => $count,
+      ];
+      $labels[] = $label;
+      $counts[] = $count;
+    }
+
+    $result = [
+      'items' => $items,
+      'labels' => $labels,
+      'counts' => $counts,
+    ];
+    $this->cache->set($cacheId, $result, $this->buildTtl(), ['civicrm_participant_list']);
+
+    return $result;
+  }
+
+  /**
+   * Builds aggregated demographics for active instructors in the range.
+   *
+   * @param \DateTimeImmutable $start
+   *   Range start (inclusive).
+   * @param \DateTimeImmutable $end
+   *   Range end (inclusive).
+   * @param array $eventTypeLabels
+   *   Event type labels that qualify (case-insensitive).
+   *
+   * @return array
+   *   Array with keys: instructors (detail rows), gender_counts, ethnicity_counts, range.
+   */
+  public function getActiveInstructorDemographics(\DateTimeImmutable $start, \DateTimeImmutable $end, array $eventTypeLabels = ['Ticketed Workshop', 'Program']): array {
+    $startDate = $start->setTime(0, 0, 0);
+    $endDate = $end->setTime(23, 59, 59);
+    if ($endDate < $startDate) {
+      [$startDate, $endDate] = [$endDate, $startDate];
+    }
+
+    $labels = array_values(array_unique(array_filter(array_map(static function ($label) {
+      return strtolower(trim((string) $label));
+    }, $eventTypeLabels))));
+    sort($labels);
+    $cacheId = sprintf(
+      'makerspace_dashboard:instructors:demographics:%s:%s:%s',
+      $startDate->format('Ymd'),
+      $endDate->format('Ymd'),
+      md5(implode('|', $labels))
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $metadata = $this->getEthnicityFieldMetadata();
+    $ethnicityTable = $metadata['table'] ?? NULL;
+    $ethnicityField = $metadata['column'] ?? NULL;
+    $genderGroupId = $this->getGenderOptionGroupId();
+
+    $query = $this->database->select('civicrm_event', 'e');
+    $query->innerJoin('civicrm_event__field_civi_event_instructor', 'instr', 'instr.entity_id = e.id AND instr.deleted = 0');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = instr.field_civi_event_instructor_target_id');
+    $query->innerJoin('user__roles', 'role', "role.entity_id = u.uid AND role.roles_target_id = 'instructor'");
+    $query->innerJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = u.uid');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
+    $query->leftJoin('civicrm_option_value', 'event_type', 'event_type.value = e.event_type_id');
+    $query->leftJoin('civicrm_option_group', 'event_type_group', 'event_type_group.id = event_type.option_group_id');
+    $query->condition('event_type_group.name', 'event_type');
+
+    if ($labels) {
+      $query->where('LOWER(COALESCE(event_type.label, \'\')) IN (:types[])', [':types[]' => $labels]);
+    }
+
+    $query->condition('instr.field_civi_event_instructor_target_id', 0, '>');
+    $query->condition('u.status', 1);
+    $query->condition('c.is_deleted', 0);
+    $query->condition('e.start_date', [
+      $startDate->format('Y-m-d H:i:s'),
+      $endDate->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+
+    if ($genderGroupId) {
+      $query->leftJoin('civicrm_option_value', 'gender', 'gender.value = c.gender_id AND gender.option_group_id = :gender_group', [':gender_group' => $genderGroupId]);
+      $query->addExpression('MAX(COALESCE(gender.label, \'\'))', 'gender_label');
+    }
+    else {
+      $query->addExpression("''", 'gender_label');
+    }
+
+    if ($ethnicityTable && $ethnicityField) {
+      $query->leftJoin($ethnicityTable, 'eth', 'eth.entity_id = c.id');
+      $query->addExpression("MAX(COALESCE(eth.$ethnicityField, ''))", 'ethnicity_raw');
+    }
+    else {
+      $query->addExpression("''", 'ethnicity_raw');
+    }
+
+    $query->addField('u', 'uid', 'uid');
+    $query->addField('u', 'name', 'username');
+    $query->addField('c', 'display_name', 'contact_name');
+    $query->addExpression('COUNT(DISTINCT e.id)', 'event_count');
+    $query->addExpression('MAX(e.start_date)', 'last_event_date');
+    $query->groupBy('u.uid');
+    $query->groupBy('u.name');
+    $query->groupBy('c.display_name');
+
+    $results = $query->execute();
+
+    $instructors = [];
+    $genderCounts = [];
+    $ethnicityCounts = [];
+    $ignoredEthnicity = $this->getIgnoredEthnicityValues();
+
+    foreach ($results as $record) {
+      $uid = (int) ($record->uid ?? 0);
+      if ($uid <= 0) {
+        continue;
+      }
+      $name = trim((string) ($record->contact_name ?? '')) ?: trim((string) ($record->username ?? ''));
+      if ($name === '') {
+        $name = sprintf('User #%d', $uid);
+      }
+      $gender = trim((string) ($record->gender_label ?? ''));
+      if ($gender === '') {
+        $gender = 'Unspecified';
+      }
+      $genderCounts[$gender] = ($genderCounts[$gender] ?? 0) + 1;
+
+      $rawEthnicity = $record->ethnicity_raw ?? '';
+      $ethnicities = $this->normalizeEthnicityValues($rawEthnicity, $ignoredEthnicity);
+      if (!$ethnicities) {
+        $ethnicities = ['Unspecified'];
+      }
+      foreach (array_unique($ethnicities) as $value) {
+        $ethnicityCounts[$value] = ($ethnicityCounts[$value] ?? 0) + 1;
+      }
+
+      $lastEvent = NULL;
+      if (!empty($record->last_event_date)) {
+        try {
+          $lastEvent = (new \DateTimeImmutable($record->last_event_date))->format('Y-m-d');
+        }
+        catch (\Exception $exception) {
+          $lastEvent = NULL;
+        }
+      }
+
+      $instructors[] = [
+        'uid' => $uid,
+        'name' => $name,
+        'gender' => $gender,
+        'ethnicity' => $ethnicities,
+        'event_count' => (int) ($record->event_count ?? 0),
+        'last_event' => $lastEvent,
+      ];
+    }
+
+    usort($instructors, static function (array $a, array $b): int {
+      $eventComparison = ($b['event_count'] ?? 0) <=> ($a['event_count'] ?? 0);
+      if ($eventComparison !== 0) {
+        return $eventComparison;
+      }
+      return strcasecmp($a['name'] ?? '', $b['name'] ?? '');
+    });
+
+    ksort($genderCounts);
+    ksort($ethnicityCounts);
+
+    $data = [
+      'range' => [
+        'start' => $startDate,
+        'end' => $endDate,
+      ],
+      'instructors' => $instructors,
+      'total' => count($instructors),
+      'gender_counts' => $genderCounts,
+      'ethnicity_counts' => $ethnicityCounts,
+    ];
+
+    $this->cache->set($cacheId, $data, $this->buildTtl(), [
+      'civicrm_event_list',
+      'user_list',
+      'civicrm_contact_list',
+    ]);
+
+    return $data;
   }
 
   /**
@@ -744,15 +1081,19 @@ class EventsMembershipDataService {
     $genderLabels = $this->getOptionValueLabels('gender');
     $ethnicityLabels = $this->getOptionValueLabels('ethnicity');
 
-    $memberQuery = $this->database->select('profile__field_member_join_date', 'pmjd');
-    $memberQuery->fields('pmjd', ['entity_id', 'field_member_join_date_value']);
-    $memberQuery->condition('pmjd.deleted', 0);
-    $memberQuery->condition('pmjd.field_member_join_date_value', [
-      $start_date->format('Y-m-d'),
-      $end_date->format('Y-m-d'),
-    ], 'BETWEEN');
-    $memberQuery->innerJoin('users_field_data', 'u', 'u.uid = pmjd.entity_id');
-    $memberQuery->fields('u', ['uid']);
+    $startTimestamp = $start_date->setTime(0, 0, 0)->getTimestamp();
+    $endTimestamp = $end_date->setTime(23, 59, 59)->getTimestamp();
+
+    $memberQuery = $this->database->select('profile', 'p');
+    $memberQuery->fields('p', ['profile_id', 'uid', 'created']);
+    $memberQuery->condition('p.type', 'main');
+    $memberQuery->condition('p.status', 1);
+    $memberQuery->condition('p.is_default', 1);
+    $memberQuery->condition('p.created', [$startTimestamp, $endTimestamp], 'BETWEEN');
+    $memberQuery->innerJoin('profile__field_member_join_date', 'pmjd', 'pmjd.entity_id = p.profile_id AND pmjd.deleted = 0');
+    $memberQuery->addField('pmjd', 'field_member_join_date_value', 'join_value');
+    $memberQuery->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $memberQuery->addField('u', 'uid', 'user_id');
     $memberQuery->leftJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = u.uid');
     $memberQuery->addField('ufm', 'contact_id');
     $memberQuery->leftJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
@@ -768,12 +1109,15 @@ class EventsMembershipDataService {
     $members = [];
     $contactMap = [];
     foreach ($memberQuery->execute() as $record) {
-      $joinTimestamp = $this->buildJoinTimestamp($record->field_member_join_date_value);
+      $joinTimestamp = $this->buildJoinTimestamp($record->join_value);
+      if ($joinTimestamp === NULL && !empty($record->created)) {
+        $joinTimestamp = ((int) $record->created) > 0 ? ((int) $record->created) + 86399 : NULL;
+      }
       if ($joinTimestamp === NULL) {
         continue;
       }
       $contactId = $record->contact_id ? (int) $record->contact_id : NULL;
-      $key = $contactId ? 'c:' . $contactId : 'u:' . (int) $record->entity_id;
+      $key = $contactId ? 'c:' . $contactId : 'u:' . (int) $record->user_id;
       if (isset($members[$key])) {
         continue;
       }
@@ -784,6 +1128,8 @@ class EventsMembershipDataService {
         'type_counts' => [],
         'gender_id' => $record->gender_id !== NULL ? (int) $record->gender_id : NULL,
         'ethnicity_raw' => $record->ethnicity_46 ?? '',
+        'profile_created' => (int) $record->created,
+        'had_tour' => FALSE,
       ];
       if ($contactId) {
         $contactMap[$contactId] = $key;
@@ -820,6 +1166,9 @@ class EventsMembershipDataService {
         $member['total_events']++;
         $typeLabel = $this->resolveEventTypeLabel((int) $row->event_type_id, $eventTypeLabels);
         $member['type_counts'][$typeLabel] = ($member['type_counts'][$typeLabel] ?? 0) + 1;
+        if ($this->isTourEventLabel($typeLabel)) {
+          $member['had_tour'] = TRUE;
+        }
       }
     }
 
@@ -828,9 +1177,22 @@ class EventsMembershipDataService {
       return (int) ($member['total_events'] ?? 0);
     }, $members));
 
+    $tourSummary = ['with_tour' => 0, 'without_tour' => 0];
+    foreach ($members as $member) {
+      if (!empty($member['had_tour'])) {
+        $tourSummary['with_tour']++;
+      }
+      else {
+        $tourSummary['without_tour']++;
+      }
+    }
+
     $typeTotals = [];
     foreach ($members as $member) {
       foreach ($member['type_counts'] as $label => $count) {
+        if ($this->isTourEventLabel($label)) {
+          continue;
+        }
         $typeTotals[$label] = ($typeTotals[$label] ?? 0) + (int) $count;
       }
     }
@@ -862,12 +1224,12 @@ class EventsMembershipDataService {
       $otherLookup = array_flip($otherTypeLabels);
       foreach ($members as $member) {
         $count = 0;
-        foreach ($member['type_counts'] as $label => $value) {
-          if (isset($otherLookup[$label])) {
-            $count += (int) $value;
-          }
+      foreach ($member['type_counts'] as $label => $value) {
+        if (isset($otherLookup[$label])) {
+          $count += (int) $value;
         }
-        $values[] = $count;
+      }
+      $values[] = $count;
       }
       if (array_sum($values) > 0) {
         $eventTypeSeries[] = [
@@ -901,6 +1263,7 @@ class EventsMembershipDataService {
       'bucket_keys' => self::PRE_JOIN_BUCKET_KEYS,
       'member_total' => $memberCount,
       'event_types' => $eventTypeSeries,
+      'tour_summary' => $tourSummary,
       'demographics' => [
         'gender' => array_map(function (array $row): array {
           $row['dimension'] = 'gender';
@@ -987,6 +1350,13 @@ class EventsMembershipDataService {
       $buckets[$index]++;
     }
     return $buckets;
+  }
+
+  /**
+   * Detects whether an event type label represents a tour.
+   */
+  protected function isTourEventLabel(string $label): bool {
+    return stripos($label, 'tour') !== FALSE;
   }
 
   /**
@@ -1274,6 +1644,99 @@ class EventsMembershipDataService {
       return [$value];
     }
     return array_map('trim', $parts);
+  }
+
+  /**
+   * Returns codes ignored when reporting ethnicity.
+   */
+  protected function getIgnoredEthnicityValues(): array {
+    return [
+      '',
+      'decline',
+      'prefer_not_to_say',
+      'prefer_not_to_disclose',
+      'not_specified',
+    ];
+  }
+
+  /**
+   * Determines the ethnicity field metadata for CiviCRM contacts.
+   */
+  protected function getEthnicityFieldMetadata(): array {
+    if ($this->ethnicityFieldMetadata !== NULL) {
+      return $this->ethnicityFieldMetadata;
+    }
+    $schema = $this->database->schema();
+    $metadata = [];
+    if ($schema->tableExists('civicrm_value_demographics_15')) {
+      foreach (['custom_46', 'ethnicity_46'] as $candidate) {
+        if ($schema->fieldExists('civicrm_value_demographics_15', $candidate)) {
+          $metadata = [
+            'table' => 'civicrm_value_demographics_15',
+            'column' => $candidate,
+          ];
+          break;
+        }
+      }
+    }
+    $this->ethnicityFieldMetadata = $metadata;
+    return $this->ethnicityFieldMetadata;
+  }
+
+  /**
+   * Resolves the gender option group ID.
+   */
+  protected function getGenderOptionGroupId(): ?int {
+    if ($this->genderOptionGroupId !== NULL) {
+      return $this->genderOptionGroupId;
+    }
+    $query = $this->database->select('civicrm_option_group', 'og');
+    $query->addField('og', 'id');
+    $query->condition('og.name', 'gender');
+    $value = $query->execute()->fetchField();
+    $this->genderOptionGroupId = $value ? (int) $value : NULL;
+    return $this->genderOptionGroupId;
+  }
+
+  /**
+   * Converts raw custom field values into normalized ethnicity labels.
+   */
+  protected function normalizeEthnicityValues(?string $rawValue, array $ignoredValues = []): array {
+    $entries = $this->explodeMultiValue($rawValue);
+    $values = [];
+    foreach ($entries as $entry) {
+      $normalized = strtolower(trim($entry));
+      if ($normalized === '' || in_array($normalized, $ignoredValues, TRUE)) {
+        continue;
+      }
+      $values[] = $this->mapEthnicityCodeToLabel($normalized);
+    }
+    return $values;
+  }
+
+  /**
+   * Maps stored ethnicity codes to readable labels.
+   */
+  protected function mapEthnicityCodeToLabel(string $code): string {
+    $map = [
+      'asian' => 'Asian',
+      'black' => 'Black / African American',
+      'middleeast' => 'Middle Eastern / North African',
+      'mena' => 'Middle Eastern / North African',
+      'hispanic' => 'Hispanic / Latino',
+      'native' => 'American Indian / Alaska Native',
+      'aian' => 'American Indian / Alaska Native',
+      'islander' => 'Native Hawaiian / Pacific Islander',
+      'nhpi' => 'Native Hawaiian / Pacific Islander',
+      'white' => 'White',
+      'multi' => 'Multiracial',
+      'other' => 'Other',
+      'prefer_not_to_say' => 'Prefer not to say',
+      'prefer_not_to_disclose' => 'Prefer not to disclose',
+      'decline' => 'Prefer not to say',
+      'not_specified' => 'Unspecified',
+    ];
+    return $map[$code] ?? ucwords(str_replace('_', ' ', $code));
   }
 
   /**

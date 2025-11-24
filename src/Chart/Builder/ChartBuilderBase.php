@@ -27,6 +27,11 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
   protected const TIER_DEFAULT = 'key';
 
   /**
+   * Default chart tier for the builder.
+   */
+  protected const TIER = self::TIER_DEFAULT;
+
+  /**
    * Default weight ordering per chart, overridable per builder.
    */
   protected const WEIGHT = 0;
@@ -64,7 +69,8 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
   /**
    * Helper to instantiate a definition with shared defaults.
    */
-  protected function newDefinition(string $title, string $description, array $visualization, array $notes = [], ?array $range = NULL, ?int $weight = NULL, array $cache = [], string $tier = self::TIER_DEFAULT): ChartDefinition {
+  protected function newDefinition(string $title, string $description, array $visualization, array $notes = [], ?array $range = NULL, ?int $weight = NULL, array $cache = [], ?string $tier = NULL): ChartDefinition {
+    $tier = $tier ?? static::TIER;
     return new ChartDefinition(
       $this->getSectionId(),
       $this->getChartId(),

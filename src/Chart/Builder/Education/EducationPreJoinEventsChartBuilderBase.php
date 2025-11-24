@@ -52,6 +52,7 @@ abstract class EducationPreJoinEventsChartBuilderBase extends EducationEventsCha
         'label' => $label,
         'data' => [],
         'makerspaceCounts' => [],
+        'makerspaceMembers' => [],
         'backgroundColor' => $palette[$index % count($palette)],
         'stack' => $stackId,
       ];
@@ -60,11 +61,13 @@ abstract class EducationPreJoinEventsChartBuilderBase extends EducationEventsCha
     foreach ($series as $row) {
       $counts = isset($row['counts']) && is_array($row['counts']) ? $row['counts'] : [];
       $total = array_sum($counts);
+      $members = (int) ($row['members'] ?? $total);
       foreach ($datasetTemplates as $index => &$dataset) {
         $count = (int) ($counts[$index] ?? 0);
         $value = $total > 0 ? round(($count / $total) * 100, 1) : 0;
         $dataset['data'][] = $value;
         $dataset['makerspaceCounts'][] = $count;
+        $dataset['makerspaceMembers'][] = $members;
       }
       unset($dataset);
     }

@@ -11,6 +11,7 @@ class EducationEventSkillLevelsChartBuilder extends EducationEventsChartBuilderB
 
   protected const CHART_ID = 'skill_levels';
   protected const WEIGHT = 60;
+  protected const TIER = 'supplemental';
   protected const RANGE_DEFAULT = '1y';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y'];
 

@@ -12,6 +12,7 @@ class EducationPreJoinEventsByTypeChartBuilder extends EducationPreJoinEventsCha
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'prejoin_events_type';
   protected const WEIGHT = 70;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}
@@ -39,14 +40,17 @@ class EducationPreJoinEventsByTypeChartBuilder extends EducationPreJoinEventsCha
     }
 
     $labels = $this->formatSeriesLabels($series);
-    $windowNote = $this->t('Joining between @start and @end', [
+    $memberTotal = (int) ($data['member_total'] ?? 0);
+    $windowNote = $this->t('Profiles created between @start and @end', [
       '@start' => $window['start']->format('M Y'),
       '@end' => $window['end']->format('M Y'),
     ]);
     $notes = [
       (string) $windowNote,
+      (string) $this->t('Total members included: @count', ['@count' => number_format($memberTotal)]),
       (string) $this->t('Each bar represents all new members in the window and shows how many events of that type they attended before their join date.'),
       (string) $this->t('Zero events means the member joined without experiencing that event type.'),
+      (string) $this->t('Facility tours are tracked separately in the “Tours Completed Before Joining” chart.'),
     ];
     if (($selection['months'] ?? 0) !== ($selection['selected_months'] ?? 0)) {
       $notes[] = (string) $this->t('Expanded to a @months-month window due to limited data in the selected range.', [
@@ -102,6 +106,7 @@ class EducationPreJoinEventsByTypeChartBuilder extends EducationPreJoinEventsCha
                 'decimals' => 1,
               ]),
               'afterLabel' => $this->chartCallback('dataset_members_count', []),
+              'afterBody' => $this->chartCallback('dataset_total_members', []),
             ],
           ],
         ],
@@ -110,7 +115,7 @@ class EducationPreJoinEventsByTypeChartBuilder extends EducationPreJoinEventsCha
 
     return $this->newDefinition(
       (string) $this->t('Events Attended Before Joining (by Event Type)'),
-      (string) $this->t('Shows how many events new members attended before joining, segmented by event type.'),
+      (string) $this->t('Shows how many events new members attended before joining (excluding tours), segmented by event type.'),
       $visualization,
       $notes,
       $selection['range_metadata'],

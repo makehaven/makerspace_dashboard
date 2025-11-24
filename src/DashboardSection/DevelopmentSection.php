@@ -38,8 +38,11 @@ class DevelopmentSection extends DashboardSectionBase {
     $build['annual_summary'] = $this->buildAnnualSummaryTable($annualData);
     $build['annual_summary']['#weight'] = $weight++;
 
-    $rangeData = $this->developmentDataService->getGiftRangeBreakdown();
-    $build['range_distribution'] = $this->buildGiftRangeTable($rangeData);
+    $currentRange = $this->developmentDataService->getGiftRangeBreakdown();
+    $currentYear = (int) ($currentRange['year'] ?? date('Y'));
+    $currentMonth = $currentRange['month'] ?? NULL;
+    $previousRange = $this->developmentDataService->getGiftRangeBreakdown($currentYear - 1, $currentMonth);
+    $build['range_distribution'] = $this->buildGiftRangeComparison($currentRange, $previousRange);
     $build['range_distribution']['#weight'] = $weight++;
 
     $ytdData = $this->developmentDataService->getYearToDateComparison(2);
@@ -103,7 +106,31 @@ class DevelopmentSection extends DashboardSectionBase {
     ];
   }
 
-  protected function buildGiftRangeTable(array $data): array {
+  protected function buildGiftRangeComparison(array $current, array $previous): array {
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['development-range-distribution']],
+      'heading' => [
+        '#markup' => '<h2>' . $this->t('Gift range distribution') . '</h2>',
+      ],
+      'tables' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['gift-range-table-group']],
+        'current' => $this->buildSingleGiftRangeTable(
+          $current,
+          $this->t('Current year-to-date'),
+          $this->formatRangeSummary($current)
+        ),
+        'previous' => $this->buildSingleGiftRangeTable(
+          $previous,
+          $this->t('Previous year-to-date'),
+          $this->formatRangeSummary($previous, TRUE)
+        ),
+      ],
+    ];
+  }
+
+  protected function buildSingleGiftRangeTable(array $data, string $title, string $summaryText): array {
     $rows = [];
     $hasData = FALSE;
     foreach ($data['ranges'] as $range) {
@@ -120,16 +147,11 @@ class DevelopmentSection extends DashboardSectionBase {
       }
     }
 
-    $monthLabel = $this->formatMonthLabel($data['month'] ?? NULL);
-    $summaryText = $monthLabel
-      ? $this->t('Year-to-date giving as of @month @year', ['@month' => $monthLabel, '@year' => $data['year'] ?? ''])
-      : $this->t('Year-to-date giving distribution');
-
     $container = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['development-range-distribution']],
+      '#attributes' => ['class' => ['gift-range-table']],
       'heading' => [
-        '#markup' => '<h2>' . $this->t('Gift range distribution') . '</h2><p>' . $summaryText . '</p>',
+        '#markup' => '<h3>' . $title . '</h3><p>' . $summaryText . '</p>',
       ],
       'table' => [
         '#type' => 'table',
@@ -150,6 +172,20 @@ class DevelopmentSection extends DashboardSectionBase {
       ];
     }
     return $container;
+  }
+
+  protected function formatRangeSummary(array $data, bool $isPrevious = FALSE): string {
+    $monthLabel = $this->formatMonthLabel($data['month'] ?? NULL);
+    $year = $data['year'] ?? NULL;
+    if ($monthLabel && $year) {
+      if ($isPrevious) {
+        return $this->t('As of @month @year', ['@month' => $monthLabel, '@year' => $year]);
+      }
+      return $this->t('As of @month @year', ['@month' => $monthLabel, '@year' => $year]);
+    }
+    return $isPrevious
+      ? (string) $this->t('Previous year-to-date distribution unavailable.')
+      : (string) $this->t('Year-to-date giving distribution');
   }
 
   protected function buildYtdComparisonTable(array $data): array {

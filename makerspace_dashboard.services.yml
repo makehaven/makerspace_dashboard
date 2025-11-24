@@ -159,6 +159,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.education_active_instructors:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationActiveInstructorDemographicsChartBuilder
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.education_skill_levels:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationEventSkillLevelsChartBuilder
     arguments:
@@ -201,6 +209,14 @@ services:
 
   makerspace_dashboard.chart_builder.outreach_prejoin_events_type:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationPreJoinEventsByTypeChartBuilder
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_prejoin_tours:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationPreJoinToursChartBuilder
     arguments:
       - '@makerspace_dashboard.events_membership_data'
       - '@string_translation'
@@ -397,6 +413,22 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.dei_workshop_utilization:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Dei\DeiWorkshopUtilizationChartBuilder
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.dei_town_ethnicity:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Dei\DeiTownEthnicityChartBuilder
+    arguments:
+      - '@makerspace_dashboard.demographics_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.outreach_regional_saturation:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachRegionalSaturationChartBuilder
     arguments:
@@ -417,6 +449,30 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachContactGrowthChartBuilder
     arguments:
       - '@makerspace_dashboard.contact_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_lead_funnel:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachLeadFunnelChartBuilder
+    arguments:
+      - '@makerspace_dashboard.funnel_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_tour_conversion_funnel:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachTourConversionFunnelChartBuilder
+    arguments:
+      - '@makerspace_dashboard.funnel_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_visit_conversion_funnel:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachVisitConversionFunnelChartBuilder
+    arguments:
+      - '@makerspace_dashboard.funnel_data'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
@@ -458,6 +514,33 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureVisitFrequencyChartBuilder
     arguments:
       - '@makerspace_dashboard.utilization_window'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.infrastructure_visit_recency:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureVisitRecencyChartBuilder
+    arguments:
+      - '@makerspace_dashboard.utilization_window'
+      - '@makerspace_dashboard.utilization_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.infrastructure_cancellation_inactivity:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureCancellationInactivityChartBuilder
+    arguments:
+      - '@makerspace_dashboard.utilization_window'
+      - '@makerspace_dashboard.utilization_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.infrastructure_inactive_tenure:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureInactiveTenureChartBuilder
+    arguments:
+      - '@makerspace_dashboard.utilization_window'
+      - '@makerspace_dashboard.utilization_data'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
@@ -583,6 +666,54 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.retention_cohort_retention_ethnicity:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionAnnualRetentionByEthnicityChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_cohort_retention_gender:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionAnnualRetentionByGenderChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_cohort_retention_membership_type:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionAnnualRetentionByMembershipTypeChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_badge_tenure_correlation:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionBadgeTenureCorrelationChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_badge_count_distribution:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionBadgeCountDistributionChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_membership_type_tenure:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionMembershipTypeTenureChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.google_sheet_client:
     class: Drupal\makerspace_dashboard\Service\GoogleSheetClientService
     arguments:
@@ -610,6 +741,7 @@ services:
     arguments:
       - '@database'
       - '@cache.default'
+      - '@config.factory'
 
   makerspace_dashboard.entrepreneurship_data:
     class: Drupal\makerspace_dashboard\Service\EntrepreneurshipDataService
@@ -677,6 +809,14 @@ services:
       - '@database'
       - '@cache.default'
 
+  makerspace_dashboard.funnel_data:
+    class: Drupal\makerspace_dashboard\Service\FunnelDataService
+    arguments:
+      - '@makerspace_dashboard.contact_data'
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+
   makerspace_dashboard.financial_data:
     class: Drupal\makerspace_dashboard\Service\FinancialDataService
     arguments:
@@ -703,6 +843,7 @@ services:
     arguments:
       - '@cache.default'
       - '@http_client'
+      - '@logger.factory'
 
   makerspace_dashboard.membership_location_data:
     class: Drupal\makerspace_dashboard\Service\MembershipLocationDataService

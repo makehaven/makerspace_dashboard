@@ -3,6 +3,9 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Logger\LoggerChannelFactoryInterface;
+use Drupal\Core\Logger\LoggerChannelInterface;
+use Drupal\Core\Utility\Error;
 use GuzzleHttp\ClientInterface;
 use GuzzleHttp\Exception\RequestException;
 
@@ -16,14 +19,21 @@ class GeocodingService {
    *
    * @var \Drupal\Core\Cache\CacheBackendInterface
    */
-  protected $cache;
+  protected CacheBackendInterface $cache;
 
   /**
    * The HTTP client.
    *
    * @var \GuzzleHttp\ClientInterface
    */
-  protected $httpClient;
+  protected ClientInterface $httpClient;
+
+  /**
+   * Logger channel.
+   *
+   * @var \Drupal\Core\Logger\LoggerChannelInterface
+   */
+  protected LoggerChannelInterface $logger;
 
   /**
    * Constructs a new GeocodingService object.
@@ -32,10 +42,13 @@ class GeocodingService {
    *   The cache backend.
    * @param \GuzzleHttp\ClientInterface $http_client
    *   The HTTP client.
+   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
+   *   Logger factory service.
    */
-  public function __construct(CacheBackendInterface $cache, ClientInterface $http_client) {
+  public function __construct(CacheBackendInterface $cache, ClientInterface $http_client, LoggerChannelFactoryInterface $logger_factory) {
     $this->cache = $cache;
     $this->httpClient = $http_client;
+    $this->logger = $logger_factory->get('makerspace_dashboard');
   }
 
   /**
@@ -77,9 +90,10 @@ class GeocodingService {
       }
     }
     catch (RequestException $e) {
-      // Log the error.
-      // In a real application, you would inject the logger service.
-      watchdog_exception('makerspace_dashboard', $e);
+      // Log without emitting deprecated warnings.
+      Error::logException($this->logger, $e, 'Geocoding lookup failed for @location', [
+        '@location' => $location,
+      ]);
     }
 
     return NULL;

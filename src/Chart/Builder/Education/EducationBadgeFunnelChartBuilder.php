@@ -11,6 +11,7 @@ class EducationBadgeFunnelChartBuilder extends EducationEngagementChartBuilderBa
 
   protected const CHART_ID = 'badge_funnel';
   protected const WEIGHT = 110;
+  protected const TIER = 'key';
 
   /**
    * {@inheritdoc}

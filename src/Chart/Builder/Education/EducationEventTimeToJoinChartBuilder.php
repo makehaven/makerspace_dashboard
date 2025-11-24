@@ -11,6 +11,7 @@ class EducationEventTimeToJoinChartBuilder extends EducationEventsChartBuilderBa
 
   protected const CHART_ID = 'time_to_join';
   protected const WEIGHT = 20;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

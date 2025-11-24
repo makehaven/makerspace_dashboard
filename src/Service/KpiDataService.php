@@ -90,6 +90,13 @@ class KpiDataService {
   protected ?array $sheetAnnualTargets = NULL;
 
   /**
+   * Cached Income-Statement sheet data.
+   *
+   * @var array|null
+   */
+  protected ?array $incomeStatementTable = NULL;
+
+  /**
    * Constructs a new KpiDataService object.
    *
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
@@ -343,33 +350,66 @@ class KpiDataService {
     }
 
     $series = $this->snapshotDataService->getMembershipCountSeries('month');
-    if (empty($series)) {
+    if (!empty($series)) {
+      $values = [];
+      $lastSnapshotDate = NULL;
+      $current = NULL;
+      foreach ($series as $row) {
+        $snapshotDate = NULL;
+        if (!empty($row['snapshot_date']) && $row['snapshot_date'] instanceof \DateTimeImmutable) {
+          $snapshotDate = $row['snapshot_date'];
+        }
+        elseif (!empty($row['period_date']) && $row['period_date'] instanceof \DateTimeImmutable) {
+          $snapshotDate = $row['period_date'];
+        }
+        if (!$snapshotDate) {
+          continue;
+        }
+        $year = $snapshotDate->format('Y');
+        $membersActive = is_numeric($row['members_active']) ? (float) $row['members_active'] : NULL;
+        if ($membersActive === NULL) {
+          continue;
+        }
+        $values[] = $membersActive;
+        $lastSnapshotDate = $snapshotDate;
+        $current = $membersActive;
+      }
+
+      if ($values) {
+        $trend = array_slice($values, -12);
+        $ttm12 = $this->calculateTrailingAverage($values, 12);
+        $ttm3 = $this->calculateTrailingAverage($values, 3);
+        $lastUpdated = $lastSnapshotDate ? $lastSnapshotDate->format('Y-m-d') : NULL;
+
+        return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_active_members');
+      }
+    }
+
+    $membershipSeries = $this->membershipMetricsService->getMonthlyActiveMemberCounts(36);
+    if (empty($membershipSeries)) {
       return $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'total_active_members');
     }
 
     $values = [];
-    $lastSnapshot = NULL;
+    $lastUpdated = NULL;
     $current = NULL;
-    foreach ($series as $row) {
-      if (empty($row['snapshot_date']) || !$row['snapshot_date'] instanceof \DateTimeImmutable) {
+    foreach ($membershipSeries as $record) {
+      $count = isset($record['count']) ? (float) $record['count'] : NULL;
+      if ($count === NULL) {
         continue;
       }
-      $year = $row['snapshot_date']->format('Y');
-      $membersActive = is_numeric($row['members_active']) ? (float) $row['members_active'] : NULL;
-      if ($membersActive === NULL) {
-        continue;
-      }
-      $values[] = $membersActive;
-      $lastSnapshot = $row;
-      $current = $membersActive;
+      $values[] = $count;
+      $current = $count;
+      $lastUpdated = $record['date'] ?? ($record['period'] ?? NULL);
+    }
+
+    if (!$values) {
+      return $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'total_active_members');
     }
 
     $trend = array_slice($values, -12);
     $ttm12 = $this->calculateTrailingAverage($values, 12);
     $ttm3 = $this->calculateTrailingAverage($values, 3);
-    $lastUpdated = $lastSnapshot && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable
-      ? $lastSnapshot['snapshot_date']->format('Y-m-d')
-      : NULL;
 
     return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_active_members');
   }
@@ -476,6 +516,202 @@ class KpiDataService {
   }
 
   /**
+   * Gets the data for the "Total # First Time Workshop Participants" KPI.
+   */
+  private function getTotalFirstTimeWorkshopParticipantsData(array $kpi_info): array {
+    $annualOverrides = [];
+    $trend = [];
+    $ttm12 = NULL;
+    $ttm3 = NULL;
+    $current = NULL;
+    $lastUpdated = NULL;
+
+    $now = new \DateTimeImmutable('first day of this month');
+    $start = $now->modify('-35 months');
+    $monthlySeries = $this->eventsMembershipDataService->getMonthlyFirstTimeWorkshopParticipantsSeries($start, $now);
+    $monthlyItems = $monthlySeries['items'] ?? [];
+
+    if (!empty($monthlyItems)) {
+      $monthlyCounts = array_map(static function (array $item): float {
+        return isset($item['count']) ? (float) $item['count'] : 0.0;
+      }, $monthlyItems);
+
+      $trend = array_slice($monthlyCounts, -12);
+      $ttm12 = $this->calculateTrailingAverage($monthlyCounts, 12);
+      $ttm3 = $this->calculateTrailingAverage($monthlyCounts, 3);
+      $currentSum = $this->calculateTrailingSum($monthlyCounts, 12);
+      if ($currentSum !== NULL) {
+        $current = (int) round($currentSum);
+      }
+
+      $lastItem = $monthlyItems[count($monthlyItems) - 1];
+      if (!empty($lastItem['date']) && $lastItem['date'] instanceof \DateTimeImmutable) {
+        $lastUpdated = $lastItem['date']->format('Y-m-d');
+      }
+    }
+
+    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('total_first_time_workshop_participants');
+    if (!empty($snapshotSeries)) {
+      $snapshotValues = [];
+      $lastSnapshot = NULL;
+      foreach ($snapshotSeries as $record) {
+        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
+        if ($value === NULL) {
+          continue;
+        }
+        $snapshotValues[] = $value;
+        $lastSnapshot = $record;
+
+        if ($this->isAnnualSnapshotRecord($record)) {
+          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+            $year = $record['snapshot_date']->format('Y');
+          }
+          elseif (!empty($record['period_year'])) {
+            $year = (string) $record['period_year'];
+          }
+          else {
+            $year = NULL;
+          }
+          if ($year !== NULL) {
+            $annualOverrides[$year] = $value;
+          }
+        }
+      }
+
+      if (empty($monthlyItems) && $snapshotValues) {
+        $trend = array_slice($snapshotValues, -12);
+        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
+        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
+        $currentSum = $this->calculateTrailingSum($snapshotValues, 12);
+        if ($currentSum !== NULL) {
+          $current = (int) round($currentSum);
+        }
+      }
+
+      if ($lastUpdated === NULL && $lastSnapshot) {
+        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
+          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
+        }
+        elseif (!empty($lastSnapshot['period_year'])) {
+          $month = (int) ($lastSnapshot['period_month'] ?? 1);
+          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
+        }
+      }
+    }
+
+    if ($annualOverrides) {
+      foreach ($annualOverrides as $year => $value) {
+        $annualOverrides[$year] = is_numeric($value) ? (float) $value : $value;
+      }
+      ksort($annualOverrides, SORT_STRING);
+    }
+
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_first_time_workshop_participants');
+  }
+
+  /**
+   * Gets the data for the "First Year Member Retention %" KPI.
+   */
+  private function getFirstYearMemberRetentionData(array $kpi_info): array {
+    $annualOverrides = [];
+    $trend = [];
+    $ttm12 = NULL;
+    $ttm3 = NULL;
+    $current = NULL;
+    $lastUpdated = NULL;
+
+    $retentionSeries = $this->membershipMetricsService->getMonthlyFirstYearRetentionSeries(36);
+    if (!empty($retentionSeries)) {
+      $values = [];
+      foreach ($retentionSeries as $entry) {
+        $value = isset($entry['retention_percent']) ? (float) $entry['retention_percent'] : NULL;
+        if ($value === NULL) {
+          continue;
+        }
+        $values[] = $value;
+      }
+
+      if ($values) {
+        $trend = array_slice($values, -12);
+        $ttm12 = $this->calculateTrailingAverage($values, 12);
+        $ttm3 = $this->calculateTrailingAverage($values, 3);
+        $current = $values[count($values) - 1];
+      }
+
+      $lastEntry = end($retentionSeries);
+      if ($lastEntry) {
+        $lastUpdated = $lastEntry['evaluation_date'] ?? $lastEntry['period'] ?? NULL;
+      }
+      reset($retentionSeries);
+    }
+
+    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('first_year_member_retention');
+    if (!empty($snapshotSeries)) {
+      $snapshotValues = [];
+      $lastSnapshot = NULL;
+      foreach ($snapshotSeries as $record) {
+        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
+        if ($value === NULL) {
+          continue;
+        }
+        $snapshotValues[] = $value;
+        $lastSnapshot = $record;
+
+        if ($this->isAnnualSnapshotRecord($record)) {
+          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+            $year = $record['snapshot_date']->format('Y');
+          }
+          elseif (!empty($record['period_year'])) {
+            $year = (string) $record['period_year'];
+          }
+          else {
+            $year = NULL;
+          }
+          if ($year !== NULL) {
+            $annualOverrides[$year] = $value;
+          }
+        }
+      }
+
+      if (empty($retentionSeries) && $snapshotValues) {
+        $trend = array_slice($snapshotValues, -12);
+        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
+        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
+        $current = (float) end($snapshotValues);
+      }
+
+      if ($lastUpdated === NULL && $lastSnapshot) {
+        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
+          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
+        }
+        elseif (!empty($lastSnapshot['period_year'])) {
+          $month = (int) ($lastSnapshot['period_month'] ?? 1);
+          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
+        }
+      }
+    }
+
+    if ($annualOverrides) {
+      foreach ($annualOverrides as $year => $value) {
+        $annualOverrides[$year] = is_numeric($value) ? (float) $value : $value;
+      }
+      ksort($annualOverrides, SORT_STRING);
+    }
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      $trend,
+      $ttm12,
+      $ttm3,
+      $lastUpdated,
+      $current,
+      'first_year_member_retention',
+      'percent'
+    );
+  }
+
+  /**
    * Gets the data for the "Reserve Funds (as Months of Operating Expense)" KPI.
    *
    * @param array $kpi_info
@@ -499,6 +735,161 @@ class KpiDataService {
       $series['last_updated'] ?? NULL,
       $series['current'] ?? NULL,
       'reserve_funds_months'
+    );
+  }
+
+  /**
+   * Gets the data for the "Earned Income Sustaining Core %" KPI.
+   */
+  private function getEarnedIncomeSustainingCoreData(array $kpi_info): array {
+    $buildEmpty = fn() => $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      NULL,
+      NULL,
+      'earned_income_sustaining_core',
+      'percent'
+    );
+
+    if (!$this->getIncomeStatementTable()) {
+      return $buildEmpty();
+    }
+
+    $headers = $this->getIncomeStatementHeaders();
+    $totalExpenseRow = $this->getIncomeStatementRowValues('Total Expense', ['Total Expenses', 'Total Expenses (All)']);
+    if ($totalExpenseRow === NULL) {
+      return $buildEmpty();
+    }
+
+    $latestExpense = $this->extractLatestSheetValue($totalExpenseRow, $headers);
+    if ($latestExpense === NULL) {
+      return $buildEmpty();
+    }
+
+    $columnIndex = $latestExpense['column_index'];
+    $lastUpdated = $latestExpense['column_label'] ?? NULL;
+    $totalExpense = abs($latestExpense['value']);
+    if ($totalExpense <= 0) {
+      return $buildEmpty();
+    }
+
+    $incomeSources = [
+      [
+        'label' => 'Interest, Investment and Reward Income',
+        'aliases' => ['Interest Income', 'Investment Income', 'Reward Income'],
+        'keywords' => ['interest', 'investment', 'income'],
+      ],
+      [
+        'label' => 'Store',
+        'aliases' => ['Store Income', 'Store Revenue', 'Retail Income', 'Retail'],
+        'keywords' => ['store'],
+      ],
+      [
+        'label' => 'OtherMembership',
+        'aliases' => ['Other Membership', 'Other Membership Income', 'Membership Other'],
+        'keywords' => ['other', 'membership'],
+      ],
+      [
+        'label' => 'Storage',
+        'aliases' => ['Storage Income', 'Storage Revenue', 'Storage Rentals'],
+        'keywords' => ['storage'],
+      ],
+      [
+        'label' => 'Education',
+        'aliases' => ['Education Income', 'Education Revenue'],
+        'keywords' => ['education'],
+      ],
+      [
+        'label' => 'Workspaces',
+        'aliases' => ['Workspace Income', 'Workspaces Income'],
+        'keywords' => ['workspace'],
+      ],
+      [
+        'label' => 'Media Income',
+        'aliases' => ['Media Revenue', 'Media'],
+        'keywords' => ['media'],
+      ],
+    ];
+
+    $earnedIncome = 0.0;
+    foreach ($incomeSources as $source) {
+      $row = $this->getIncomeStatementRowValues($source['label'], $source['aliases'] ?? []);
+      if (!$row && !empty($source['keywords'])) {
+        $row = $this->findIncomeStatementRowByKeywords($source['keywords'], ['expense']);
+      }
+      if (!$row) {
+        continue;
+      }
+      $value = $this->getSheetValueAtColumn($row, $columnIndex);
+      if ($value === NULL) {
+        continue;
+      }
+      $earnedIncome += abs($value);
+    }
+
+    if ($earnedIncome <= 0) {
+      return $buildEmpty();
+    }
+
+    $fundraisingRow = $this->getIncomeStatementRowValues('Fundraising', ['Fundraising Expense']);
+    $fundraisingExpense = 0.0;
+    if ($fundraisingRow) {
+      $fundraisingValue = $this->getSheetValueAtColumn($fundraisingRow, $columnIndex);
+      if ($fundraisingValue !== NULL) {
+        $fundraisingExpense = abs($fundraisingValue);
+      }
+    }
+
+    $adjustedExpenses = $totalExpense - $fundraisingExpense;
+    if ($adjustedExpenses <= 0) {
+      return $buildEmpty();
+    }
+
+    $current = $earnedIncome / $adjustedExpenses;
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'earned_income_sustaining_core',
+      'percent'
+    );
+  }
+
+  /**
+   * Gets the data for the "Member Revenue (Quarterly)" KPI.
+   *
+   * Calculates the current value by multiplying the active member count and the
+   * average `field_member_payment_monthly` value recorded on active profiles.
+   */
+  private function getMemberRevenueQuarterlyData(array $kpi_info): array {
+    $paymentStats = $this->financialDataService->getAverageMonthlyPaymentByType();
+    $activeMembers = isset($paymentStats['total_members']) ? (int) $paymentStats['total_members'] : 0;
+    $averagePayment = isset($paymentStats['overall_average']) ? (float) $paymentStats['overall_average'] : NULL;
+
+    if ($activeMembers <= 0 || $averagePayment === NULL) {
+      return $this->getPlaceholderData($kpi_info, 'member_revenue_quarterly');
+    }
+
+    $current = round($activeMembers * $averagePayment, 2);
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'member_revenue_quarterly'
     );
   }
 
@@ -674,21 +1065,13 @@ class KpiDataService {
    * Calculates the average monthly expense from the Income-Statement sheet.
    */
   private function calculateAverageMonthlyExpense(): ?float {
-    $sheetData = $this->googleSheetClientService->getSheetData('Income-Statement');
-    if (empty($sheetData) || count($sheetData) < 2) {
+    $table = $this->getIncomeStatementTable();
+    if (!$table) {
       return NULL;
     }
 
-    $headers = array_map('trim', array_shift($sheetData));
-    $targetRow = NULL;
-    foreach ($sheetData as $row) {
-      $label = isset($row[0]) ? trim((string) $row[0]) : '';
-      if ($label !== '' && strcasecmp($label, 'Total Expense') === 0) {
-        $targetRow = $row;
-        break;
-      }
-    }
-
+    $headers = $table['headers'] ?? [];
+    $targetRow = $this->getIncomeStatementRowValues('Total Expense');
     if ($targetRow === NULL) {
       return NULL;
     }
@@ -723,6 +1106,182 @@ class KpiDataService {
     }
 
     return $totalExpense / $months;
+  }
+
+  /**
+   * Loads and caches the Income-Statement tab.
+   */
+  private function getIncomeStatementTable(): array {
+    if ($this->incomeStatementTable !== NULL) {
+      return $this->incomeStatementTable;
+    }
+
+    $sheetData = $this->googleSheetClientService->getSheetData('Income-Statement');
+    if (empty($sheetData) || count($sheetData) < 2) {
+      $this->incomeStatementTable = [];
+      return $this->incomeStatementTable;
+    }
+
+    $headers = array_map('trim', array_shift($sheetData));
+    $rows = [];
+    foreach ($sheetData as $row) {
+      $label = isset($row[0]) ? trim((string) $row[0]) : '';
+      if ($label === '') {
+        continue;
+      }
+      $rows[$this->normalizeSheetLabel($label)] = $row;
+    }
+
+    $this->incomeStatementTable = [
+      'headers' => $headers,
+      'rows' => $rows,
+    ];
+    return $this->incomeStatementTable;
+  }
+
+  /**
+   * Returns the Income-Statement headers.
+   */
+  private function getIncomeStatementHeaders(): array {
+    $table = $this->getIncomeStatementTable();
+    return $table['headers'] ?? [];
+  }
+
+  /**
+   * Returns a row from the Income-Statement tab.
+   */
+  private function getIncomeStatementRowValues(string $label, array $aliases = []): ?array {
+    $table = $this->getIncomeStatementTable();
+    if (!$table || empty($table['rows'])) {
+      return NULL;
+    }
+
+    $candidates = array_merge([$label], $aliases);
+    foreach ($candidates as $candidate) {
+      $key = $this->normalizeSheetLabel($candidate);
+      if ($key === '') {
+        continue;
+      }
+      if (isset($table['rows'][$key])) {
+        return $table['rows'][$key];
+      }
+    }
+
+    foreach ($candidates as $candidate) {
+      $key = $this->normalizeSheetLabel($candidate);
+      if ($key === '') {
+        continue;
+      }
+      foreach ($table['rows'] as $rowKey => $row) {
+        if (str_contains($rowKey, $key)) {
+          return $row;
+        }
+      }
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Attempts to find an Income-Statement row by keyword fragments.
+   */
+  private function findIncomeStatementRowByKeywords(array $keywords, array $exclusions = []): ?array {
+    $table = $this->getIncomeStatementTable();
+    if (!$table || empty($table['rows'])) {
+      return NULL;
+    }
+
+    $normalizedKeywords = array_values(array_filter(array_map([$this, 'normalizeSheetLabel'], $keywords)));
+    if (!$normalizedKeywords) {
+      return NULL;
+    }
+    $normalizedExclusions = array_filter(array_map([$this, 'normalizeSheetLabel'], $exclusions));
+
+    foreach ($table['rows'] as $rowKey => $row) {
+      $match = TRUE;
+      foreach ($normalizedKeywords as $keyword) {
+        if (!str_contains($rowKey, $keyword)) {
+          $match = FALSE;
+          break;
+        }
+      }
+      if (!$match) {
+        continue;
+      }
+
+      $excluded = FALSE;
+      foreach ($normalizedExclusions as $exclusion) {
+        if ($exclusion !== '' && str_contains($rowKey, $exclusion)) {
+          $excluded = TRUE;
+          break;
+        }
+      }
+      if ($excluded) {
+        continue;
+      }
+
+      return $row;
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Normalizes Income-Statement row labels for lookup.
+   */
+  private function normalizeSheetLabel(string $label): string {
+    $trimmed = strtolower(trim($label));
+    if ($trimmed === '') {
+      return '';
+    }
+    return preg_replace('/[^a-z0-9]+/', '', $trimmed);
+  }
+
+  /**
+   * Extracts the latest numeric value from an Income-Statement row.
+   */
+  private function extractLatestSheetValue(array $row, array $headers): ?array {
+    $maxColumns = max(count($headers), count($row));
+    if ($maxColumns <= 2) {
+      return NULL;
+    }
+
+    for ($i = $maxColumns - 1; $i >= 2; $i--) {
+      $rawValue = $row[$i] ?? '';
+      $numericValue = $this->normalizeSheetNumber($rawValue);
+      if ($numericValue === NULL) {
+        continue;
+      }
+
+      $headerLabel = $headers[$i] ?? NULL;
+      $parsedDate = $this->parseSheetDate($headerLabel);
+      $columnLabel = NULL;
+      if ($parsedDate) {
+        $columnLabel = $parsedDate->format('Y-m-d');
+      }
+      elseif (is_string($headerLabel) && trim($headerLabel) !== '') {
+        $columnLabel = trim($headerLabel);
+      }
+
+      return [
+        'value' => (float) $numericValue,
+        'column_index' => $i,
+        'column_label' => $columnLabel,
+      ];
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Returns a numeric value from a specific Income-Statement column.
+   */
+  private function getSheetValueAtColumn(array $row, int $columnIndex): ?float {
+    if ($columnIndex < 0) {
+      return NULL;
+    }
+    $rawValue = $row[$columnIndex] ?? '';
+    return $this->normalizeSheetNumber($rawValue);
   }
 
   /**

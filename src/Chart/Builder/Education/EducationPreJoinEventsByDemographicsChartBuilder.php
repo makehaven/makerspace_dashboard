@@ -12,6 +12,7 @@ class EducationPreJoinEventsByDemographicsChartBuilder extends EducationPreJoinE
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'prejoin_events_demographics';
   protected const WEIGHT = 72;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}
@@ -52,12 +53,14 @@ class EducationPreJoinEventsByDemographicsChartBuilder extends EducationPreJoinE
     }
 
     $labels = $this->formatSeriesLabels($series);
-    $windowNote = $this->t('Joining between @start and @end', [
+    $memberTotal = (int) ($data['member_total'] ?? 0);
+    $windowNote = $this->t('Profiles created between @start and @end', [
       '@start' => $window['start']->format('M Y'),
       '@end' => $window['end']->format('M Y'),
     ]);
     $notes = [
       (string) $windowNote,
+      (string) $this->t('Total members included: @count', ['@count' => number_format($memberTotal)]),
       (string) $this->t('Gender values come from CiviCRM contact records while race groups collapse ethnicity selections into White, BIPOC/Multiracial, or Unspecified.'),
       (string) $this->t('Each bar shows how many total events a member attended before joining, broken out by demographic group.'),
     ];
@@ -115,6 +118,7 @@ class EducationPreJoinEventsByDemographicsChartBuilder extends EducationPreJoinE
                 'decimals' => 1,
               ]),
               'afterLabel' => $this->chartCallback('dataset_members_count', []),
+              'afterBody' => $this->chartCallback('dataset_total_members', []),
             ],
           ],
         ],

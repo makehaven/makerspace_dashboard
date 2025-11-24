@@ -11,6 +11,7 @@ class EducationEvaluationCompletionChartBuilder extends EducationEvaluationChart
 
   protected const CHART_ID = 'event_evaluation_completion';
   protected const WEIGHT = 27;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

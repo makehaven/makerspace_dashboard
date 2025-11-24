@@ -11,6 +11,7 @@ class EducationEventConversionChartBuilder extends EducationEventsChartBuilderBa
 
   protected const CHART_ID = 'conversion_funnel';
   protected const WEIGHT = 10;
+  protected const TIER = 'key';
 
   /**
    * {@inheritdoc}

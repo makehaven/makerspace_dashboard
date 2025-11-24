@@ -11,6 +11,7 @@ class EducationRegistrationsByTypeChartBuilder extends EducationEventsChartBuild
 
   protected const CHART_ID = 'registrations_by_type';
   protected const WEIGHT = 30;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

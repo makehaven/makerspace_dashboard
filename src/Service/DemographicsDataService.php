@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\Query\SelectInterface;
 
@@ -32,11 +33,29 @@ class DemographicsDataService {
   protected array $memberRoles;
 
   /**
+   * Config factory for resolving field metadata.
+   */
+  protected ConfigFactoryInterface $configFactory;
+
+  /**
+   * Cached allowed-value labels for discovery sources.
+   */
+  protected ?array $discoveryAllowedValueLabels = NULL;
+
+  /**
+   * Cached ethnicity field metadata for contacts.
+   *
+   * @var array|null
+   */
+  protected ?array $ethnicityFieldMetadata = NULL;
+
+  /**
    * Constructs the service.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, array $member_roles = NULL, int $ttl = 1800) {
+  public function __construct(Connection $database, CacheBackendInterface $cache, ConfigFactoryInterface $configFactory, ?array $member_roles = NULL, int $ttl = 1800) {
     $this->database = $database;
     $this->cache = $cache;
+    $this->configFactory = $configFactory;
     $this->ttl = $ttl;
     $this->memberRoles = $member_roles ?: ['current_member', 'member'];
   }
@@ -101,13 +120,19 @@ class DemographicsDataService {
     }
 
     $query = $this->buildLocalityQuery();
+    $query->addField('state', 'abbreviation', 'state_abbreviation');
+    $query->addField('state', 'name', 'state_name');
     $results = $query->execute();
 
     $aggregated = [];
     foreach ($results as $record) {
       $raw = trim((string) $record->locality_raw);
+      $state = trim((string) ($record->state_abbreviation ?? $record->state_name ?? ''));
       $key = $raw === '' ? '__unknown' : mb_strtolower($raw);
       $label = $raw === '' ? 'Unknown / not provided' : $this->formatLabel($raw, '');
+      if ($raw !== '' && $state !== '') {
+        $label = sprintf('%s, %s', $label, $state);
+      }
       if (!isset($aggregated[$key])) {
         $aggregated[$key] = [
           'label' => $label,
@@ -118,9 +143,116 @@ class DemographicsDataService {
     }
 
     $expire = time() + $this->ttl;
-    $this->cache->set($cid, $aggregated, $expire, ['profile_list', 'user_list']);
+    $this->cache->set($cid, $aggregated, $expire, [
+      'profile_list',
+      'user_list',
+      'civicrm_contact_list',
+      'civicrm_address_list',
+    ]);
 
     return $aggregated;
+  }
+
+  /**
+   * Builds the top towns with stacked ethnicity counts.
+   */
+  public function getTownEthnicityDistribution(int $limit = 8, int $minimum = 5): array {
+    $limit = max(1, $limit);
+    $minimum = max(1, $minimum);
+    $cid = sprintf('makerspace_dashboard:demographics:town_ethnicity:%d:%d', $limit, $minimum);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $metadata = $this->getEthnicityFieldMetadata();
+    $ethnicityTable = $metadata['table'] ?? NULL;
+    $ethnicityField = $metadata['column'] ?? NULL;
+
+    $query = $this->database->select('profile', 'p');
+    $query->addField('c', 'id', 'contact_id');
+    $query->addField('addr', 'city', 'city');
+    $query->addExpression('COALESCE(state.abbreviation, state.name, \'\')', 'state');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->condition('u.status', 1);
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('civicrm_uf_match', 'uf', 'uf.uf_id = p.uid');
+    $query->condition('uf.contact_id', 0, '>');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = uf.contact_id');
+    $query->condition('c.is_deleted', 0);
+    $query->leftJoin('civicrm_address', 'addr', 'addr.contact_id = c.id AND addr.is_primary = 1');
+    $query->leftJoin('civicrm_state_province', 'state', 'state.id = addr.state_province_id');
+    if ($ethnicityTable && $ethnicityField) {
+      $query->leftJoin($ethnicityTable, 'demo', 'demo.entity_id = c.id');
+      $query->addExpression("COALESCE(demo.$ethnicityField, '')", 'ethnicity');
+    }
+    else {
+      $query->addExpression("''", 'ethnicity');
+    }
+
+    $results = $query->execute();
+
+    $ignored = $this->getIgnoredEthnicityValues();
+    $towns = [];
+    $ethnicityTotals = [];
+
+    foreach ($results as $record) {
+      $label = $this->formatTownLabel((string) ($record->city ?? ''), (string) ($record->state ?? ''));
+      $key = mb_strtolower($label);
+
+      if (!isset($towns[$key])) {
+        $towns[$key] = [
+          'label' => $label,
+          'total' => 0,
+          'distribution' => [],
+        ];
+      }
+      $towns[$key]['total']++;
+
+      $values = $this->normalizeEthnicityValues($record->ethnicity ?? '', $ignored);
+      if (!$values) {
+        $values = ['Unspecified'];
+      }
+      foreach ($values as $entry) {
+        $towns[$key]['distribution'][$entry] = ($towns[$key]['distribution'][$entry] ?? 0) + 1;
+        $ethnicityTotals[$entry] = ($ethnicityTotals[$entry] ?? 0) + 1;
+      }
+    }
+
+    if (!$towns) {
+      return [];
+    }
+
+    $filtered = array_filter($towns, static function (array $town) use ($minimum): bool {
+      return ($town['total'] ?? 0) >= $minimum;
+    });
+    if (!$filtered) {
+      $filtered = $towns;
+    }
+
+    usort($filtered, static function (array $a, array $b): int {
+      return ($b['total'] ?? 0) <=> ($a['total'] ?? 0);
+    });
+    $top = array_slice($filtered, 0, $limit);
+
+    $orderedEthnicities = array_keys($ethnicityTotals);
+    usort($orderedEthnicities, static function ($a, $b) use ($ethnicityTotals) {
+      return ($ethnicityTotals[$b] ?? 0) <=> ($ethnicityTotals[$a] ?? 0);
+    });
+
+    $data = [
+      'towns' => array_values($top),
+      'ethnicity_labels' => $orderedEthnicities,
+    ];
+
+    $expire = time() + $this->ttl;
+    $this->cache->set($cid, $data, $expire, ['profile_list', 'user_list', 'civicrm_contact_list', 'civicrm_address_list']);
+
+    return $data;
   }
 
   /**
@@ -129,18 +261,25 @@ class DemographicsDataService {
   protected function buildLocalityQuery(): SelectInterface {
     $query = $this->database->select('profile', 'p');
     $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
-    $query->addField('addr', 'field_member_address_locality', 'locality_raw');
+    $query->addField('addr', 'city', 'locality_raw');
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
 
-    $query->leftJoin('profile__field_member_address', 'addr', 'addr.entity_id = p.profile_id AND addr.deleted = 0 AND addr.delta = 0');
     $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
     $query->condition('u.status', 1);
     $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('civicrm_uf_match', 'uf', 'uf.uf_id = p.uid');
+    $query->condition('uf.contact_id', 0, '>');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = uf.contact_id');
+    $query->condition('c.is_deleted', 0);
+    $query->leftJoin('civicrm_address', 'addr', 'addr.contact_id = c.id AND addr.is_primary = 1');
+    $query->leftJoin('civicrm_state_province', 'state', 'state.id = addr.state_province_id');
 
-    $query->groupBy('addr.field_member_address_locality');
+    $query->groupBy('addr.city');
+    $query->groupBy('state.abbreviation');
+    $query->groupBy('state.name');
     $query->orderBy('member_count', 'DESC');
 
     return $query;
@@ -424,14 +563,18 @@ class DemographicsDataService {
 
     $results = $query->execute();
 
+    $allowedLabels = $this->getDiscoveryAllowedValueLabels();
     $aggregated = [];
     foreach ($results as $record) {
       $raw = trim((string) $record->discovery_raw);
       $key = $raw === '' ? '__unknown' : mb_strtolower($raw);
-      $label = $raw === '' ? 'Not captured' : $this->formatLabel($raw, '');
+      $shortLabel = $raw === '' ? 'Not captured' : $this->formatLabel($raw, '');
+      $fullLabel = $raw === '' ? $shortLabel : ($allowedLabels[$raw] ?? $shortLabel);
       if (!isset($aggregated[$key])) {
         $aggregated[$key] = [
-          'label' => $label,
+          'label' => $shortLabel,
+          'full_label' => $fullLabel,
+          'value' => $raw === '' ? NULL : $raw,
           'count' => 0,
         ];
       }
@@ -456,6 +599,8 @@ class DemographicsDataService {
     if ($other > 0) {
       $output[] = [
         'label' => 'Other (< ' . $minimum . ')',
+        'full_label' => 'Other (< ' . $minimum . ')',
+        'value' => NULL,
         'count' => $other,
       ];
     }
@@ -464,6 +609,33 @@ class DemographicsDataService {
     $this->cache->set($cid, $output, $expire, ['profile_list', 'user_list']);
 
     return $output;
+  }
+
+  /**
+   * Returns allowed values/labels for the discovery field.
+   */
+  protected function getDiscoveryAllowedValueLabels(): array {
+    if ($this->discoveryAllowedValueLabels !== NULL) {
+      return $this->discoveryAllowedValueLabels;
+    }
+
+    $labels = [];
+    $config = $this->configFactory->get('field.storage.profile.field_member_discovery');
+    if ($config) {
+      $allowed = $config->get('settings.allowed_values') ?? [];
+      foreach ($allowed as $definition) {
+        if (!is_array($definition)) {
+          continue;
+        }
+        $value = $definition['value'] ?? NULL;
+        $label = $definition['label'] ?? NULL;
+        if ($value !== NULL && $label !== NULL) {
+          $labels[(string) $value] = (string) $label;
+        }
+      }
+    }
+
+    return $this->discoveryAllowedValueLabels = $labels;
   }
 
   /**
@@ -610,6 +782,15 @@ class DemographicsDataService {
     ];
 
     return $map[$prepared] ?? $prepared;
+  }
+
+  /**
+   * Formats a town label with optional state.
+   */
+  protected function formatTownLabel(string $city, string $state): string {
+    $cityLabel = $this->formatLabel($city, 'Unknown');
+    $stateLabel = strtoupper(trim($state));
+    return $stateLabel ? sprintf('%s, %s', $cityLabel, $stateLabel) : $cityLabel;
   }
 
   /**
@@ -832,6 +1013,70 @@ class DemographicsDataService {
       return [$value];
     }
     return $parts;
+  }
+
+  /**
+   * Determines the ethnicity custom field metadata and caches it.
+   */
+  protected function getEthnicityFieldMetadata(): array {
+    if ($this->ethnicityFieldMetadata !== NULL) {
+      return $this->ethnicityFieldMetadata;
+    }
+    $schema = $this->database->schema();
+    $metadata = [];
+    if ($schema->tableExists('civicrm_value_demographics_15')) {
+      foreach (['custom_46', 'ethnicity_46'] as $candidate) {
+        if ($schema->fieldExists('civicrm_value_demographics_15', $candidate)) {
+          $metadata = [
+            'table' => 'civicrm_value_demographics_15',
+            'column' => $candidate,
+          ];
+          break;
+        }
+      }
+    }
+    return $this->ethnicityFieldMetadata = $metadata;
+  }
+
+  /**
+   * Normalizes raw custom field values into display labels.
+   */
+  protected function normalizeEthnicityValues(?string $rawValue, array $ignoredValues = []): array {
+    $entries = $this->explodeCustomFieldValues($rawValue);
+    $labels = [];
+    foreach ($entries as $entry) {
+      $normalized = strtolower(trim($entry));
+      if ($normalized === '' || in_array($normalized, $ignoredValues, TRUE)) {
+        continue;
+      }
+      $labels[] = $this->mapEthnicityCodeToLabel($normalized);
+    }
+    return $labels;
+  }
+
+  /**
+   * Maps stored ethnicity codes to readable labels.
+   */
+  protected function mapEthnicityCodeToLabel(string $code): string {
+    $map = [
+      'asian' => 'Asian',
+      'black' => 'Black / African American',
+      'middleeast' => 'Middle Eastern / North African',
+      'mena' => 'Middle Eastern / North African',
+      'hispanic' => 'Hispanic / Latino',
+      'native' => 'American Indian / Alaska Native',
+      'aian' => 'American Indian / Alaska Native',
+      'islander' => 'Native Hawaiian / Pacific Islander',
+      'nhpi' => 'Native Hawaiian / Pacific Islander',
+      'white' => 'White',
+      'multi' => 'Multiracial',
+      'other' => 'Other',
+      'prefer_not_to_say' => 'Prefer not to say',
+      'prefer_not_to_disclose' => 'Prefer not to disclose',
+      'decline' => 'Prefer not to say',
+      'not_specified' => 'Unspecified',
+    ];
+    return $map[$code] ?? $this->formatLabel($code, 'Unspecified');
   }
 
 }

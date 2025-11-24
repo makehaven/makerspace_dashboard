@@ -37,6 +37,15 @@ export type ChartVisualization =
       children: Record<string, ChartVisualization>;
     }
   | {
+      type: 'funnel';
+      stages: { label: string; value: number; helper?: string }[];
+      options?: {
+        showValues?: boolean;
+        format?: 'integer' | 'decimal' | 'currency' | 'percent';
+        decimals?: number;
+      };
+    }
+  | {
       type: 'unknown';
     };
 

@@ -11,6 +11,8 @@ use Drupal\Core\Database\Query\SelectInterface;
  */
 class ContactDataService {
 
+  protected const CONTACT_GROWTH_START_MONTH = '2023-12';
+
   protected Connection $database;
 
   protected CacheBackendInterface $cache;
@@ -41,6 +43,7 @@ class ContactDataService {
 
     $now = $this->now();
     $monthMap = $this->buildMonthSeries($now, $months);
+    $monthMap = $this->filterMonthSeriesByMinimum($monthMap, self::CONTACT_GROWTH_START_MONTH);
     if (empty($monthMap)) {
       return [];
     }
@@ -123,6 +126,35 @@ class ContactDataService {
   }
 
   /**
+   * Counts email-ready contacts created within the provided window.
+   */
+  public function getEmailReadyContactsBetween(\DateTimeImmutable $start, \DateTimeImmutable $end): int {
+    $start = $start->setTime(0, 0, 0);
+    $end = $end->setTime(23, 59, 59);
+    if ($end < $start) {
+      [$start, $end] = [$end, $start];
+    }
+    $cid = sprintf('makerspace_dashboard:contacts:email_range:%s:%s', $start->format('Ymd'), $end->format('Ymd'));
+    if ($cache = $this->cache->get($cid)) {
+      return (int) $cache->data;
+    }
+
+    $query = $this->baseContactQuery();
+    $this->applyContactJoins($query);
+    $smsAlias = $this->applySmsConsentJoin($query);
+    $this->addCountExpressions($query, $smsAlias);
+    $query->condition('c.created_date', [
+      $start->format('Y-m-d H:i:s'),
+      $end->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+
+    $record = $query->execute()->fetchAssoc() ?: ['email_contacts' => 0];
+    $count = (int) ($record['email_contacts'] ?? 0);
+    $this->cache->set($cid, $count, $this->now()->getTimestamp() + 1800);
+    return $count;
+  }
+
+  /**
    * Normalizes count result rows.
    */
   protected function normalizeCounts(array $record): array {
@@ -182,6 +214,23 @@ class ContactDataService {
       $series[$month->format('Y-m')] = $month->format('M Y');
     }
     return $series;
+  }
+
+  /**
+   * Limits the generated month series so it never predates the data start.
+   */
+  protected function filterMonthSeriesByMinimum(array $series, ?string $minKey): array {
+    if (!$minKey) {
+      return $series;
+    }
+    $filtered = [];
+    foreach ($series as $key => $label) {
+      if ($key < $minKey) {
+        continue;
+      }
+      $filtered[$key] = $label;
+    }
+    return $filtered;
   }
 
   protected function createDateFromKey(string $key): \DateTimeImmutable {

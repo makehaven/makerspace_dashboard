@@ -159,6 +159,51 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.makerspace-dashboard-react-chart__canvas--funnel {
+  display: flex;
+  align-items: center;
+}
+
+.makerspace-funnel {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.makerspace-funnel__stage {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.makerspace-funnel__bar {
+  border-radius: 999px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  padding: 0 1.25rem;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.makerspace-funnel__bar-label {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-weight: 600;
+  gap: 1rem;
+}
+
+.makerspace-funnel__value {
+  font-size: 1.05rem;
+}
+
+.makerspace-funnel__helper {
+  font-size: 0.85rem;
+  color: #475569;
+}
+
 @keyframes makerspace-dashboard-spin {
   0% {
     transform: rotate(0deg);

@@ -11,6 +11,7 @@ class EducationRevenuePerRegistrationChartBuilder extends EducationEventsChartBu
 
   protected const CHART_ID = 'revenue_per_registration';
   protected const WEIGHT = 40;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

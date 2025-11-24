@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import type { ChartVisualization } from '../types';
+import { FunnelChart } from './FunnelChart';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip);
 
@@ -22,7 +23,7 @@ interface ChartRendererProps {
 
 const translate = (text: string) => (typeof Drupal?.t === 'function' ? Drupal.t(text) : text);
 
-type NumericFormat = 'integer' | 'decimal' | 'currency' | 'percent';
+export type NumericFormat = 'integer' | 'decimal' | 'currency' | 'percent';
 
 interface BaseFormatOptions {
   format?: NumericFormat;
@@ -182,6 +183,26 @@ const callbackFactories: Record<string, CallbackFactory> = {
   },
   dataset_members_count: datasetMembersCountFactory,
   payment_mix_members_count: datasetMembersCountFactory,
+  dataset_total_members: () => (items: any[]) => {
+    if (!Array.isArray(items) || items.length === 0) {
+      return '';
+    }
+    const index = typeof items[0]?.dataIndex === 'number' ? items[0].dataIndex : null;
+    const datasetIndex = typeof items[0]?.datasetIndex === 'number' ? items[0].datasetIndex : null;
+    const datasets = items[0]?.chart?.data?.datasets;
+    if (index === null || datasetIndex === null || !Array.isArray(datasets)) {
+      return '';
+    }
+    const dataset = datasets[datasetIndex] ?? {};
+    const memberTotals = Array.isArray((dataset as any)?.makerspaceMembers)
+      ? (dataset as any).makerspaceMembers
+      : [];
+    const totalMembers = ensureNumber(memberTotals[index]);
+    if (totalMembers === null) {
+      return '';
+    }
+    return `${translate('Total members in range')}: ${formatNumeric(totalMembers, { format: 'integer' })}`;
+  },
 };
 
 function hydrateLegacyFunction(source: string): (() => unknown) | null {
@@ -265,6 +286,17 @@ const ChartRendererComponent = ({ visualization }: ChartRendererProps) => {
     return (
       <div className="makerspace-dashboard-react-chart__canvas">
         {renderChart(visualization)}
+      </div>
+    );
+  }
+
+  if (visualization.type === 'funnel') {
+    if (!visualization.stages?.length) {
+      return <div className="makerspace-dashboard-react-chart__status makerspace-dashboard-react-chart__status--empty">{translate('No data available.')}</div>;
+    }
+    return (
+      <div className="makerspace-dashboard-react-chart__canvas makerspace-dashboard-react-chart__canvas--funnel">
+        <FunnelChart stages={visualization.stages} options={visualization.options} />
       </div>
     );
   }

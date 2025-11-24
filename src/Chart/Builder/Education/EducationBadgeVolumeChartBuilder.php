@@ -11,6 +11,7 @@ class EducationBadgeVolumeChartBuilder extends EducationEngagementChartBuilderBa
 
   protected const CHART_ID = 'badge_volume';
   protected const WEIGHT = 130;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

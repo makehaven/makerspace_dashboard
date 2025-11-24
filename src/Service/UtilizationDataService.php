@@ -14,6 +14,9 @@ class UtilizationDataService {
 
   use StringTranslationTrait;
 
+  protected const SECONDS_PER_DAY = 86400;
+  protected const SECONDS_PER_MONTH = 2629743; // Average month length in seconds.
+
   /**
    * Database connection.
    */
@@ -38,6 +41,20 @@ class UtilizationDataService {
    * Role IDs that indicate an active member.
    */
   protected array $memberRoles;
+
+  /**
+   * Cached list of active member IDs.
+   *
+   * @var int[]|null
+   */
+  protected ?array $activeMemberCache = NULL;
+
+  /**
+   * Cached maps of last visit timestamps keyed by as-of timestamp.
+   *
+   * @var array<int, array<int, int>>
+   */
+  protected array $lastVisitCache = [];
 
   /**
    * Constructs the data service.
@@ -278,6 +295,184 @@ class UtilizationDataService {
   }
 
   /**
+   * Builds bucket counts for months since each active member last visited.
+   */
+  public function getMonthsSinceLastVisitBuckets(int $asOfTimestamp): array {
+    $bucketDefinitions = $this->visitRecencyBuckets();
+    $buckets = array_fill_keys(array_keys($bucketDefinitions), 0);
+    $activeMembers = $this->loadActiveMemberUids();
+    if (empty($activeMembers)) {
+      return [
+        'buckets' => $buckets,
+        'active_members' => 0,
+        'with_recent_visit' => 0,
+        'as_of' => $asOfTimestamp,
+      ];
+    }
+
+    $cid = sprintf('makerspace_dashboard:utilization:last_visit_recency:%d', $asOfTimestamp);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $lastVisits = $this->loadLastVisitMap($asOfTimestamp);
+    $withVisit = 0;
+    foreach ($activeMembers as $uid) {
+      $bucketId = 'never';
+      if (isset($lastVisits[$uid])) {
+        $withVisit++;
+        $months = $this->diffInMonths($lastVisits[$uid], $asOfTimestamp);
+        $bucketId = $this->resolveBucket($bucketDefinitions, $months, 'min_months', 'max_months', ['never']) ?? $bucketId;
+      }
+      $buckets[$bucketId] = ($buckets[$bucketId] ?? 0) + 1;
+    }
+
+    $result = [
+      'buckets' => $buckets,
+      'active_members' => count($activeMembers),
+      'with_recent_visit' => $withVisit,
+      'as_of' => $asOfTimestamp,
+    ];
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cid, $result, $expire, ['access_control_log_list', 'user_list']);
+
+    return $result;
+  }
+
+  /**
+   * Builds inactivity buckets showing days between last visit and cancellation.
+   */
+  public function getCancellationInactivityBuckets(int $asOfTimestamp, int $lookbackMonths = 12): array {
+    $bucketDefinitions = $this->cancellationLagBuckets();
+    $buckets = array_fill_keys(array_keys($bucketDefinitions), 0);
+
+    $timezone = new \DateTimeZone(date_default_timezone_get());
+    $endDate = (new \DateTimeImmutable('@' . $asOfTimestamp))->setTimezone($timezone)->setTime(0, 0, 0);
+    $startDate = $endDate->modify(sprintf('-%d months', max(0, $lookbackMonths - 1)))->setTime(0, 0, 0);
+    $startKey = $startDate->format('Y-m-d');
+    $endKey = $endDate->format('Y-m-d');
+
+    $cid = sprintf('makerspace_dashboard:utilization:cancellation_lag:%s:%s', $startKey, $endKey);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('profile', 'p');
+    $query->innerJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
+    $query->leftJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.field_access_request_user_target_id = p.uid AND user_ref.deleted = 0');
+    $query->leftJoin('access_control_log_field_data', 'acl', "acl.id = user_ref.entity_id AND acl.type = 'access_control_request' AND acl.created <= UNIX_TIMESTAMP(STR_TO_DATE(end_date.field_member_end_date_value, '%Y-%m-%d'))");
+    $query->addField('p', 'uid');
+    $query->addField('end_date', 'field_member_end_date_value', 'end_value');
+    $query->addExpression("UNIX_TIMESTAMP(STR_TO_DATE(end_date.field_member_end_date_value, '%Y-%m-%d'))", 'end_timestamp');
+    $query->addExpression('MAX(acl.created)', 'last_visit');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->where("STR_TO_DATE(end_date.field_member_end_date_value, '%Y-%m-%d') BETWEEN STR_TO_DATE(:start_date, '%Y-%m-%d') AND STR_TO_DATE(:end_date, '%Y-%m-%d')", [
+      ':start_date' => $startKey,
+      ':end_date' => $endKey,
+    ]);
+    $query->groupBy('p.uid');
+    $query->groupBy('end_date.field_member_end_date_value');
+
+    $results = $query->execute();
+
+    $delays = [];
+    $total = 0;
+    foreach ($results as $row) {
+      $endTs = (int) $row->end_timestamp;
+      if (!$endTs) {
+        continue;
+      }
+      $total++;
+      if ($row->last_visit === NULL) {
+        $buckets['never']++;
+        continue;
+      }
+      $lagDays = $this->diffInDays((int) $row->last_visit, $endTs);
+      $bucketId = $this->resolveBucket($bucketDefinitions, $lagDays, 'min_days', 'max_days', ['never']) ?? '181_plus';
+      $buckets[$bucketId] = ($buckets[$bucketId] ?? 0) + 1;
+      $delays[] = $lagDays;
+    }
+
+    $median = $this->calculateMedian($delays);
+    $average = $this->calculateAverage($delays);
+
+    $result = [
+      'buckets' => $buckets,
+      'start_date' => $startKey,
+      'end_date' => $endKey,
+      'lookback_months' => $lookbackMonths,
+      'sample_size' => $total,
+      'with_visit_sample_size' => count($delays),
+      'median_days' => $median,
+      'average_days' => $average,
+    ];
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cid, $result, $expire, ['profile_list', 'access_control_log_list', 'user_list']);
+
+    return $result;
+  }
+
+  /**
+   * Buckets inactive members (90+ days) by membership tenure.
+   */
+  public function getInactiveMembersByTenure(int $asOfTimestamp, int $inactiveDaysThreshold = 90): array {
+    $bucketDefinitions = $this->inactivityTenureBuckets();
+    $buckets = array_fill_keys(array_keys($bucketDefinitions), 0);
+    $activeMembers = $this->loadActiveMemberUids();
+    if (empty($activeMembers)) {
+      return [
+        'buckets' => $buckets,
+        'inactive_threshold_days' => $inactiveDaysThreshold,
+        'as_of' => $asOfTimestamp,
+        'total_active' => 0,
+        'total_inactive' => 0,
+      ];
+    }
+
+    $cid = sprintf('makerspace_dashboard:utilization:inactive_by_tenure:%d:%d', $asOfTimestamp, $inactiveDaysThreshold);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $lastVisits = $this->loadLastVisitMap($asOfTimestamp);
+    $joinDates = $this->loadMemberJoinDates($activeMembers);
+
+    $inactiveCount = 0;
+    foreach ($activeMembers as $uid) {
+      $lastVisit = $lastVisits[$uid] ?? NULL;
+      $daysInactive = $lastVisit ? $this->diffInDays($lastVisit, $asOfTimestamp) : PHP_INT_MAX;
+      if ($daysInactive < $inactiveDaysThreshold) {
+        continue;
+      }
+      $inactiveCount++;
+      if (!isset($joinDates[$uid])) {
+        $buckets['unknown']++;
+        continue;
+      }
+      $tenureMonths = $this->diffInMonths($joinDates[$uid], $asOfTimestamp);
+      $bucketId = $this->resolveBucket($bucketDefinitions, $tenureMonths, 'min_months', 'max_months', ['unknown']) ?? 'unknown';
+      $buckets[$bucketId] = ($buckets[$bucketId] ?? 0) + 1;
+    }
+
+    $result = [
+      'buckets' => $buckets,
+      'inactive_threshold_days' => $inactiveDaysThreshold,
+      'as_of' => $asOfTimestamp,
+      'total_active' => count($activeMembers),
+      'total_inactive' => $inactiveCount,
+    ];
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cid, $result, $expire, ['profile_list', 'access_control_log_list', 'user_list']);
+
+    return $result;
+  }
+
+  /**
    * Returns translated labels for time-of-day buckets.
    */
   public function getTimeOfDayBucketLabels(): array {
@@ -292,6 +487,10 @@ class UtilizationDataService {
    * Returns all active member IDs.
    */
   protected function loadActiveMemberUids(): array {
+    if ($this->activeMemberCache !== NULL) {
+      return $this->activeMemberCache;
+    }
+
     $query = $this->database->select('user__roles', 'ur');
     $query->fields('ur', ['entity_id']);
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
@@ -301,7 +500,179 @@ class UtilizationDataService {
     foreach ($query->execute()->fetchCol() as $uid) {
       $uids[] = (int) $uid;
     }
-    return $uids;
+    return $this->activeMemberCache = $uids;
+  }
+
+  /**
+   * Loads last visit timestamps keyed by user id.
+   */
+  protected function loadLastVisitMap(int $asOfTimestamp): array {
+    if (isset($this->lastVisitCache[$asOfTimestamp])) {
+      return $this->lastVisitCache[$asOfTimestamp];
+    }
+
+    $cid = sprintf('makerspace_dashboard:utilization:last_visits:%d', $asOfTimestamp);
+    if ($cache = $this->cache->get($cid)) {
+      $this->lastVisitCache[$asOfTimestamp] = $cache->data;
+      return $cache->data;
+    }
+
+    $query = $this->database->select('access_control_log_field_data', 'acl');
+    $query->addExpression('user_ref.field_access_request_user_target_id', 'uid');
+    $query->addExpression('MAX(acl.created)', 'last_visit');
+    $query->innerJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.entity_id = acl.id AND user_ref.deleted = 0');
+    $query->innerJoin('user__roles', 'user_roles', 'user_roles.entity_id = user_ref.field_access_request_user_target_id');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = user_ref.field_access_request_user_target_id');
+    $query->condition('user_roles.roles_target_id', $this->memberRoles, 'IN');
+    $query->condition('u.status', 1);
+    $query->condition('acl.type', 'access_control_request');
+    $query->condition('acl.created', $asOfTimestamp, '<=');
+    $query->groupBy('uid');
+
+    $map = [];
+    foreach ($query->execute() as $record) {
+      if ($record->last_visit === NULL) {
+        continue;
+      }
+      $map[(int) $record->uid] = (int) $record->last_visit;
+    }
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cid, $map, $expire, ['access_control_log_list', 'user_list']);
+    $this->lastVisitCache[$asOfTimestamp] = $map;
+
+    return $map;
+  }
+
+  /**
+   * Loads join-date timestamps for the provided user ids.
+   */
+  protected function loadMemberJoinDates(array $uids): array {
+    if (empty($uids)) {
+      return [];
+    }
+
+    $map = [];
+    foreach (array_chunk($uids, 500) as $chunk) {
+      $query = $this->database->select('profile', 'p');
+      $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
+      $query->fields('p', ['uid']);
+      $query->addField('join_date', 'field_member_join_date_value', 'join_value');
+      $query->condition('p.type', 'main');
+      $query->condition('p.status', 1);
+      $query->condition('p.is_default', 1);
+      $query->condition('p.uid', $chunk, 'IN');
+
+      foreach ($query->execute() as $row) {
+        $timestamp = $row->join_value ? strtotime($row->join_value) : FALSE;
+        if ($timestamp) {
+          $map[(int) $row->uid] = (int) $timestamp;
+        }
+      }
+    }
+
+    return $map;
+  }
+
+  /**
+   * Defines visit recency bucket ranges in months.
+   */
+  protected function visitRecencyBuckets(): array {
+    return [
+      '0_1' => ['min_months' => 0, 'max_months' => 1],
+      '1_2' => ['min_months' => 1, 'max_months' => 2],
+      '2_3' => ['min_months' => 2, 'max_months' => 3],
+      '3_6' => ['min_months' => 3, 'max_months' => 6],
+      '6_12' => ['min_months' => 6, 'max_months' => 12],
+      '12_plus' => ['min_months' => 12, 'max_months' => NULL],
+      'never' => ['min_months' => NULL, 'max_months' => NULL],
+    ];
+  }
+
+  /**
+   * Defines cancellation inactivity lag buckets in days.
+   */
+  protected function cancellationLagBuckets(): array {
+    return [
+      '0_30' => ['min_days' => 0, 'max_days' => 31],
+      '31_60' => ['min_days' => 31, 'max_days' => 61],
+      '61_90' => ['min_days' => 61, 'max_days' => 91],
+      '91_180' => ['min_days' => 91, 'max_days' => 181],
+      '181_plus' => ['min_days' => 181, 'max_days' => NULL],
+      'never' => ['min_days' => NULL, 'max_days' => NULL],
+    ];
+  }
+
+  /**
+   * Defines tenure buckets in months for inactive member breakdowns.
+   */
+  protected function inactivityTenureBuckets(): array {
+    return [
+      'under_three_months' => ['min_months' => 0, 'max_months' => 3],
+      'three_to_twelve_months' => ['min_months' => 3, 'max_months' => 12],
+      'one_to_three_years' => ['min_months' => 12, 'max_months' => 36],
+      'three_plus_years' => ['min_months' => 36, 'max_months' => NULL],
+      'unknown' => ['min_months' => NULL, 'max_months' => NULL],
+    ];
+  }
+
+  /**
+   * Generic helper to resolve a bucket id for a numeric range.
+   */
+  protected function resolveBucket(array $definitions, float $value, string $minKey, string $maxKey, array $skipKeys = []): ?string {
+    foreach ($definitions as $id => $definition) {
+      if (in_array($id, $skipKeys, TRUE)) {
+        continue;
+      }
+      $min = $definition[$minKey] ?? NULL;
+      $max = $definition[$maxKey] ?? NULL;
+      if (($min === NULL || $value >= $min) && ($max === NULL || $value < $max)) {
+        return $id;
+      }
+    }
+    return NULL;
+  }
+
+  /**
+   * Calculates the median for an array of numeric values.
+   */
+  protected function calculateMedian(array $values): ?float {
+    if (empty($values)) {
+      return NULL;
+    }
+    sort($values);
+    $count = count($values);
+    $mid = intdiv($count, 2);
+    if ($count % 2) {
+      return (float) $values[$mid];
+    }
+    return ($values[$mid - 1] + $values[$mid]) / 2;
+  }
+
+  /**
+   * Calculates the average for an array of numeric values.
+   */
+  protected function calculateAverage(array $values): ?float {
+    if (empty($values)) {
+      return NULL;
+    }
+    return array_sum($values) / count($values);
+  }
+
+  /**
+   * Returns the difference between two timestamps in months.
+   */
+  protected function diffInMonths(int $earlierTimestamp, int $laterTimestamp): float {
+    $diff = max(0, $laterTimestamp - $earlierTimestamp);
+    return $diff / self::SECONDS_PER_MONTH;
+  }
+
+  /**
+   * Returns the difference between two timestamps in whole days.
+   */
+  protected function diffInDays(int $earlierTimestamp, int $laterTimestamp): int {
+    $diff = max(0, $laterTimestamp - $earlierTimestamp);
+    return (int) floor($diff / self::SECONDS_PER_DAY);
   }
 
   /**

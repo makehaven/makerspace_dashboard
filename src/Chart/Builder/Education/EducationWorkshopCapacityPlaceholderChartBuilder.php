@@ -11,6 +11,7 @@ class EducationWorkshopCapacityPlaceholderChartBuilder extends EducationEventsCh
 
   protected const CHART_ID = 'workshop_capacity_placeholder';
   protected const WEIGHT = 100;
+  protected const TIER = 'experimental';
 
   /**
    * {@inheritdoc}
