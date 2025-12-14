@@ -16,7 +16,7 @@ leaflet:
       https://unpkg.com/leaflet@1.9.4/dist/leaflet.css: { type: external, minified: true }
   js:
     https://unpkg.com/leaflet@1.9.4/dist/leaflet.js: { type: external, minified: true }
-    https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js: { type: external, minified: true }
+    js/leaflet-heat.js: { minified: true }
 
 location_map:
   js:
@@ -37,15 +37,13 @@ join_location_map:
     - makerspace_dashboard/leaflet
 
 react_app:
-  version: 1.x
-  css:
-    theme:
-      css/react-dashboard.css: {}
   js:
-    js/react-app/dist/dashboard.js:
-      attributes:
-        type: module
+    js/react-app/dist/dashboard.js: { minified: true }
   dependencies:
     - core/drupal
     - core/drupalSettings
-    - core/once
+
+annual_report:
+  css:
+    theme:
+      css/annual_report.css: {}

@@ -142,23 +142,22 @@ class MembershipLocationDataService {
       $pendingGeocode[$location_key]['count']++;
     }
 
-    if (empty($aggregated)) {
-      foreach ($pendingGeocode as $location) {
-        $geocode_result = $this->geocoding->geocode($location['query']);
-        if ($geocode_result) {
-          $pair = $this->normalizeCoordinates((float) $geocode_result['lat'], (float) $geocode_result['lon']);
-          if ($pair) {
-            [$lat, $lon] = $pair;
-            $coord_key = $this->buildCoordinateKey($lat, $lon);
-            if (!isset($aggregated[$coord_key])) {
-              $aggregated[$coord_key] = [
-                'lat' => $lat,
-                'lon' => $lon,
-                'count' => 0,
-              ];
-            }
-            $aggregated[$coord_key]['count'] += $location['count'];
+    // Process pending geocodes regardless of whether we have some coordinates already.
+    foreach ($pendingGeocode as $location) {
+      $geocode_result = $this->geocoding->geocode($location['query']);
+      if ($geocode_result) {
+        $pair = $this->normalizeCoordinates((float) $geocode_result['lat'], (float) $geocode_result['lon']);
+        if ($pair) {
+          [$lat, $lon] = $pair;
+          $coord_key = $this->buildCoordinateKey($lat, $lon);
+          if (!isset($aggregated[$coord_key])) {
+            $aggregated[$coord_key] = [
+              'lat' => $lat,
+              'lon' => $lon,
+              'count' => 0,
+            ];
           }
+          $aggregated[$coord_key]['count'] += $location['count'];
         }
       }
     }

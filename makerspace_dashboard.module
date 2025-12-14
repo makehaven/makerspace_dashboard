@@ -55,3 +55,21 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
 
   return $metrics;
 }
+
+/**
+ * Implements hook_theme().
+ */
+function makerspace_dashboard_theme($existing, $type, $theme, $path) {
+  return [
+    'annual_report' => [
+      'variables' => [
+        'title' => NULL,
+        'description' => NULL,
+        'rows' => [],
+        'table' => [],
+        'copy_help' => NULL,
+        'charts' => [],
+      ],
+    ],
+  ];
+}

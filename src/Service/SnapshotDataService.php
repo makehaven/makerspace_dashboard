@@ -98,7 +98,7 @@ class SnapshotDataService {
       $snapshotFields[] = 'is_test';
     }
     $query->fields('s', $snapshotFields);
-    $query->fields('o', ['members_active']);
+    $query->fields('o', ['members_active', 'joins']);
 
     if ($snapshotTypes) {
       $query->condition('s.snapshot_type', $snapshotTypes, 'IN');
@@ -142,6 +142,7 @@ class SnapshotDataService {
           'snapshot_date' => $snapshotDate,
           'snapshot_type' => $record->snapshot_type,
           'members_active' => (int) $record->members_active,
+          'joins' => (int) $record->joins,
           'snapshot_timestamp' => $snapshotTimestamp,
         ];
       }

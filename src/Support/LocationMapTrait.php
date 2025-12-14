@@ -12,8 +12,29 @@ trait LocationMapTrait {
 
   /**
    * Builds the member location map container and settings.
+   *
+   * @param array|string $options
+   *   Options array or string (for backward compatibility as initialView).
+   *   Supported keys:
+   *   - initial_view: 'markers' or 'heatmap' (default: 'markers').
+   *   - fit_bounds: bool (default: TRUE).
+   *   - zoom: int (default: 11).
+   *   - lat: float (default: 41.3083).
+   *   - lon: float (default: -72.9279).
    */
-  protected function buildLocationMapRenderable(): array {
+  protected function buildLocationMapRenderable($options = []): array {
+    // Handle legacy string argument
+    if (is_string($options)) {
+      $options = ['initial_view' => $options];
+    }
+    $options += [
+      'initial_view' => 'markers',
+      'fit_bounds' => TRUE,
+      'zoom' => 11,
+      'lat' => 41.3083,
+      'lon' => -72.9279,
+    ];
+
     $locationsUrl = NULL;
     try {
       $locationsUrl = Url::fromRoute('makerspace_dashboard.api.locations')->toString();
@@ -42,6 +63,11 @@ trait LocationMapTrait {
       '#attributes' => [
         'id' => 'member-location-map',
         'class' => ['makerspace-dashboard-location-map'],
+        'data-initial-view' => $options['initial_view'],
+        'data-fit-bounds' => $options['fit_bounds'] ? 'true' : 'false',
+        'data-zoom' => $options['zoom'],
+        'data-lat' => $options['lat'],
+        'data-lon' => $options['lon'],
       ],
       '#attached' => [
         'library' => [
@@ -55,6 +81,15 @@ trait LocationMapTrait {
         ],
       ],
     ];
+
+    $markersClass = ['button'];
+    $heatmapClass = ['button'];
+    
+    if ($options['initial_view'] === 'heatmap') {
+      $heatmapClass[] = 'active';
+    } else {
+      $markersClass[] = 'active';
+    }
 
     return [
       '#type' => 'container',
@@ -70,7 +105,7 @@ trait LocationMapTrait {
           '#type' => 'button',
           '#value' => $this->t('Markers'),
           '#attributes' => [
-            'class' => ['button', 'active'],
+            'class' => $markersClass,
             'data-map-view' => 'markers',
           ],
         ],
@@ -78,7 +113,7 @@ trait LocationMapTrait {
           '#type' => 'button',
           '#value' => $this->t('Heatmap'),
           '#attributes' => [
-            'class' => ['button'],
+            'class' => $heatmapClass,
             'data-map-view' => 'heatmap',
           ],
         ],

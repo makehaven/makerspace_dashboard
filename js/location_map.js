@@ -26,15 +26,32 @@
 
       const dashboardSettings = (settings && settings.makerspace_dashboard) ? settings.makerspace_dashboard : {};
       const locationsUrl = dashboardSettings.locations_url || null;
-      once('makerspace-dashboard-location-map', '#member-location-map', context).forEach((mapElement) => {
+      once('makerspace-dashboard-location-map', '.makerspace-dashboard-location-map', context).forEach((mapElement) => {
         const wrapper = mapElement.closest('.makerspace-dashboard-location-map-wrapper');
         if (!locationsUrl) {
           renderNotice(mapElement, Drupal.t('Member location data is not available.'));
           return;
         }
 
-        // Centered on New Haven, CT.
-        const map = L.map(mapElement).setView([41.3083, -72.9279], 8);
+        // Centered on New Haven, CT, or use data attributes
+        const initLat = parseFloat(mapElement.getAttribute('data-lat')) || 41.3083;
+        const initLon = parseFloat(mapElement.getAttribute('data-lon')) || -72.9279;
+        const initZoom = parseInt(mapElement.getAttribute('data-zoom'), 10) || 11;
+        const shouldFitBounds = mapElement.getAttribute('data-fit-bounds') !== 'false';
+
+        const map = L.map(mapElement).setView([initLat, initLon], initZoom);
+
+        // Fix for maps inside hidden details/tabs
+        const details = mapElement.closest('details');
+        if (details) {
+          details.addEventListener('toggle', () => {
+            if (details.open) {
+              setTimeout(() => {
+                map.invalidateSize();
+              }, 200);
+            }
+          });
+        }
 
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
           attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -106,14 +123,18 @@
               }
             }
 
-            if (latLngs.length === 1) {
-              map.setView(latLngs[0], 11);
-            }
-            else if (targetBounds && targetBounds.isValid()) {
-              map.fitBounds(targetBounds.pad(0.25));
+            if (shouldFitBounds) {
+              if (latLngs.length === 1) {
+                map.setView(latLngs[0], 11);
+              }
+              else if (targetBounds && targetBounds.isValid()) {
+                map.fitBounds(targetBounds.pad(0.25), {maxZoom: 16});
+              }
             }
 
             const maxCount = positions.reduce((max, coords) => Math.max(max, coords.count || 1), 1);
+            console.log('Building heatmap with', positions.length, 'points. Max intensity:', maxCount);
+
             const heatPoints = positions.map((coords) => {
               const normalized = (coords.count || 1) / maxCount;
               return [
@@ -123,18 +144,25 @@
               ];
             });
 
-            const heatLayer = L.heatLayer(heatPoints, {
-              radius: 38,
-              blur: 28,
-              minOpacity: 0.3,
-              gradient: {
-                0.0: '#d0f4f7',
-                0.3: '#80deea',
-                0.5: '#4dd0e1',
-                0.7: '#ffb74d',
-                1.0: '#f4511e',
-              },
-            });
+            let heatLayer = null;
+            if (typeof L.heatLayer === 'function') {
+              heatLayer = L.heatLayer(heatPoints, {
+                radius: 35,
+                blur: 25,
+                minOpacity: 0.4,
+                maxZoom: 12,
+                gradient: {
+                  0.2: 'blue',
+                  0.4: 'cyan',
+                  0.6: 'lime',
+                  0.8: 'yellow',
+                  1.0: 'red'
+                },
+              });
+              console.log('HeatLayer created successfully.');
+            } else {
+              console.warn('Leaflet.heat not loaded. Falling back to markers.');
+            }
 
             const markers = L.layerGroup();
             positions.forEach((coords) => {
@@ -153,13 +181,34 @@
               marker.addTo(markers);
             });
 
-            markers.addTo(map);
+            // Check for initial view preference
+            let initialView = mapElement.getAttribute('data-initial-view') || 'markers';
+            
+            // Force markers if heatmap is unavailable
+            if (initialView === 'heatmap' && !heatLayer) {
+              initialView = 'markers';
+            }
+
+            if (initialView === 'heatmap' && heatLayer) {
+              heatLayer.addTo(map);
+              const heatmapBtn = wrapper.querySelector('[data-map-view="heatmap"]');
+              if (heatmapBtn) heatmapBtn.classList.add('active');
+            } else {
+              markers.addTo(map);
+              const markersBtn = wrapper.querySelector('[data-map-view="markers"]');
+              if (markersBtn) markersBtn.classList.add('active');
+            }
 
             const toggleButtons = wrapper.querySelectorAll('[data-map-view]');
             toggleButtons.forEach((button) => {
               button.addEventListener('click', (e) => {
                 e.preventDefault();
                 const view = button.getAttribute('data-map-view');
+
+                if (view === 'heatmap' && !heatLayer) {
+                  alert(Drupal.t('Heatmap library not loaded.'));
+                  return;
+                }
 
                 toggleButtons.forEach((btn) => btn.classList.remove('active'));
                 button.classList.add('active');
@@ -168,7 +217,7 @@
                   map.removeLayer(markers);
                   map.addLayer(heatLayer);
                 } else {
-                  map.removeLayer(heatLayer);
+                  if (heatLayer) map.removeLayer(heatLayer);
                   map.addLayer(markers);
                 }
               });

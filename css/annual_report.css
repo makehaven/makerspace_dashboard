@@ -1,0 +1,247 @@
+.annual-report-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.annual-report-header {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 0.5rem;
+  padding: 2rem;
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-content h1 {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+}
+
+.annual-report-section {
+  margin-bottom: 4rem;
+}
+
+.annual-report-section h2 {
+  font-size: 1.75rem;
+  margin-bottom: 1.5rem;
+  color: #1f2937;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 0.5rem;
+}
+
+/* Highlights */
+.highlights-section {
+  background-color: #f0fdf4; /* Light green bg */
+  border: 1px solid #bbf7d0;
+  border-radius: 0.75rem;
+  padding: 2rem;
+}
+
+.highlights-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 1.25rem;
+  color: #166534;
+}
+
+.highlights-list li {
+  margin-bottom: 0.75rem;
+  padding-left: 2rem;
+  position: relative;
+}
+
+.highlights-list li::before {
+  content: '✨';
+  position: absolute;
+  left: 0;
+}
+
+.annual-report-card {
+  height: 100%;
+  border: 0;
+  box-shadow: 0 .125rem .25rem rgba(0,0,0,.075);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+}
+
+.annual-report-card .card-header {
+  background-color: #fff;
+  border-bottom: 1px solid #f0f0f0;
+  padding: 1.25rem 1.5rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 0.9rem;
+  color: #6c757d;
+}
+
+.annual-report-card .card-header h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.annual-report-card .card-body {
+  padding: 1.5rem;
+  min-height: 500px; /* Ensure charts have vertical space */
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.annual-report-card .card-body > div {
+  flex-grow: 1;
+  min-height: 100%;
+}
+
+/* Metric Cards */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.metric-card {
+  background: #fff;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  border: 1px solid #e5e7eb;
+}
+
+.metric-label {
+  font-size: 0.875rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.metric-value {
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 0.25rem;
+}
+
+.metric-trend {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.trend-up {
+  color: #16a34a;
+}
+
+.trend-down {
+  color: #dc2626;
+}
+
+.trend-neutral {
+  color: #6b7280;
+}
+
+/* Chart Grid */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(600px, 1fr));
+  gap: 2rem;
+}
+
+@media (max-width: 992px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Table */
+.comparison-table-wrapper {
+  background: #fff;
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  overflow: hidden;
+  margin-bottom: 2rem;
+}
+
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.comparison-table th,
+.comparison-table td {
+  padding: 1rem 1.5rem;
+  text-align: left;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.comparison-table th {
+  background-color: #f9fafb;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: #374151;
+}
+
+.comparison-table tr:last-child td {
+  border-bottom: none;
+}
+
+.comparison-table .numeric {
+  text-align: right;
+  font-family: monospace;
+  font-size: 1.1rem;
+}
+
+/* Map specific override */
+.annual-report-card .makerspace-dashboard-location-map {
+  height: 500px;
+  width: 100%;
+}
+
+/* Print Styles */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .annual-report-container, .annual-report-container * {
+    visibility: visible;
+  }
+  .annual-report-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    max-width: none;
+  }
+  
+  .print-button {
+    display: none;
+  }
+
+  .annual-report-card {
+    box-shadow: none;
+    border: 1px solid #ddd;
+    break-inside: avoid;
+    margin-bottom: 2rem;
+  }
+  
+  .chart-grid {
+    display: block;
+  }
+  
+  .annual-report-section {
+    page-break-after: always;
+  }
+  
+  .annual-report-section:last-child {
+    page-break-after: auto;
+  }
+}

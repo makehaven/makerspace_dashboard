@@ -802,6 +802,13 @@ class MembershipMetricsService {
     $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
     $query->condition('u.status', 1);
 
+    if ($includeMembershipType) {
+      $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
+      $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
+      $query->addField('term', 'tid', 'membership_tid');
+      $query->addField('term', 'name', 'membership_label');
+    }
+
     $records = [];
     foreach ($query->execute() as $row) {
       $joinValue = trim((string) $row->join_value);
@@ -1221,9 +1228,3 @@ class MembershipMetricsService {
   }
 
 }
-    if ($includeMembershipType) {
-      $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
-      $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
-      $query->addField('term', 'tid', 'membership_tid');
-      $query->addField('term', 'name', 'membership_label');
-    }

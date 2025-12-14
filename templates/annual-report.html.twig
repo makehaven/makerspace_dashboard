@@ -1,0 +1,77 @@
+{#
+/**
+ * @file
+ * Theme template for the Annual Impact Report.
+ */
+#}
+<div class="annual-report-container">
+  <header class="annual-report-header">
+    <div class="header-content">
+      <h1>{{ title }}</h1>
+      <div class="lead">{{ description }}</div>
+    </div>
+    <div class="header-actions">
+      <button onclick="window.print()" class="button button--primary print-button">
+        <span class="icon">🖨️</span> {{ 'Print Report'|t }}
+      </button>
+    </div>
+  </header>
+
+  {% if highlights %}
+    <section class="annual-report-section highlights-section">
+      <h2>{{ 'Key Highlights'|t }}</h2>
+      <ul class="highlights-list">
+        {% for highlight in highlights %}
+          <li>{{ highlight|raw }}</li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <section class="annual-report-section">
+    <h2>{{ 'Year-over-Year Comparison'|t }}</h2>
+    <div class="metric-grid">
+      {% for row in rows %}
+        <div class="metric-card">
+          <div class="metric-label">{{ row.label }}</div>
+          <div class="metric-value">{{ row.current }}</div>
+          <div class="metric-trend {{ row.trend_class }}">
+            {{ row.change }} ({{ row.percent }})
+          </div>
+          <div class="small text-muted mt-1">{{ 'Prev: ' ~ row.previous }}</div>
+        </div>
+      {% endfor %}
+    </div>
+    
+    <div class="comparison-table-wrapper">
+      {{ table }}
+    </div>
+    {{ copy_help }}
+  </section>
+
+  {% if charts %}
+    <div class="charts-container">
+      {% for group_key, group in charts %}
+        {% if group|length > 3 %} {# Simple check if group has content (properties + children) #}
+          <section class="annual-report-section report-group group-{{ group_key }}">
+            <h2>{{ group['#title'] }}</h2>
+            <div class="chart-grid">
+              {% for key, item in group %}
+                {% if item.chart %}
+                  <div class="annual-report-card">
+                    <div class="card-header">
+                      <h3>{{ item['#title'] }}</h3>
+                    </div>
+                    <div class="card-body">
+                      {{ item.chart }}
+                    </div>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </section>
+        {% endif %}
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

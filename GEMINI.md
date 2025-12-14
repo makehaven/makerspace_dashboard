@@ -18,6 +18,17 @@ The key principle is extensibility. The system is designed to make adding new ch
 -   **Data Services:** Data is fetched from various sources (database, Google Sheets, etc.) by dedicated "Data Services". These services are injected into the Chart Builders that need them. They live in `src/Service/`.
 -   **Service Discovery:** Chart Builders are automatically discovered by the `ChartBuilderManager` service using service tags defined in `makerspace_dashboard.services.yml`. This means you don't need to manually edit the manager to add a new chart.
 
+## Database Access
+
+This project runs on Lando. To access the database automatically without manual configuration:
+
+1.  **Prefer `drush`:** For simple queries, use `lando drush sql-query "SELECT ..."` or `lando drush sql-cli`. This automatically handles authentication.
+2.  **Direct MySQL Access:** If you need to use the `mysql` client directly (e.g., for complex scripting or if the MySQL extension is unavailable):
+    -   Retrieve credentials using: `lando info --service database --format json`
+    -   Extract the `external_connection` (host, port) and `creds` (user, password, database).
+    -   Construct the command: `mysql -h <host> -P <port> -u <user> -p<password> <database> -e "QUERY"`
+    -   *Note:* Do not log passwords to the console if possible.
+
 ## How to Create a New Chart
 
 Follow these steps to add a new chart to the dashboard.

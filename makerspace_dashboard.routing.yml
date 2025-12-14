@@ -81,3 +81,11 @@ makerspace_dashboard.api.demographic_locations:
     _controller: '\Drupal\makerspace_dashboard\Controller\DemographicLocationApiController::getLocations'
   requirements:
     _permission: 'view makerspace dashboard'
+
+makerspace_dashboard.annual_report:
+  path: '/makerspace-dashboard/annual-report'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\AnnualReportController::report'
+    _title: 'Annual Impact Report'
+  requirements:
+    _permission: 'view makerspace dashboard'

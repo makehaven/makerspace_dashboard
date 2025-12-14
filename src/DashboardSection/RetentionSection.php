@@ -122,19 +122,15 @@ class RetentionSection extends DashboardSectionBase {
         '#weight' => $weight++,
       ];
     }
-    $build['member_locations_map'] = [
-      '#type' => 'container',
-      '#attributes' => [
-        'class' => ['makerspace-dashboard-join-map-section'],
-      ],
-      'heading' => [
-        '#markup' => '<h2>' . $this->t('Active members by home region') . '</h2>',
-      ],
-      'description' => [
-        '#markup' => '<p>' . $this->t('This view clusters active members’ primary addresses (with privacy-preserving jitter) so you can see where they reside across Connecticut.') . '</p>',
-      ],
-      'map' => $this->buildLocationMapRenderable(),
-      '#weight' => $weight++,
+    $build['location_map'] = [
+      '#type' => 'details',
+      '#title' => $this->t('Active members by home region'),
+      '#open' => TRUE,
+      'map' => $this->buildLocationMapRenderable([
+        'initial_view' => 'heatmap',
+        'fit_bounds' => FALSE,
+        'zoom' => 10,
+      ]),
     ];
 
     $build['#cache'] = [
