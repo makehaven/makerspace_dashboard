@@ -25,9 +25,10 @@
       }
 
       const dashboardSettings = (settings && settings.makerspace_dashboard) ? settings.makerspace_dashboard : {};
-      const locationsUrl = dashboardSettings.locations_url || null;
+      const defaultLocationsUrl = dashboardSettings.locations_url || null;
       once('makerspace-dashboard-location-map', '.makerspace-dashboard-location-map', context).forEach((mapElement) => {
         const wrapper = mapElement.closest('.makerspace-dashboard-location-map-wrapper');
+        const locationsUrl = mapElement.getAttribute('data-locations-url') || defaultLocationsUrl;
         if (!locationsUrl) {
           renderNotice(mapElement, Drupal.t('Member location data is not available.'));
           return;
@@ -182,43 +183,83 @@
             });
 
             // Check for initial view preference
+            const markersBtn = wrapper.querySelector('[data-map-view="markers"]');
+            const heatmapBtn = wrapper.querySelector('[data-map-view="heatmap"]');
+
+            const showMarkers = () => {
+              if (heatLayer) {
+                map.removeLayer(heatLayer);
+              }
+              map.addLayer(markers);
+              if (markersBtn) markersBtn.classList.add('active');
+              if (heatmapBtn) heatmapBtn.classList.remove('active');
+            };
+
+            const showHeatmap = () => {
+              if (!heatLayer) {
+                return false;
+              }
+              map.removeLayer(markers);
+              map.addLayer(heatLayer);
+              if (heatmapBtn) heatmapBtn.classList.add('active');
+              if (markersBtn) markersBtn.classList.remove('active');
+              return true;
+            };
+
+            const hasPositiveSize = () => {
+              const rect = mapElement.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            };
+
+            const activateHeatmapWhenReady = (attempt = 0) => {
+              if (!heatLayer) {
+                showMarkers();
+                return;
+              }
+              if (hasPositiveSize()) {
+                if (!showHeatmap()) {
+                  showMarkers();
+                }
+                return;
+              }
+              if (attempt >= 10) {
+                console.warn('Heatmap could not determine map size, falling back to markers.');
+                showMarkers();
+                return;
+              }
+              setTimeout(() => activateHeatmapWhenReady(attempt + 1), 150);
+            };
+
             let initialView = mapElement.getAttribute('data-initial-view') || 'markers';
-            
-            // Force markers if heatmap is unavailable
+            initialView = initialView.trim().toLowerCase();
+
             if (initialView === 'heatmap' && !heatLayer) {
               initialView = 'markers';
             }
 
-            if (initialView === 'heatmap' && heatLayer) {
-              heatLayer.addTo(map);
-              const heatmapBtn = wrapper.querySelector('[data-map-view="heatmap"]');
-              if (heatmapBtn) heatmapBtn.classList.add('active');
-            } else {
-              markers.addTo(map);
-              const markersBtn = wrapper.querySelector('[data-map-view="markers"]');
-              if (markersBtn) markersBtn.classList.add('active');
+            if (initialView === 'heatmap') {
+              activateHeatmapWhenReady();
+            }
+            else {
+              showMarkers();
             }
 
             const toggleButtons = wrapper.querySelectorAll('[data-map-view]');
             toggleButtons.forEach((button) => {
               button.addEventListener('click', (e) => {
                 e.preventDefault();
-                const view = button.getAttribute('data-map-view');
+                const view = (button.getAttribute('data-map-view') || '').trim().toLowerCase();
 
                 if (view === 'heatmap' && !heatLayer) {
                   alert(Drupal.t('Heatmap library not loaded.'));
                   return;
                 }
 
-                toggleButtons.forEach((btn) => btn.classList.remove('active'));
-                button.classList.add('active');
-
                 if (view === 'heatmap') {
-                  map.removeLayer(markers);
-                  map.addLayer(heatLayer);
-                } else {
-                  if (heatLayer) map.removeLayer(heatLayer);
-                  map.addLayer(markers);
+                  activateHeatmapWhenReady();
+                }
+                else {
+                  showMarkers();
                 }
               });
             });

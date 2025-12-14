@@ -1045,3 +1045,12 @@ services:
     arguments:
       - '@makerspace_dashboard.membership_metrics'
       - '@datetime.time'
+
+  makerspace_dashboard.chart_builder.outreach_new_member_recruitment:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachNewMemberRecruitmentChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+

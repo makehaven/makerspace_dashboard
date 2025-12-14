@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\Support;
 
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Url;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 
@@ -21,6 +22,7 @@ trait LocationMapTrait {
    *   - zoom: int (default: 11).
    *   - lat: float (default: 41.3083).
    *   - lon: float (default: -72.9279).
+   *   - show_heatmap_toggle: bool (default: TRUE).
    */
   protected function buildLocationMapRenderable($options = []): array {
     // Handle legacy string argument
@@ -33,6 +35,7 @@ trait LocationMapTrait {
       'zoom' => 11,
       'lat' => 41.3083,
       'lon' => -72.9279,
+      'show_heatmap_toggle' => TRUE,
     ];
 
     $locationsUrl = NULL;
@@ -61,8 +64,9 @@ trait LocationMapTrait {
     $map_renderable = [
       '#type' => 'container',
       '#attributes' => [
-        'id' => 'member-location-map',
+        'id' => Html::getUniqueId('member-location-map'),
         'class' => ['makerspace-dashboard-location-map'],
+        'data-locations-url' => $locationsUrl,
         'data-initial-view' => $options['initial_view'],
         'data-fit-bounds' => $options['fit_bounds'] ? 'true' : 'false',
         'data-zoom' => $options['zoom'],
@@ -82,21 +86,25 @@ trait LocationMapTrait {
       ],
     ];
 
-    $markersClass = ['button'];
-    $heatmapClass = ['button'];
-    
-    if ($options['initial_view'] === 'heatmap') {
-      $heatmapClass[] = 'active';
-    } else {
-      $markersClass[] = 'active';
-    }
-
-    return [
+    $wrapper = [
       '#type' => 'container',
       '#attributes' => [
         'class' => ['makerspace-dashboard-location-map-wrapper'],
       ],
-      'toggle' => [
+    ];
+
+    if ($options['show_heatmap_toggle']) {
+      $markersClass = ['button'];
+      $heatmapClass = ['button'];
+
+      if ($options['initial_view'] === 'heatmap') {
+        $heatmapClass[] = 'active';
+      }
+      else {
+        $markersClass[] = 'active';
+      }
+
+      $wrapper['toggle'] = [
         '#type' => 'container',
         '#attributes' => [
           'class' => ['makerspace-dashboard-location-map-toggle'],
@@ -117,9 +125,12 @@ trait LocationMapTrait {
             'data-map-view' => 'heatmap',
           ],
         ],
-      ],
-      'map' => $map_renderable,
-    ];
+      ];
+    }
+
+    $wrapper['map'] = $map_renderable;
+
+    return $wrapper;
   }
 
 }

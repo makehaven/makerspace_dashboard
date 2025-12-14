@@ -3,7 +3,9 @@
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Link;
 use Drupal\Core\Datetime\DateFormatterInterface;
+use Drupal\Core\Url;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Support\LocationMapTrait;
 use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
@@ -122,15 +124,25 @@ class RetentionSection extends DashboardSectionBase {
         '#weight' => $weight++,
       ];
     }
+    $heatmapLink = Link::fromTextAndUrl($this->t('Open the standalone heatmap'), Url::fromRoute('makerspace_dashboard.map_debug')); 
+
     $build['location_map'] = [
       '#type' => 'details',
       '#title' => $this->t('Active members by home region'),
       '#open' => TRUE,
       'map' => $this->buildLocationMapRenderable([
-        'initial_view' => 'heatmap',
+        'initial_view' => 'markers',
         'fit_bounds' => FALSE,
         'zoom' => 10,
+        'show_heatmap_toggle' => FALSE,
       ]),
+      'heatmap_note' => [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['makerspace-dashboard-location-map-note']],
+        'text' => [
+          '#markup' => '<p>' . $this->t('Prefer a heatmap? @link.', ['@link' => $heatmapLink->toString()]) . '</p>',
+        ],
+      ],
     ];
 
     $build['#cache'] = [

@@ -125,6 +125,42 @@ class MembershipMetricsService {
   }
 
   /**
+   * Returns monthly recruitment counts grouped by year and month.
+   */
+  public function getMonthlyRecruitmentHistory(): array {
+    $cacheId = 'makerspace_dashboard:membership:recruitment_history';
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('profile', 'p');
+    $query->addExpression("FROM_UNIXTIME(p.created, '%Y')", 'year');
+    $query->addExpression("FROM_UNIXTIME(p.created, '%c')", 'month');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'count');
+
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+
+    $query->groupBy('year');
+    $query->groupBy('month');
+    $query->orderBy('year', 'ASC');
+    $query->orderBy('month', 'ASC');
+
+    $rows = $query->execute()->fetchAll();
+
+    $data = [];
+    foreach ($rows as $row) {
+      $data[(int) $row->year][(int) $row->month] = (int) $row->count;
+    }
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $data, $expire, ['profile_list', 'user_list']);
+
+    return $data;
+  }
+
+  /**
    * Returns membership end reasons grouped by period.
    */
   public function getEndReasonsByPeriod(\DateTimeImmutable $start, \DateTimeImmutable $end, string $granularity = 'month'): array {

@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\Controller;
 
+use Drupal\Component\Utility\Html;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Datetime\DateFormatterInterface;
@@ -517,6 +518,8 @@ class AnnualReportController extends ControllerBase {
     }
     
     // Member Map (Heatmap)
+    $mapId = Html::getUniqueId('member-location-map');
+
     $groups['diversity']['map'] = [
       '#type' => 'details',
       '#title' => $this->t('Member Location Heatmap'),
@@ -527,8 +530,9 @@ class AnnualReportController extends ControllerBase {
         'map' => [
           '#type' => 'container',
           '#attributes' => [
-            'id' => 'member-location-map',
+            'id' => $mapId,
             'class' => ['makerspace-dashboard-location-map'],
+            'data-locations-url' => '/makerspace-dashboard/api/locations',
             'data-initial-view' => 'heatmap',
             'data-fit-bounds' => 'false',
             'data-zoom' => '10',

@@ -1,4 +1,4 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import {
   ArcElement,
   BarElement,
@@ -249,10 +249,12 @@ function hydrateCallbacks<T>(input: T): T {
   return input;
 }
 
-function renderChart(visualization: Extract<ChartVisualization, { type: 'chart' }>) {
-  const chartType = visualization.chartType?.toLowerCase() ?? 'line';
-  const options = hydrateCallbacks(visualization.options ?? {});
-  const data = hydrateCallbacks(visualization.data as Record<string, unknown>);
+function renderChart(
+  chartTypeInput: string | undefined,
+  data: Record<string, unknown>,
+  options: Record<string, unknown>,
+) {
+  const chartType = chartTypeInput?.toLowerCase() ?? 'line';
 
   switch (chartType) {
     case 'bar':
@@ -279,13 +281,23 @@ function getContainerClassNames(attributes?: Record<string, unknown>): string {
 }
 
 const ChartRendererComponent = ({ visualization }: ChartRendererProps) => {
+  const chartConfig = useMemo(() => {
+    if (visualization.type === 'chart' && visualization.library === 'chartjs' && visualization.data) {
+      return {
+        data: hydrateCallbacks(visualization.data as Record<string, unknown>),
+        options: hydrateCallbacks(visualization.options ?? {}),
+      };
+    }
+    return null;
+  }, [visualization.data, visualization.library, visualization.options, visualization.type]);
+
   if (visualization.type === 'chart' && visualization.library === 'chartjs') {
     if (!visualization.data) {
       return <div className="makerspace-dashboard-react-chart__status makerspace-dashboard-react-chart__status--empty">{translate('No data available.')}</div>;
     }
     return (
       <div className="makerspace-dashboard-react-chart__canvas">
-        {renderChart(visualization)}
+        {chartConfig && renderChart(visualization.chartType, chartConfig.data, chartConfig.options)}
       </div>
     );
   }

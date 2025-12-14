@@ -89,3 +89,11 @@ makerspace_dashboard.annual_report:
     _title: 'Annual Impact Report'
   requirements:
     _permission: 'view makerspace dashboard'
+
+makerspace_dashboard.map_debug:
+  path: '/makerspace-dashboard/map-debug'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\MapDebugController::memberMap'
+    _title: 'Member Map Debug'
+  requirements:
+    _permission: 'view makerspace dashboard'
