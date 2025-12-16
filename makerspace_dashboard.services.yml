@@ -69,6 +69,30 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.finance_ltv_by_type:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceLifetimeValueByTypeChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_ltv_by_tenure:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceLifetimeValueByTenureChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_retention_by_plan:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceRetentionByPlanChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.governance_gender_identity:
     class: Drupal\makerspace_dashboard\Chart\Builder\Governance\GovernanceBoardGenderIdentityChartBuilder
     arguments:
@@ -714,6 +738,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.retention_cohort_heatmap:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionCohortAnalysisChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.google_sheet_client:
     class: Drupal\makerspace_dashboard\Service\GoogleSheetClientService
     arguments:
@@ -823,6 +855,7 @@ services:
       - '@database'
       - '@cache.default'
       - '@date.formatter'
+      - '@makerspace_dashboard.membership_metrics'
 
   makerspace_dashboard.infrastructure_data:
     class: Drupal\makerspace_dashboard\Service\InfrastructureDataService

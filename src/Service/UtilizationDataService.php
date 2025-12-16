@@ -136,7 +136,9 @@ class UtilizationDataService {
 
     $buckets = [
       'no_visits' => 0,
-      'one_per_month' => 0,
+      'less_than_quarterly' => 0,
+      'quarterly' => 0,
+      'monthly' => 0,
       'two_to_three' => 0,
       'weekly' => 0,
       'twice_weekly' => 0,
@@ -152,10 +154,16 @@ class UtilizationDataService {
       $visitedUids[$uid] = TRUE;
 
       $normalized = ($visits / $windowDays) * 30;
-      if ($normalized <= 0.5) {
-        $buckets['one_per_month']++;
+      if ($normalized < 0.2) {
+        $buckets['less_than_quarterly']++;
       }
-      elseif ($normalized <= 3) {
+      elseif ($normalized <= 0.5) {
+        $buckets['quarterly']++;
+      }
+      elseif ($normalized <= 1.5) {
+        $buckets['monthly']++;
+      }
+      elseif ($normalized <= 3.5) {
         $buckets['two_to_three']++;
       }
       elseif ($normalized <= 6) {

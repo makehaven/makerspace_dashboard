@@ -242,6 +242,24 @@ class DevelopmentDataService {
   }
 
   /**
+   * Returns aggregate contribution stats for an arbitrary date range.
+   */
+  public function getContributionStats(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $metrics = $this->buildContributionMetricsForRange($start, $end);
+    if ($metrics) {
+      return [
+        'total_amount' => $metrics['total_amount'],
+        'count' => $metrics['gifts'],
+      ];
+    }
+
+    return [
+      'total_amount' => 0.0,
+      'count' => 0,
+    ];
+  }
+
+  /**
    * Returns a monthly trend of member vs. non-member donors.
    */
   public function getMemberDonorTrend(int $months = 12): array {

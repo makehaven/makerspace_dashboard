@@ -83,12 +83,12 @@ makerspace_dashboard.api.demographic_locations:
     _permission: 'view makerspace dashboard'
 
 makerspace_dashboard.annual_report:
-  path: '/makerspace-dashboard/annual-report'
+  path: '/makerspace-dashboard/year-over-year'
   defaults:
     _controller: '\Drupal\makerspace_dashboard\Controller\AnnualReportController::report'
-    _title: 'Annual Impact Report'
+    _title: 'Year-over-year Report'
   requirements:
-    _permission: 'view makerspace dashboard'
+    _permission: 'access content'
 
 makerspace_dashboard.map_debug:
   path: '/makerspace-dashboard/map-debug'

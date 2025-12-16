@@ -49,6 +49,19 @@
     {{ copy_help }}
   </section>
 
+  {% if tables %}
+    <section class="annual-report-section">
+      {% for table_key, table_group in tables %}
+        <details class="report-section" open>
+          <summary>{{ table_group['#title'] }}</summary>
+          <div class="report-section__content">
+            {{ table_group.table }}
+          </div>
+        </details>
+      {% endfor %}
+    </section>
+  {% endif %}
+
   {% if charts %}
     <div class="charts-container">
       {% for group_key, group in charts %}

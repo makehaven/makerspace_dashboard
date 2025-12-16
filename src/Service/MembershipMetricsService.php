@@ -93,6 +93,125 @@ class MembershipMetricsService {
   }
 
   /**
+   * Returns a monthly cohort retention matrix.
+   *
+   * @param int $monthsBack
+   *   Number of months to look back for cohorts.
+   *
+   * @return array
+   *   Array of cohorts keyed by 'Y-m', containing 'joined', 'label', and 'retention' map.
+   */
+  public function getMonthlyCohortRetentionMatrix(int $monthsBack = 24): array {
+    $cacheId = sprintf('makerspace_dashboard:membership:cohort_matrix:v2:%d', $monthsBack);
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $members = $this->loadMemberTenureRecords();
+    $now = (int) $this->time->getRequestTime();
+    $cutoff = strtotime("-{$monthsBack} months first day of this month"); // Cohort start cutoff
+
+    $cohorts = [];
+    $tz = new \DateTimeZone(date_default_timezone_get());
+
+    foreach ($members as $record) {
+      if ($record['end'] === NULL && !$record['has_member_role']) {
+        continue; // Ignore this record as per user's instruction
+      }
+      $joinTs = $record['join'];
+      if ($joinTs < $cutoff) {
+        continue; // Too old
+      }
+      
+      // Determine cohort key (Join Month)
+      $joinDate = (new \DateTimeImmutable('@' . $joinTs))->setTimezone($tz);
+      $key = $joinDate->format('Y-m');
+      $label = $joinDate->format('M Y');
+
+      if (!isset($cohorts[$key])) {
+        $cohorts[$key] = [
+          'key' => $key,
+          'label' => $label,
+          'join_ts' => $joinDate->modify('first day of this month')->getTimestamp(),
+          'joined' => 0,
+          'survived_counts' => array_fill(0, $monthsBack + 1, 0),
+        ];
+      }
+
+      $cohorts[$key]['joined']++;
+
+      // Calculate months survived
+      $endTs = $record['end'] ?? $now;
+      // If endTs is in future (e.g. pre-scheduled end), cap at now? 
+      // Usually retention is "is member active at month X".
+      // If end_date > join_date + X months, they survived month X.
+      
+      // We check survival at the *end* of month X? Or start?
+      // Month 0 is usually "Joined". Retention 100%.
+      // Month 1 is "Still here after 1 month".
+      
+      // Let's iterate months 0..monthsBack
+      for ($m = 0; $m <= $monthsBack; $m++) {
+        // Milestone timestamp: Join Month Start + m months
+        // Or Join Date + m months? Cohort analysis usually normalizes to relative time.
+        // Simple logic: Did they survive m months?
+        // Tenure = (End - Join).
+        // If Tenure >= m months, they survived.
+        
+        // Exact logic:
+        // Join: Jan 15.
+        // Month 1 milestone: Feb 15.
+        // If End Date is NULL or >= Feb 15, they retained Month 1.
+        
+        $milestone = strtotime("+{$m} months", $joinTs);
+        
+        // If milestone is in the future, we cannot count it yet.
+        if ($milestone > $now) {
+          continue; 
+        }
+
+        if ($record['end'] === NULL || $record['end'] >= $milestone) {
+          $cohorts[$key]['survived_counts'][$m]++;
+        }
+      }
+    }
+
+    // Sort cohorts by date
+    ksort($cohorts);
+
+    // Format output
+    $matrix = [];
+    foreach ($cohorts as $key => $data) {
+      $row = [
+        'label' => $data['label'],
+        'joined' => $data['joined'],
+        'retention' => [],
+      ];
+      
+      // Calculate percentages
+      // Verify cohort age to stop future columns
+      $cohortStart = $data['join_ts'];
+      
+      foreach ($data['survived_counts'] as $m => $count) {
+        // Check if this month $m is historically observable for this cohort.
+        // Cohort Start + m months.
+        // If Cohort is Dec 2025. m=1 is Jan 2026. Future.
+        $milestoneStart = strtotime("+{$m} months", $cohortStart);
+        if ($milestoneStart > $now) {
+          $row['retention'][$m] = NULL;
+        } else {
+          $pct = $data['joined'] > 0 ? round(($count / $data['joined']) * 100, 1) : 0;
+          $row['retention'][$m] = $pct;
+        }
+      }
+      $matrix[] = $row;
+    }
+
+    $this->cache->set($cacheId, $matrix, $this->time->getRequestTime() + $this->ttl, ['profile_list']);
+    return $matrix;
+  }
+
+  /**
    * Returns membership inflow/outflow counts grouped by type and period.
    *
    * @return array
@@ -230,12 +349,13 @@ class MembershipMetricsService {
       return $cache->data;
     }
 
+    $startTs = strtotime($startYear . '-01-01 00:00:00');
+    $endTs = strtotime($endYear . '-12-31 23:59:59');
+
     $query = $this->database->select('profile', 'p');
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
     $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->fields('p', ['uid']);
-    $query->addField('join_date', 'field_member_join_date_value', 'join_date_value');
-    $query->condition('join_date.field_member_join_date_value', [$startYear . '-01-01', $endYear . '-12-31'], 'BETWEEN');
+    $query->fields('p', ['uid', 'created']);
+    $query->condition('p.created', [$startTs, $endTs], 'BETWEEN');
     $query->condition('u.status', 1);
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
@@ -255,15 +375,12 @@ class MembershipMetricsService {
 
     $cohorts = [];
     foreach ($rows as $row) {
-      $joinDate = $row->join_date_value;
-      if (!$joinDate) {
+      $created = (int) $row->created;
+      if ($created <= 0) {
         continue;
       }
-      [$year] = explode('-', $joinDate);
-      $year = (int) $year;
-      if ($year < $startYear || $year > $endYear) {
-        continue;
-      }
+      $year = (int) date('Y', $created);
+      
       $uid = (int) $row->uid;
       if (!isset($cohorts[$year])) {
         $cohorts[$year] = [
@@ -355,18 +472,17 @@ class MembershipMetricsService {
       return [];
     }
 
-    $startDate = $startJoinMonth->format('Y-m-01');
-    $endDate = $lastJoinMonth->modify('last day of this month')->format('Y-m-t');
+    $startTs = strtotime($startJoinMonth->format('Y-m-01 00:00:00'));
+    $endTs = strtotime($lastJoinMonth->modify('last day of this month')->format('Y-m-t 23:59:59'));
 
     $query = $this->database->select('profile', 'p');
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
+    $query->fields('p', ['created']);
     $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
     $query->leftJoin('profile__field_member_end_reason', 'end_reason', 'end_reason.entity_id = p.profile_id AND end_reason.deleted = 0');
     $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->addField('join_date', 'field_member_join_date_value', 'join_date_value');
     $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
     $query->addField('end_reason', 'field_member_end_reason_value', 'end_reason_value');
-    $query->condition('join_date.field_member_join_date_value', [$startDate, $endDate], 'BETWEEN');
+    $query->condition('p.created', [$startTs, $endTs], 'BETWEEN');
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
@@ -375,14 +491,15 @@ class MembershipMetricsService {
     $rows = $query->execute()->fetchAll();
     $hasData = FALSE;
     $unpreventableReasons = $this->getUnpreventableEndReasons();
+    $tz = new \DateTimeZone(date_default_timezone_get());
 
     foreach ($rows as $row) {
-      $joinDateValue = $row->join_date_value ?? '';
-      if (!$joinDateValue) {
+      $created = (int) $row->created;
+      if ($created <= 0) {
         continue;
       }
       try {
-        $joinDate = new \DateTimeImmutable($joinDateValue);
+        $joinDate = (new \DateTimeImmutable('@' . $created))->setTimezone($tz);
       }
       catch (\Exception $exception) {
         continue;
@@ -569,26 +686,28 @@ class MembershipMetricsService {
 
     $rangeEnd = end($buckets)['end'];
     reset($buckets);
+    $endTs = $rangeEnd->modify('23:59:59')->getTimestamp();
 
     $query = $this->database->select('profile', 'p');
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
+    $query->fields('p', ['created']);
     $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
     $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->addField('join_date', 'field_member_join_date_value', 'join_date_value');
     $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
     $query->condition('p.type', 'main');
     $query->condition('p.is_default', 1);
     $query->condition('u.status', 1);
-    $query->condition('join_date.field_member_join_date_value', $rangeEnd->format('Y-m-d'), '<=');
+    $query->condition('p.created', $endTs, '<=');
 
     $rows = $query->execute()->fetchAll();
+    $tz = new \DateTimeZone(date_default_timezone_get());
+
     foreach ($rows as $row) {
-      $joinValue = $row->join_date_value ?? '';
-      if ($joinValue === '') {
+      $created = (int) $row->created;
+      if ($created <= 0) {
         continue;
       }
       try {
-        $joinDate = new \DateTimeImmutable($joinValue);
+        $joinDate = (new \DateTimeImmutable('@' . $created))->setTimezone($tz);
       }
       catch (\Exception $exception) {
         continue;
@@ -826,55 +945,54 @@ class MembershipMetricsService {
    * Builds map of member join/end timestamps.
    */
   protected function loadMemberTenureRecords(bool $includeMembershipType = FALSE): array {
+    // Basic query for profiles.
     $query = $this->database->select('profile', 'p');
-    $query->fields('p', ['uid']);
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
+    $query->fields('p', ['uid', 'created']);
     $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
-    $query->addField('join_date', 'field_member_join_date_value', 'join_value');
     $query->addField('end_date', 'field_member_end_date_value', 'end_value');
     $query->condition('p.type', 'main');
-    $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
-    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->condition('u.status', 1);
 
-    if ($includeMembershipType) {
-      $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id AND membership_type.deleted = 0');
-      $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
-      $query->addField('term', 'tid', 'membership_tid');
-      $query->addField('term', 'name', 'membership_label');
-    }
-
+    // Initial records.
     $records = [];
-    foreach ($query->execute() as $row) {
-      $joinValue = trim((string) $row->join_value);
-      if ($joinValue === '') {
+    foreach ($query->execute()->fetchAllAssoc('uid') as $row) {
+      $joinTs = (int) $row->created;
+      if ($joinTs <= 0) {
         continue;
       }
-      $joinTs = strtotime($joinValue . ' 00:00:00');
-      if ($joinTs === FALSE) {
-        continue;
-      }
+      $endTs = NULL;
       $endValue = trim((string) ($row->end_value ?? ''));
-      if ($endValue === '') {
-        continue;
+      if ($endValue !== '') {
+        $parsed = strtotime($endValue . ' 23:59:59');
+        if ($parsed !== FALSE) {
+          $endTs = $parsed;
+        }
       }
-      $endTs = strtotime($endValue . ' 23:59:59');
-      if ($endTs === FALSE) {
-        continue;
-      }
-      $record = [
+      $records[(int) $row->uid] = [
         'join' => $joinTs,
         'end' => $endTs,
+        'uid' => (int) $row->uid,
       ];
-      if ($includeMembershipType && !empty($row->membership_tid)) {
-        $record['membership'] = [
-          'id' => (int) $row->membership_tid,
-          'label' => (string) $row->membership_label,
-        ];
-      }
-      $records[(int) $row->uid] = $record;
     }
+
+    // Now fetch roles for these UIDs.
+    $uids = array_keys($records);
+    $memberUids = [];
+    if (!empty($uids)) {
+        $roleQuery = $this->database->select('user__roles', 'ur');
+        $roleQuery->fields('ur', ['entity_id']);
+        $roleQuery->condition('ur.entity_id', $uids, 'IN');
+        $roleQuery->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+        $roleQuery->distinct();
+        $memberUids = $roleQuery->execute()->fetchCol();
+        $memberUids = array_flip($memberUids); // For quick lookup.
+    }
+
+    // Add has_member_role to records.
+    foreach ($records as $uid => &$record) {
+      $record['has_member_role'] = isset($memberUids[$uid]);
+    }
+
     return $records;
   }
 
@@ -1261,6 +1379,124 @@ class MembershipMetricsService {
     // @todo: Implement logic to calculate this. This will be called by the
     // 'annual' snapshot.
     return 0.68;
+  }
+
+  /**
+   * Calculates the retention curve (churn rate and life expectancy by tenure year).
+   *
+   * @return array
+   *   Array keyed by tenure year (int) containing 'churn_rate' and 'expected_future_years'.
+   */
+  public function getRetentionCurve(): array {
+    $cacheId = 'makerspace_dashboard:membership:retention_curve:v4';
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $members = $this->loadMemberTenureRecords();
+    if (empty($members)) {
+      return [];
+    }
+
+    $curve = [];
+    $maxYear = 15; // Extend to capture tail for terminal rate calculation.
+
+    // Initialize buckets.
+    for ($y = 0; $y <= $maxYear; $y++) {
+      $curve[$y] = [
+        'entered' => 0,
+        'churned' => 0,
+      ];
+    }
+
+    $now = (int) $this->time->getRequestTime();
+
+    foreach ($members as $record) {
+      if ($record['end'] === NULL && !$record['has_member_role']) {
+        continue; // Ignore this record as per user's instruction
+      }
+      $joinTs = $record['join'];
+      $endTs = $record['end'] ?? NULL;
+      $isChurned = ($endTs !== NULL && $endTs <= $now);
+      
+      $effectiveEnd = $endTs ?? $now;
+      $tenureYears = ($effectiveEnd - $joinTs) / 31557600;
+
+      for ($y = 0; $y <= $maxYear; $y++) {
+        if ($tenureYears >= $y) {
+          $curve[$y]['entered']++;
+          if ($isChurned && $tenureYears < ($y + 1)) {
+            $curve[$y]['churned']++;
+          }
+        }
+      }
+    }
+
+    $results = [];
+
+    // Calculate smoothed rates for 0-9 years.
+    for ($y = 0; $y <= 9; $y++) {
+      $poolEntered = 0;
+      $poolChurned = 0;
+
+      // Do not smooth Year 0 (new members have distinct high churn).
+      // For others, use 3-year window (previous, current, next).
+      if ($y === 0) {
+        $windowStart = 0;
+        $windowEnd = 0;
+      }
+      else {
+        $windowStart = max(0, $y - 1);
+        $windowEnd = min($maxYear, $y + 1);
+      }
+
+      for ($k = $windowStart; $k <= $windowEnd; $k++) {
+        $poolEntered += $curve[$k]['entered'];
+        $poolChurned += $curve[$k]['churned'];
+      }
+
+      if ($poolEntered > 0) {
+        $churnRate = $poolChurned / $poolEntered;
+        // Floor churn at 3% for safety in calculations.
+        $safeChurn = max($churnRate, 0.03);
+        $expectedFutureYears = min(1 / $safeChurn, 15.0);
+      } else {
+        $churnRate = 1.0;
+        $expectedFutureYears = 0.0;
+      }
+
+      $results[$y] = [
+        'entered' => $curve[$y]['entered'], // Return actual count for reference
+        'churn_rate' => $churnRate,
+        'expected_future_years' => $expectedFutureYears,
+      ];
+    }
+
+    // Calculate terminal '10+' rate.
+    $termEntered = 0;
+    $termChurned = 0;
+    for ($y = 10; $y <= $maxYear; $y++) {
+      $termEntered += $curve[$y]['entered'];
+      $termChurned += $curve[$y]['churned'];
+    }
+
+    if ($termEntered > 0) {
+      $termChurn = $termChurned / $termEntered;
+      $termSafeChurn = max($termChurn, 0.02); // Lower floor for long-tail.
+      $termFuture = min(1 / $termSafeChurn, 20.0);
+    } else {
+      $termFuture = 0.0;
+    }
+
+    $results['10+'] = [
+      'entered' => $termEntered,
+      'expected_future_years' => $termFuture,
+    ];
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $results, $expire, ['profile_list']);
+
+    return $results;
   }
 
 }

@@ -28,12 +28,18 @@ class FinancialDataService {
   protected DateFormatterInterface $dateFormatter;
 
   /**
+   * Membership metrics service.
+   */
+  protected MembershipMetricsService $membershipMetricsService;
+
+  /**
    * Constructs the service.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, DateFormatterInterface $dateFormatter) {
+  public function __construct(Connection $database, CacheBackendInterface $cache, DateFormatterInterface $dateFormatter, MembershipMetricsService $membershipMetricsService) {
     $this->database = $database;
     $this->cache = $cache;
     $this->dateFormatter = $dateFormatter;
+    $this->membershipMetricsService = $membershipMetricsService;
   }
 
   /**
@@ -393,6 +399,225 @@ class FinancialDataService {
 
     $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['user_list']);
 
+    return $data;
+  }
+
+  /**
+   * Calculates estimated Lifetime Value (LTV) grouped by membership type.
+   *
+   * Estimation: (Months since Join Date) * (Current Monthly Payment).
+   *
+   * @return array
+   *   Array of LTV data keyed by membership type.
+   */
+  public function getLifetimeValueByMembershipType(): array {
+    $cid = 'makerspace_dashboard:ltv_by_type';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      return [];
+    }
+
+    $query = $this->database->select('profile__field_member_payment_monthly', 'payment');
+    $query->innerJoin('profile', 'p', 'p.profile_id = payment.entity_id');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->leftJoin('profile__field_membership_type', 'membership_type', 'membership_type.entity_id = p.profile_id');
+    $query->leftJoin('taxonomy_term_field_data', 'term', 'term.tid = membership_type.field_membership_type_target_id');
+
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('u.status', 1);
+    $query->condition('payment.field_member_payment_monthly_value', 0, '>');
+
+    // Calculate months since join.
+    $query->addExpression('TIMESTAMPDIFF(MONTH, FROM_UNIXTIME(p.created), NOW())', 'months_active');
+    $query->addField('payment', 'field_member_payment_monthly_value', 'monthly_payment');
+    $query->addExpression("COALESCE(term.name, 'Unknown')", 'type_name');
+
+    $results = $query->execute();
+
+    $sums = [];
+    $counts = [];
+
+    foreach ($results as $row) {
+      $months = max(1, (int) $row->months_active);
+      $ltv = $months * (float) $row->monthly_payment;
+      $type = $row->type_name;
+
+      if (!isset($sums[$type])) {
+        $sums[$type] = 0;
+        $counts[$type] = 0;
+      }
+      $sums[$type] += $ltv;
+      $counts[$type]++;
+    }
+
+    $data = [];
+    foreach ($sums as $type => $total_ltv) {
+      $data[$type] = round($total_ltv / $counts[$type], 2);
+    }
+    arsort($data);
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['profile_list']);
+    return $data;
+  }
+
+  /**
+   * Calculates estimated Lifetime Value (LTV) grouped by tenure (years).
+   *
+   * Includes both realized (historical) value and projected future value based
+   * on current retention rates.
+   *
+   * @return array
+   *   Array of LTV data keyed by years of membership.
+   */
+  public function getLifetimeValueByTenure(): array {
+    $cid = 'makerspace_dashboard:ltv_by_tenure:v4';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    // 1. Get Retention Curve (Future Life Expectancy by Tenure Year).
+    $curve = $this->membershipMetricsService->getRetentionCurve();
+
+    // 2. Query Realized Value.
+    $query = $this->database->select('profile__field_member_payment_monthly', 'payment');
+    $query->innerJoin('profile', 'p', 'p.profile_id = payment.entity_id');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('u.status', 1);
+    $query->condition('payment.field_member_payment_monthly_value', 0, '>');
+
+    $query->addExpression('TIMESTAMPDIFF(MONTH, FROM_UNIXTIME(p.created), NOW())', 'months_active');
+    $query->addField('payment', 'field_member_payment_monthly_value', 'monthly_payment');
+
+    $results = $query->execute();
+
+    $buckets = [];
+    $totalMonthlyPaymentSum = 0;
+    $totalCount = 0;
+
+    foreach ($results as $row) {
+      $months = max(1, (int) $row->months_active);
+      $years = (int) floor($months / 12);
+      $monthlyPayment = (float) $row->monthly_payment;
+      
+      $totalMonthlyPaymentSum += $monthlyPayment;
+      $totalCount++;
+
+      $realizedLtv = $months * $monthlyPayment;
+      
+      // Group 10+ years.
+      $key = ($years >= 10) ? '10+ Years' : $years . ' Years';
+      $sortKey = ($years >= 10) ? 999 : $years;
+
+      if (!isset($buckets[$key])) {
+        $buckets[$key] = [
+          'realized_sum' => 0,
+          'projected_sum' => 0,
+          'count' => 0,
+          'sort' => $sortKey,
+        ];
+      }
+      
+      // Lookup expected future years for this specific tenure year.
+      if ($years >= 10) {
+        $expectedFutureYears = $curve['10+']['expected_future_years'] ?? 0.5;
+      }
+      else {
+        $expectedFutureYears = $curve[$years]['expected_future_years'] ?? 0.5;
+      }
+      
+      $projectedLtv = $monthlyPayment * ($expectedFutureYears * 12);
+
+      $buckets[$key]['realized_sum'] += $realizedLtv;
+      $buckets[$key]['projected_sum'] += $projectedLtv;
+      $buckets[$key]['count']++;
+    }
+
+    // Ensure 0 Years bucket exists for "New Member" projection.
+    if (!isset($buckets['0 Years']) && $totalCount > 0) {
+      $globalAvgPayment = $totalMonthlyPaymentSum / $totalCount;
+      $curve0 = $curve[0]['expected_future_years'] ?? 0.5;
+      $buckets['0 Years'] = [
+        'realized_sum' => $globalAvgPayment, // Assume 1 month paid for new member
+        'projected_sum' => $globalAvgPayment * ($curve0 * 12),
+        'count' => 1, // Artificial count to make division work
+        'sort' => 0,
+      ];
+    }
+
+    // Sort by tenure year.
+    uasort($buckets, function ($a, $b) {
+      return $a['sort'] <=> $b['sort'];
+    });
+
+    $data = [];
+    foreach ($buckets as $key => $bucket) {
+      $avgRealized = $bucket['realized_sum'] / $bucket['count'];
+      $avgProjected = $bucket['projected_sum'] / $bucket['count'];
+      
+      // Re-determine years to lookup correct months for metadata.
+      if ($key === '10+ Years') {
+        $years = 10;
+        $expectedFutureYears = $curve['10+']['expected_future_years'] ?? 0.5;
+      }
+      else {
+        $years = (int) $key; // "0 Years" -> 0
+        $expectedFutureYears = $curve[$years]['expected_future_years'] ?? 0.5;
+      }
+
+      $data[$key] = [
+        'realized' => round($avgRealized, 2),
+        'projected' => round($avgProjected, 2),
+        'projected_months' => round($expectedFutureYears * 12, 1),
+        'total' => round($avgRealized + $avgProjected, 2),
+      ];
+    }
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['profile_list']);
+    return $data;
+  }
+
+  /**
+   * Calculates average tenure (retention) by plan type.
+   *
+   * @return array
+   *   Array of average months of tenure keyed by plan name.
+   */
+  public function getRetentionByPlanType(): array {
+    $cid = 'makerspace_dashboard:retention_by_plan';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('user__field_user_chargebee_plan')) {
+      return [];
+    }
+
+    $query = $this->database->select('user__field_user_chargebee_plan', 'plan');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = plan.entity_id');
+    $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = \'main\'');
+    
+    $query->condition('u.status', 1);
+    $query->condition('plan.deleted', 0);
+    
+    $query->addExpression("COALESCE(NULLIF(plan.field_user_chargebee_plan_value, ''), 'Unassigned')", 'plan_label');
+    $query->addExpression('AVG(TIMESTAMPDIFF(MONTH, FROM_UNIXTIME(p.created), NOW()))', 'avg_months');
+    $query->groupBy('plan_label');
+    $query->orderBy('avg_months', 'DESC');
+
+    $results = $query->execute();
+    $data = [];
+    foreach ($results as $row) {
+      $data[$row->plan_label] = round((float) $row->avg_months, 1);
+    }
+
+    $this->cache->set($cid, $data, CacheBackendInterface::CACHE_PERMANENT, ['user_list', 'profile_list']);
     return $data;
   }
 
