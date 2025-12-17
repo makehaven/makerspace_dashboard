@@ -1,0 +1,189 @@
+<?php
+
+/**
+ * @file
+ * Install, update and uninstall functions for the makerspace_dashboard module.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function makerspace_dashboard_schema() {
+  $schema['ms_snapshot'] = [
+    'description' => 'Stores snapshot metadata.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'Primary Key: Unique snapshot ID.',
+      ],
+      'snapshot_date' => [
+        'type' => 'varchar',
+        'length' => 20,
+        'not null' => TRUE,
+        'description' => 'The date of the snapshot (Y-m-d).',
+      ],
+      'snapshot_type' => [
+        'type' => 'varchar',
+        'length' => 32,
+        'not null' => TRUE,
+        'description' => 'The type of snapshot (e.g., monthly, annually).',
+      ],
+      'definition' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => FALSE,
+        'description' => 'The definition/category of the snapshot.',
+      ],
+      'is_test' => [
+        'type' => 'int',
+        'size' => 'tiny',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Flag indicating if this is a test snapshot.',
+      ],
+      'created' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Timestamp when the snapshot was created.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'snapshot_date' => ['snapshot_date'],
+      'snapshot_type' => ['snapshot_type'],
+    ],
+  ];
+
+  $schema['ms_fact_org_snapshot'] = [
+    'description' => 'Stores organization-level snapshot facts.',
+    'fields' => [
+      'snapshot_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => 'Foreign Key: The snapshot ID.',
+      ],
+      'members_active' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Count of active members.',
+      ],
+      'joins' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Number of new joins.',
+      ],
+    ],
+    'primary key' => ['snapshot_id'],
+    'foreign keys' => [
+      'ms_snapshot' => [
+        'table' => 'ms_snapshot',
+        'columns' => ['snapshot_id' => 'id'],
+      ],
+    ],
+  ];
+
+  $schema['ms_fact_membership_type_snapshot'] = [
+    'description' => 'Stores membership type breakdown facts.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'Primary Key.',
+      ],
+      'snapshot_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => 'Foreign Key: The snapshot ID.',
+      ],
+      'term_label' => [
+        'type' => 'varchar',
+        'length' => 255,
+        'not null' => TRUE,
+        'description' => 'The membership type label.',
+      ],
+      'member_count' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Count of members with this type.',
+      ],
+      'members_total' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'default' => 0,
+        'description' => 'Total members in the snapshot context.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'snapshot_id' => ['snapshot_id'],
+    ],
+    'foreign keys' => [
+      'ms_snapshot' => [
+        'table' => 'ms_snapshot',
+        'columns' => ['snapshot_id' => 'id'],
+      ],
+    ],
+  ];
+
+  $schema['ms_fact_kpi_snapshot'] = [
+    'description' => 'Stores KPI snapshot facts.',
+    'fields' => [
+      'id' => [
+        'type' => 'serial',
+        'not null' => TRUE,
+        'description' => 'Primary Key.',
+      ],
+      'snapshot_id' => [
+        'type' => 'int',
+        'not null' => TRUE,
+        'description' => 'Foreign Key: The snapshot ID.',
+      ],
+      'kpi_id' => [
+        'type' => 'varchar',
+        'length' => 64,
+        'not null' => TRUE,
+        'description' => 'The KPI ID.',
+      ],
+      'metric_value' => [
+        'type' => 'float', 
+        'not null' => TRUE,
+        'description' => 'The value of the KPI.',
+      ],
+      'period_year' => [
+        'type' => 'int',
+        'not null' => FALSE,
+        'description' => 'The year associated with the KPI.',
+      ],
+      'period_month' => [
+        'type' => 'int',
+        'not null' => FALSE,
+        'description' => 'The month associated with the KPI.',
+      ],
+      'meta' => [
+        'type' => 'blob',
+        'not null' => FALSE,
+        'size' => 'big',
+        'serialize' => TRUE,
+        'description' => 'Serialized metadata.',
+      ],
+    ],
+    'primary key' => ['id'],
+    'indexes' => [
+      'snapshot_id' => ['snapshot_id'],
+      'kpi_id' => ['kpi_id'],
+    ],
+    'foreign keys' => [
+      'ms_snapshot' => [
+        'table' => 'ms_snapshot',
+        'columns' => ['snapshot_id' => 'id'],
+      ],
+    ],
+  ];
+
+  return $schema;
+}
