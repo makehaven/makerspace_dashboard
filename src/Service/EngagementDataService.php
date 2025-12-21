@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Database\StatementInterface;
@@ -24,6 +25,8 @@ class EngagementDataService {
 
   protected Connection $database;
 
+  protected CacheBackendInterface $cache;
+
   protected ConfigFactoryInterface $configFactory;
 
   protected TimeInterface $time;
@@ -33,10 +36,12 @@ class EngagementDataService {
    */
   protected ?array $toolBadgeIds = NULL;
 
-  public function __construct(Connection $database, ConfigFactoryInterface $config_factory, TimeInterface $time) {
+  public function __construct(Connection $database, ConfigFactoryInterface $config_factory, TimeInterface $time, CacheBackendInterface $cache) {
+    // Inject dependencies.
     $this->database = $database;
     $this->configFactory = $config_factory;
     $this->time = $time;
+    $this->cache = $cache;
   }
 
   /**
@@ -366,10 +371,72 @@ class EngagementDataService {
   }
 
   /**
+   * Returns monthly badge issuance counts for the given period.
+   */
+  public function getMonthlyBadgeIssuance(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $cid = sprintf('makerspace_dashboard:engagement:monthly_badges:%s:%s', $start->format('Ymd'), $end->format('Ymd'));
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('node_field_data', 'n');
+    $query->leftJoin('node__field_badge_status', 'status', 'status.entity_id = n.nid AND status.deleted = 0');
+    $query->addExpression("FROM_UNIXTIME(n.created, '%Y-%m-01')", 'month_key');
+    $query->addExpression('COUNT(DISTINCT n.nid)', 'badge_count');
+    
+    $query->condition('n.type', 'badge_request');
+    $query->condition('n.status', 1);
+    
+    $orGroup = $query->orConditionGroup()
+      ->condition('status.field_badge_status_value', 'active')
+      ->isNull('status.field_badge_status_value');
+    $query->condition($orGroup);
+
+    $query->condition('n.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
+    
+    $query->groupBy('month_key');
+    $query->orderBy('month_key', 'ASC');
+
+    $results = $query->execute()->fetchAll();
+
+    $dataMap = [];
+    foreach ($results as $row) {
+      $dataMap[$row->month_key] = (int) $row->badge_count;
+    }
+
+    $labels = [];
+    $counts = [];
+    $current = $start->setTime(0, 0)->modify('first day of this month');
+    $last = $end->setTime(0, 0)->modify('first day of this month');
+
+    while ($current <= $last) {
+      $key = $current->format('Y-m-01');
+      $labels[] = $current->format('M Y');
+      $counts[] = $dataMap[$key] ?? 0;
+      $current = $current->modify('+1 month');
+    }
+
+    $data = [
+      'labels' => $labels,
+      'counts' => $counts,
+    ];
+
+    $this->cache->set($cid, $data, $this->buildTtl(), ['node_list:badge_request']);
+    return $data;
+  }
+
+  /**
    * Retrieves configuration.
    */
   protected function getSettings() {
     return $this->configFactory->get('makerspace_dashboard.settings');
+  }
+
+  /**
+   * Shared cache TTL.
+   */
+  protected function buildTtl(): int {
+    return 3600;
   }
 
 }

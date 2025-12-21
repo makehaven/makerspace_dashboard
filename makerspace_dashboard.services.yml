@@ -810,6 +810,7 @@ services:
       - '@database'
       - '@config.factory'
       - '@datetime.time'
+      - '@cache.default'
 
   makerspace_dashboard.appointment_insights:
     class: Drupal\makerspace_dashboard\Service\AppointmentInsightsService

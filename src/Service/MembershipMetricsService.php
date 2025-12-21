@@ -656,7 +656,7 @@ class MembershipMetricsService {
     $bucketEnd = $today;
 
     $cacheId = sprintf(
-      'makerspace_dashboard:membership:active_counts:%d:%s',
+      'makerspace_dashboard:membership:active_counts:v2:%d:%s',
       $months,
       $bucketEnd->format('Y-m-d')
     );
@@ -684,45 +684,19 @@ class MembershipMetricsService {
       return [];
     }
 
-    $rangeEnd = end($buckets)['end'];
-    reset($buckets);
-    $endTs = $rangeEnd->modify('23:59:59')->getTimestamp();
+    // Use shared tenure loader which handles role filtering.
+    $members = $this->loadMemberTenureRecords();
 
-    $query = $this->database->select('profile', 'p');
-    $query->fields('p', ['created']);
-    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
-    $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
-    $query->condition('p.type', 'main');
-    $query->condition('p.is_default', 1);
-    $query->condition('u.status', 1);
-    $query->condition('p.created', $endTs, '<=');
-
-    $rows = $query->execute()->fetchAll();
-    $tz = new \DateTimeZone(date_default_timezone_get());
-
-    foreach ($rows as $row) {
-      $created = (int) $row->created;
-      if ($created <= 0) {
-        continue;
-      }
-      try {
-        $joinDate = (new \DateTimeImmutable('@' . $created))->setTimezone($tz);
-      }
-      catch (\Exception $exception) {
+    foreach ($members as $record) {
+      // Ensure we only count those with the member role.
+      if (empty($record['has_member_role'])) {
         continue;
       }
 
-      $endValue = $row->end_date_value ?? '';
-      $endDate = NULL;
-      if ($endValue !== '') {
-        try {
-          $endDate = new \DateTimeImmutable($endValue);
-        }
-        catch (\Exception $exception) {
-          $endDate = NULL;
-        }
-      }
+      $joinTs = $record['join'];
+      $endTs = $record['end'];
+      $joinDate = (new \DateTimeImmutable('@' . $joinTs))->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+      $endDate = $endTs ? (new \DateTimeImmutable('@' . $endTs))->setTimezone(new \DateTimeZone(date_default_timezone_get())) : NULL;
 
       foreach ($buckets as $key => &$bucket) {
         if ($joinDate > $bucket['end']) {
@@ -829,7 +803,13 @@ class MembershipMetricsService {
     $buckets = $this->initializeBadgeCountBuckets();
 
     foreach ($members as $uid => $record) {
-      if (empty($record['end']) || empty($record['join']) || $record['end'] <= $record['join']) {
+      if (empty($record['has_member_role'])) {
+        continue;
+      }
+      if (empty($record['join'])) {
+        continue;
+      }
+      if (!empty($record['end']) && $record['end'] <= $record['join']) {
         continue;
       }
       $count = $badgeCounts[$uid] ?? 0;

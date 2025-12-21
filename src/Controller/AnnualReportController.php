@@ -17,11 +17,12 @@ use Drupal\makerspace_dashboard\Service\RetentionFlowDataService;
 use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
 use Drupal\makerspace_dashboard\Service\EntrepreneurshipDataService;
 use Drupal\makerspace_dashboard\Service\EngagementDataService;
+use Drupal\makerspace_dashboard\Service\AppointmentInsightsService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 
 /**
- * Generates a Year-over-Year Impact Report.
+ * Generates a Year-over-Year Data In Review.
  */
 class AnnualReportController extends ControllerBase {
 
@@ -59,6 +60,7 @@ class AnnualReportController extends ControllerBase {
   protected EntrepreneurshipDataService $entrepreneurshipData;
   protected EngagementDataService $engagementData;
   protected UtilizationWindowService $utilizationWindowService;
+  protected AppointmentInsightsService $appointmentInsights;
 
   /**
    * The config factory.
@@ -85,7 +87,8 @@ class AnnualReportController extends ControllerBase {
       $container->get('makerspace_dashboard.entrepreneurship_data'),
       $container->get('makerspace_dashboard.engagement_data'),
       $container->get('config.factory'),
-      $container->get('makerspace_dashboard.utilization_window')
+      $container->get('makerspace_dashboard.utilization_window'),
+      $container->get('makerspace_dashboard.appointment_insights')
     );
   }
 
@@ -106,7 +109,8 @@ class AnnualReportController extends ControllerBase {
     EntrepreneurshipDataService $entrepreneurship_data,
     EngagementDataService $engagement_data,
     ConfigFactoryInterface $config_factory,
-    UtilizationWindowService $utilization_window_service
+    UtilizationWindowService $utilization_window_service,
+    AppointmentInsightsService $appointment_insights
   ) {
     $this->database = $database;
     $this->lendingStats = $lending_stats;
@@ -122,6 +126,7 @@ class AnnualReportController extends ControllerBase {
     $this->engagementData = $engagement_data;
     $this->configFactory = $config_factory;
     $this->utilizationWindowService = $utilization_window_service;
+    $this->appointmentInsights = $appointment_insights;
   }
 
   /**
@@ -154,7 +159,7 @@ class AnnualReportController extends ControllerBase {
 
     return [
       '#theme' => 'annual_report',
-      '#title' => $this->t('Year-over-Year Impact Report'),
+      '#title' => $this->t('Year-over-Year Data In Review'),
       '#description' => $this->t('Comparing @prev_start to @prev_end vs @curr_start to @curr_end.', [
         '@prev_start' => $prevStart->format('M Y'),
         '@prev_end' => $prevEnd->modify('-1 day')->format('M Y'),
@@ -163,21 +168,6 @@ class AnnualReportController extends ControllerBase {
       ]),
       '#highlights' => $highlights,
       '#rows' => $metricCards,
-      '#table' => [
-        '#type' => 'table',
-        '#header' => [
-          $this->t('Metric'),
-          $this->t('Previous Period'),
-          $this->t('Current Period'),
-          $this->t('Change'),
-          $this->t('% Change'),
-        ],
-        '#rows' => $tableRows,
-        '#attributes' => ['class' => ['comparison-table']],
-      ],
-      '#copy_help' => [
-        '#markup' => '<p><small>' . $this->t('Tip: You can copy and paste the table below directly into a spreadsheet or email.') . '</small></p>',
-      ],
       '#charts' => $charts,
       '#tables' => $tables,
       '#attached' => [
@@ -282,12 +272,11 @@ class AnnualReportController extends ControllerBase {
   }
 
 
-  /**
-   * Calculates key highlights for the report.
-   */
   protected function calculateHighlights(array $prev, array $curr): array {
     $highlights = [];
     
+    $highlights[] = $this->t('MakeHaven community has reached <strong>@count</strong> active members.', ['@count' => number_format($curr['members_active'])]);
+
     // Check for significant growth (>10%) in key metrics
     if ($prev['total_joins'] > 0 && $curr['total_joins'] > $prev['total_joins']) {
        $pct = round((($curr['total_joins'] - $prev['total_joins']) / $prev['total_joins']) * 100);
@@ -296,11 +285,6 @@ class AnnualReportController extends ControllerBase {
     
     if ($curr['events_held'] > $prev['events_held']) {
       $highlights[] = $this->t('We hosted <strong>@count</strong> workshops this year.', ['@count' => number_format($curr['events_held'])]);
-    }
-
-    if ($curr['donation_amount'] > $prev['donation_amount']) {
-      $diff = $curr['donation_amount'] - $prev['donation_amount'];
-       $highlights[] = $this->t('Fundraising increased by <strong>@amount</strong>.', ['@amount' => '$' . number_format($diff)]);
     }
 
     return $highlights;
@@ -313,13 +297,16 @@ class AnnualReportController extends ControllerBase {
     $stats = [];
     $lastMonthOfPeriod = $end->modify('-1 month')->format('Y-m-01');
 
-    $query = $this->database->select('ms_fact_org_snapshot', 'f');
-    $query->join('ms_snapshot', 's', 's.id = f.snapshot_id');
-    $query->fields('f', ['members_active']);
-    $query->condition('s.snapshot_type', 'monthly');
-    $query->condition('s.snapshot_date', $lastMonthOfPeriod);
-    $result = $query->execute()->fetchField();
-    $stats['members_active'] = $result ? (int) $result : 0;
+    $stats['members_active'] = 0;
+    // Use the metrics service to calculate historical active counts on-the-fly
+    // instead of relying on the snapshot table. 36 months covers the comparison periods.
+    $activeCounts = $this->membershipMetrics->getMonthlyActiveMemberCounts(36);
+    foreach ($activeCounts as $period) {
+      if ($period['period'] === $lastMonthOfPeriod) {
+        $stats['members_active'] = $period['count'];
+        break;
+      }
+    }
 
     $query = $this->database->select('profile', 'p');
     $query->condition('p.type', 'main');
@@ -346,13 +333,33 @@ class AnnualReportController extends ControllerBase {
     $count_query = $query->countQuery();
     $stats['event_registrations'] = (int) $count_query->execute()->fetchField();
 
-    $contributionStats = $this->developmentData->getContributionStats($start, $end);
-    $stats['donation_amount'] = $contributionStats['total_amount'];
-    $stats['donation_count'] = $contributionStats['count'];
+    $query = $this->database->select('node__field_member_to_badge', 'mtb');
+    $query->innerJoin('node_field_data', 'n', 'n.nid = mtb.entity_id');
+    $query->innerJoin('node__field_badge_status', 'status', 'status.entity_id = n.nid');
+    $query->condition('n.type', 'badge_request');
+    $query->condition('n.status', 1);
+    $query->condition('status.field_badge_status_value', 'active');
+    $query->condition('n.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
+    $query->addExpression('COUNT(DISTINCT n.nid)', 'total_badges');
+    $stats['badges_earned'] = (int) $query->execute()->fetchField();
 
+    // Total Visits (sum of daily unique entries)
+    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($start->getTimestamp(), $end->getTimestamp());
+    $stats['total_visits'] = array_sum($dailyEntries);
+
+    $appointmentData = $this->appointmentInsights->getFeedbackOutcomeSeries($start, $end);
+    $stats['appointments'] = $appointmentData['totals']['appointments'] ?? 0;
+
+    // Get lending stats for the period.
     $lending = $this->lendingStats->getStatsForPeriod($start, $end);
     $stats['lending_loans'] = $lending['loan_count'] ?? 0;
     $stats['lending_borrowers'] = $lending['unique_borrowers'] ?? 0;
+
+    // Get total member count (including paused)
+    $query = $this->database->select('user__roles', 'ur');
+    $query->condition('ur.roles_target_id', ['member', 'current_member'], 'IN');
+    $query->addExpression('COUNT(DISTINCT ur.entity_id)', 'total_members');
+    $stats['total_members_all'] = (int) $query->execute()->fetchField();
 
     return $stats;
   }
@@ -366,13 +373,27 @@ class AnnualReportController extends ControllerBase {
     foreach ($metrics as $key => $info) {
       $valPrev = $prev[$key] ?? 0;
       $valCurr = $curr[$key] ?? 0;
-      $diff = $valCurr - $valPrev;
-      $pct = $valPrev > 0 ? round(($diff / $valPrev) * 100, 1) . '%' : ($valCurr > 0 ? '100%' : '0%');
-      $diffClass = $diff >= 0 ? 'status-ok' : 'status-warning';
+      
+      // Special handling for metrics where we don't have historical data.
+      if (in_array($key, ['members_active', 'total_members_all', 'total_visits'])) {
+        $valPrev = NULL;
+      }
 
-      $valPrevStr = $this->formatValue($valPrev, $info['format']);
+      if ($valPrev !== NULL) {
+        $diff = $valCurr - $valPrev;
+        $pct = $valPrev > 0 ? round(($diff / $valPrev) * 100, 1) . '%' : ($valCurr > 0 ? '100%' : '0%');
+        $diffClass = $diff >= 0 ? 'status-ok' : 'status-warning';
+        $valPrevStr = $this->formatValue($valPrev, $info['format']);
+        $diffStr = ($diff >= 0 ? '+' : '-') . $this->formatValue(abs($diff), $info['format']);
+      }
+      else {
+        $valPrevStr = '-';
+        $diffStr = '-';
+        $pct = '-';
+        $diffClass = '';
+      }
+
       $valCurrStr = $this->formatValue($valCurr, $info['format']);
-      $diffStr = ($diff >= 0 ? '+' : '-') . $this->formatValue(abs($diff), $info['format']);
 
       $rows[] = [
         ['data' => $info['label'], 'header' => TRUE],
@@ -394,21 +415,49 @@ class AnnualReportController extends ControllerBase {
     foreach ($metrics as $key => $info) {
       $valPrev = $prev[$key] ?? 0;
       $valCurr = $curr[$key] ?? 0;
-      $diff = $valCurr - $valPrev;
-      $pct = $valPrev > 0 ? round(($diff / $valPrev) * 100, 1) . '%' : ($valCurr > 0 ? '100%' : '0%');
       
-      $trendClass = 'trend-neutral';
-      if ($diff > 0) {
-        $trendClass = 'trend-up';
-      } elseif ($diff < 0) {
-        $trendClass = 'trend-down';
+      // Special handling for Active Members & Total Visits: we don't have historical data yet.
+      if (in_array($key, ['members_active', 'total_visits'])) {
+        $valPrev = NULL;
+      }
+
+      // Special handling for the main member card.
+      if ($key === 'members_active') {
+        $cards[] = [
+          'label' => $this->t('Total Members'),
+          'current' => $this->formatValue($curr['total_members_all'] ?? 0, 'number'),
+          'previous' => $this->t('Active: @count', ['@count' => $this->formatValue($curr['members_active'] ?? 0, 'number')]),
+          'change' => '-',
+          'percent' => '-',
+          'trend_class' => 'trend-neutral',
+        ];
+        continue;
+      }
+
+      if ($valPrev !== NULL) {
+        $diff = $valCurr - $valPrev;
+        $pct = $valPrev > 0 ? round(($diff / $valPrev) * 100, 1) . '%' : ($valCurr > 0 ? '100%' : '0%');
+        
+        $trendClass = 'trend-neutral';
+        if ($diff > 0) {
+          $trendClass = 'trend-up';
+        } elseif ($diff < 0) {
+          $trendClass = 'trend-down';
+        }
+        $valPrevStr = $this->formatValue($valPrev, $info['format']);
+        $changeStr = ($diff >= 0 ? '+' : '-') . $this->formatValue(abs($diff), $info['format']);
+      } else {
+        $pct = '-';
+        $trendClass = 'trend-neutral';
+        $valPrevStr = '-';
+        $changeStr = '-';
       }
 
       $cards[] = [
         'label' => $info['label'],
         'current' => $this->formatValue($valCurr, $info['format']),
-        'previous' => $this->formatValue($valPrev, $info['format']),
-        'change' => ($diff >= 0 ? '+' : '-') . $this->formatValue(abs($diff), $info['format']),
+        'previous' => $valPrevStr,
+        'change' => $changeStr,
         'percent' => $pct,
         'trend_class' => $trendClass,
       ];
@@ -421,14 +470,15 @@ class AnnualReportController extends ControllerBase {
    */
   protected function getMetricsDefinitions(): array {
     return [
-      'members_active' => ['label' => 'Active Members', 'format' => 'number'],
-      'total_joins' => ['label' => 'New Members (Last 12 Months)', 'format' => 'number'],
+      'members_active' => ['label' => 'Total Members', 'format' => 'number'],
+      'total_joins' => ['label' => 'Total Joins (Year)', 'format' => 'number'],
       'events_held' => ['label' => 'Workshops Held (Year)', 'format' => 'number'],
       'event_registrations' => ['label' => 'Workshop Registrations', 'format' => 'number'],
+      'appointments' => ['label' => 'Volunteer Appointments (Last 12 Months)', 'format' => 'number'],
       'lending_loans' => ['label' => 'Tool Loans (Last 12 Months)', 'format' => 'number'],
       'lending_borrowers' => ['label' => 'Unique Borrowers (Last 12 Months)', 'format' => 'number'],
-      'donation_count' => ['label' => 'Donations', 'format' => 'number'],
-      'donation_amount' => ['label' => 'Donation Total', 'format' => 'currency'],
+      'badges_earned' => ['label' => 'Badges Earned (Last 12 Months)', 'format' => 'number'],
+      'total_visits' => ['label' => 'Total Visits (Last 12 Months)', 'format' => 'number'],
     ];
   }
 
@@ -440,6 +490,57 @@ class AnnualReportController extends ControllerBase {
       return '$' . number_format($value, 2);
     }
     return number_format($value);
+  }
+
+  /**
+   * Helper to get goal counts for all currently active members.
+   */
+  protected function getActiveMemberGoals(): array {
+    $query = $this->database->select('profile', 'p');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = u.uid');
+    $query->leftJoin('profile__field_member_goal', 'goal', 'goal.entity_id = p.profile_id AND goal.deleted = 0');
+    $query->addField('goal', 'field_member_goal_value', 'goal_value');
+    
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->condition('u.status', 1);
+    $query->condition('ur.roles_target_id', ['member', 'current_member'], 'IN');
+    
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
+    $query->groupBy('goal.field_member_goal_value');
+    
+    $results = $query->execute();
+    
+    $labels = [
+      'entrepreneur' => $this->t('Business entrepreneurship'),
+      'seller' => $this->t('Produce products/art to sell'),
+      'inventor' => $this->t('Develop a prototype/product'),
+      'skill_builder' => $this->t('Learn new skills'),
+      'hobbyist' => $this->t('Personal hobby projects'),
+      'artist' => $this->t('Work on my art'),
+      'networker' => $this->t('Meet other makers'),
+      'other' => $this->t('Other goals'),
+    ];
+
+    $goals = [];
+    foreach ($results as $record) {
+        $goalValue = trim((string) ($record->goal_value ?? ''));
+        if (empty($goalValue)) {
+          continue;
+        }
+        $label = isset($labels[$goalValue]) ? (string) $labels[$goalValue] : ucfirst($goalValue);
+        $key = $goalValue; // Keep machine name as key for filtering, label for display? 
+        // Actually return array keyed by machine name with label and count?
+        // Or just Label => Count.
+        // I need machine name to filter for the Entrepreneur chart.
+        $goals[$key] = [
+            'label' => $label,
+            'count' => (int) $record->member_count,
+        ];
+    }
+    return $goals;
   }
 
   /**
@@ -458,11 +559,25 @@ class AnnualReportController extends ControllerBase {
     
     $results = $query->execute();
     
+    $labels = [
+      'entrepreneur' => $this->t('Business entrepreneurship'),
+      'seller' => $this->t('Produce products/art to sell'),
+      'inventor' => $this->t('Develop a prototype/product'),
+      'skill_builder' => $this->t('Learn new skills'),
+      'hobbyist' => $this->t('Personal hobby projects'),
+      'artist' => $this->t('Work on my art'),
+      'networker' => $this->t('Meet other makers'),
+      'other' => $this->t('Other goals'),
+    ];
+
     $goals = [];
     foreach ($results as $record) {
         $goalValue = trim((string) ($record->goal_value ?? ''));
-        $key = $goalValue ?: 'other';
-        $goals[$key] = (int) $record->member_count;
+        if (empty($goalValue)) {
+          continue;
+        }
+        $label = isset($labels[$goalValue]) ? (string) $labels[$goalValue] : ucfirst($goalValue);
+        $goals[$label] = (int) $record->member_count;
     }
     return $goals;
   }
@@ -472,13 +587,42 @@ class AnnualReportController extends ControllerBase {
    */
   protected function buildCharts(\DateTimeImmutable $end): array {
     $groups = [
-      'growth' => ['#type' => 'container', '#title' => $this->t('Community Growth'), '#attributes' => ['class' => ['report-section']]],
-      'education' => ['#type' => 'container', '#title' => $this->t('Education & Skills'), '#attributes' => ['class' => ['report-section']]],
-      'diversity' => ['#type' => 'container', '#title' => $this->t('Diversity & Reach'), '#attributes' => ['class' => ['report-section']]],
-      'usage' => ['#type' => 'container', '#title' => $this->t('Facility Usage'), '#attributes' => ['class' => ['report-section']]],
+      'growth_retention' => ['#type' => 'container', '#title' => $this->t('Community Growth & Retention'), '#attributes' => ['class' => ['report-section']]],
+      'demographics' => ['#type' => 'container', '#title' => $this->t('Demographics & Reach'), '#attributes' => ['class' => ['report-section']]],
+      'education' => ['#type' => 'container', '#title' => $this->t('Education & Events'), '#attributes' => ['class' => ['report-section']]],
+      'entrepreneurship' => ['#type' => 'container', '#title' => $this->t('Member Goals'), '#attributes' => ['class' => ['report-section']]],
+      'usage' => ['#type' => 'container', '#title' => $this->t('Membership & Facility Usage'), '#attributes' => ['class' => ['report-section']]],
     ];
 
     $startDate = $end->modify('-24 months');
+
+    // Discovery Sources
+    $discoveryRows = $this->demographicsData->getDiscoveryDistribution();
+    if ($discoveryRows) {
+        // Filter out "Not captured"
+        $discoveryRows = array_filter($discoveryRows, function($row) {
+            return stripos($row['label'], 'Not captured') === FALSE;
+        });
+        // Reset keys to ensure JSON array output (not object)
+        $discoveryRows = array_values($discoveryRows);
+        
+        if ($discoveryRows) {
+            $discLabels = array_map(static fn(array $row) => (string) $row['label'], $discoveryRows);
+            $discCounts = array_map(static fn(array $row) => (int) $row['count'], $discoveryRows);
+            $groups['growth_retention']['discovery'] = [
+                '#type' => 'details',
+                '#title' => $this->t('How Members Discovered Us'),
+                '#open' => TRUE,
+                'chart' => [
+                    '#type' => 'chart',
+                    '#chart_type' => 'column',
+                    'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $discLabels],
+                    'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
+                    'counts' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#data' => $discCounts, '#color' => '#0284c7'],
+                ],
+            ];
+        }
+    }
 
     // --- GROWTH ---
     // 1. New Members Trend
@@ -495,7 +639,7 @@ class AnnualReportController extends ControllerBase {
     }
 
     if ($values) {
-      $groups['growth']['membership'] = [
+      $groups['growth_retention']['membership'] = [
         '#type' => 'details',
         '#title' => $this->t('New Members Joined (Profile Creation)'),
         '#open' => TRUE,
@@ -509,46 +653,22 @@ class AnnualReportController extends ControllerBase {
       ];
     }
 
-    // Net Membership Change
-    $flowData = $this->membershipMetrics->getFlow($startDate, $end, 'month');
-    if (!empty($flowData['totals'])) {
-        $flowLabels = [];
-        $netChange = [];
-        foreach ($flowData['totals'] as $total) {
-            $flowLabels[] = (new \DateTimeImmutable($total['period']))->format('M Y');
-            $netChange[] = $total['incoming'] - $total['ending'];
-        }
-
-        $groups['growth']['net_change'] = [
-            '#type' => 'details',
-            '#title' => $this->t('Net Membership Change'),
-            '#open' => TRUE,
-            'chart' => [
-                '#type' => 'chart',
-                '#chart_type' => 'line',
-                'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $flowLabels],
-                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Net Change')],
-                'net' => ['#type' => 'chart_data', '#title' => $this->t('Net Change'), '#data' => $netChange, '#color' => '#2563eb'],
-            ],
-        ];
-    }
-
     // Cohort & Retention
     $currentYear = (int) $end->format('Y');
-    $startYear = $currentYear - 5;
+    $startYear = $currentYear - 10;
     $cohorts = $this->membershipMetrics->getAnnualCohorts($startYear, $currentYear);
     if ($cohorts) {
-      $cohortYears = array_column($cohorts, 'year');
+      $cohortYears = array_map('strval', array_column($cohorts, 'year'));
       $cohortActive = array_column($cohorts, 'active');
       $cohortInactive = array_column($cohorts, 'inactive');
-      $groups['growth']['cohort_composition'] = [
+      $groups['growth_retention']['cohort_composition'] = [
         '#type' => 'details',
         '#title' => $this->t('Cohort Composition by Join Year'),
         '#open' => FALSE,
         'chart' => [
           '#type' => 'chart',
           '#chart_type' => 'column',
-          '#options' => ['isStacked' => TRUE],
+          '#stacking' => TRUE,
           'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $cohortYears],
           'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
           'active' => ['#type' => 'chart_data', '#title' => $this->t('Still active'), '#data' => $cohortActive, '#color' => '#ef4444'],
@@ -575,79 +695,56 @@ class AnnualReportController extends ControllerBase {
       ];
     }
 
-
-    
-    // Entrepreneurship Goals
-    $chartCurrentEnd = $end;
-    $chartCurrentStart = $chartCurrentEnd->modify('-12 months');
-    $chartPrevEnd = $chartCurrentStart;
-    $chartPrevStart = $chartPrevEnd->modify('-12 months');
-    $chartPeriods = [
-      'current' => ['start' => $chartCurrentStart, 'end' => $chartCurrentEnd, 'label' => 'Last 12 Months'],
-      'prev' => ['start' => $chartPrevStart, 'end' => $chartPrevEnd, 'label' => 'Previous 12 Months'],
-    ];
-
-    $currentPeriodGoals = $this->getNewMemberGoalsForPeriod($chartCurrentStart, $chartCurrentEnd);
-    $previousPeriodGoals = $this->getNewMemberGoalsForPeriod($chartPrevStart, $chartPrevEnd);
-
-    if ($currentPeriodGoals || $previousPeriodGoals) {
-        $goalKeys = array_unique(array_merge(array_keys($currentPeriodGoals), array_keys($previousPeriodGoals)));
-        $labels = array_map(fn($k) => ucfirst($k), $goalKeys);
-        
-        $currentValues = [];
-        $previousValues = [];
-        foreach ($goalKeys as $key) {
-            $currentValues[] = $currentPeriodGoals[$key] ?? 0;
-            $previousValues[] = $previousPeriodGoals[$key] ?? 0;
+    // Appointment Trend
+    $appointmentSeries = $this->appointmentInsights->getFeedbackOutcomeSeries($startDate, $end->modify('-1 day'));
+    if (!empty($appointmentSeries['labels'])) {
+      // Sum up all outcomes for total appointment count per month
+      $monthlyTotals = [];
+      foreach ($appointmentSeries['month_keys'] as $index => $monthKey) {
+        $total = 0;
+        foreach ($appointmentSeries['results'] as $resultSet) {
+          $total += $resultSet[$index] ?? 0;
         }
+        $monthlyTotals[] = $total;
+      }
 
-        $groups['education']['entrepreneur_trend'] = [
-            '#type' => 'details',
-            '#title' => $this->t('Entrepreneurship Goals (New Members)'),
-            '#open' => FALSE,
-            'chart' => [
-                '#type' => 'chart',
-                '#chart_type' => 'bar',
-                'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $labels],
-                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('New Members')],
-                'current' => ['#type' => 'chart_data', '#title' => $chartPeriods['current']['label'], '#data' => $currentValues],
-                'previous' => ['#type' => 'chart_data', '#title' => $chartPeriods['prev']['label'], '#data' => $previousValues],
-            ],
-        ];
+      $groups['education']['appointments'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Appointment Attendance (2 Years)'),
+        '#open' => TRUE,
+        'chart' => [
+          '#type' => 'chart',
+          '#chart_type' => 'column',
+          'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $appointmentSeries['labels']],
+          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Appointments')],
+          'appointments' => ['#type' => 'chart_data', '#title' => $this->t('Monthly Appointments'), '#data' => $monthlyTotals, '#color' => '#10b981'],
+        ],
+      ];
     }
 
+
+    
     // Badge Tenure Correlation
     $badgeTenureData = $this->membershipMetrics->getBadgeTenureCorrelation();
     if ($badgeTenureData) {
         $badgeTenureLabels = [];
         $badgeTenureAvg = [];
-        $badgeTenureMedian = [];
-
         foreach ($badgeTenureData as $bucket) {
-            $label = $bucket['badge_min'];
-            if ($bucket['badge_max']) {
-                if ($bucket['badge_max'] > $bucket['badge_min']) {
-                    $label .= '-' . $bucket['badge_max'];
-                }
-            } else {
-                $label .= '+';
-            }
-            $badgeTenureLabels[] = $label . ' badges';
-            $badgeTenureAvg[] = $bucket['average_years'];
-            $badgeTenureMedian[] = $bucket['median_years'];
+            $memberCount = (int) ($bucket['member_count'] ?? 0);
+            $badgeTenureLabels[] = $this->formatBucketLabel($bucket, $memberCount);
+            $badgeTenureAvg[] = $bucket['average_years'] ? round($bucket['average_years'], 2) : 0;
         }
 
-        $groups['education']['badge_tenure'] = [
+        $groups['growth_retention']['badge_tenure'] = [
             '#type' => 'details',
             '#title' => $this->t('Badges vs. Membership Tenure'),
             '#open' => TRUE,
             'chart' => [
                 '#type' => 'chart',
-                '#chart_type' => 'bar',
+                '#chart_type' => 'column',
                 'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $badgeTenureLabels],
-                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Years')],
-                'avg' => ['#type' => 'chart_data', '#title' => $this->t('Average Tenure (Years)'), '#data' => $badgeTenureAvg],
-                'median' => ['#type' => 'chart_data', '#title' => $this->t('Median Tenure (Years)'), '#data' => $badgeTenureMedian],
+                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Average Years')],
+                'avg' => ['#type' => 'chart_data', '#title' => $this->t('Average Tenure (Years)'), '#data' => $badgeTenureAvg, '#color' => '#0ea5e9'],
             ],
         ];
     }
@@ -657,171 +754,113 @@ class AnnualReportController extends ControllerBase {
     if ($badgeCountData) {
         $badgeCountLabels = [];
         $badgeCountValues = [];
+        $hasMembers = FALSE;
         foreach ($badgeCountData as $bucket) {
-            $label = $bucket['badge_min'];
-            if ($bucket['badge_max']) {
-                if ($bucket['badge_max'] > $bucket['badge_min']) {
-                    $label .= '-' . $bucket['badge_max'];
-                }
-            } else {
-                $label .= '+';
-            }
-            $badgeCountLabels[] = $label . ' badges';
-            $badgeCountValues[] = $bucket['member_count'];
+            $count = (int) ($bucket['member_count'] ?? 0);
+            $badgeCountLabels[] = $this->formatBucketLabel($bucket, $count);
+            $badgeCountValues[] = $count;
+            if ($count > 0) $hasMembers = TRUE;
         }
 
-        if (array_sum($badgeCountValues) > 0) {
+        if ($hasMembers) {
             $groups['education']['badge_count'] = [
                 '#type' => 'details',
                 '#title' => $this->t('Members by Badges Earned'),
                 '#open' => TRUE,
                 'chart' => [
                     '#type' => 'chart',
-                    '#chart_type' => 'pie',
-                    'pie_data' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#labels' => $badgeCountLabels, '#data' => $badgeCountValues],
+                    '#chart_type' => 'column',
+                    'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $badgeCountLabels],
+                    'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
+                    'members' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#data' => $badgeCountValues, '#color' => '#16a34a'],
                 ],
             ];
         }
     }
 
-    // Active Members with Entrepreneurship-related Goals
-    $entrepreneurshipSnapshot = $this->entrepreneurshipData->getActiveEntrepreneurSnapshot();
-    if (!empty($entrepreneurshipSnapshot['totals']['goal_counts'])) {
-        $goalCounts = $entrepreneurshipSnapshot['totals']['goal_counts'];
-        $goalLabels = array_map(fn($k) => ucfirst($k), array_keys($goalCounts));
-        $goalValues = array_values($goalCounts);
+    // Monthly Badges Issued
+    $badgeIssuance = $this->engagementData->getMonthlyBadgeIssuance($startDate, $end->modify('-1 day'));
+    if (!empty($badgeIssuance['labels'])) {
+        $groups['education']['badge_issuance'] = [
+            '#type' => 'details',
+            '#title' => $this->t('Monthly Badges Issued (2 Years)'),
+            '#open' => TRUE,
+            'chart' => [
+                '#type' => 'chart',
+                '#chart_type' => 'column',
+                'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $badgeIssuance['labels']],
+                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Badges')],
+                'badges' => ['#type' => 'chart_data', '#title' => $this->t('Badges Issued'), '#data' => $badgeIssuance['counts'], '#color' => '#8b5cf6'],
+            ],
+        ];
+    }
 
-        if (array_sum($goalValues) > 0) {
-            $groups['education']['entrepreneurship_goals'] = [
-                '#type' => 'details',
-                '#title' => $this->t('Active Members with Entrepreneurship-related Goals'),
-                '#open' => TRUE,
-                'chart' => [
-                    '#type' => 'chart',
-                    '#chart_type' => 'pie',
-                    'pie_data' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#labels' => $goalLabels, '#data' => $goalValues],
-                ],
-            ];
-        }
+    // Active Members with Entrepreneurship-related Goals
+    $activeGoals = $this->getActiveMemberGoals();
+    
+    // 1. Filtered Entrepreneurship Chart
+    $targetGoals = ['entrepreneur', 'seller', 'inventor'];
+    $entLabels = [];
+    $entValues = [];
+    $entColors = [];
+    $colorMap = [
+      'entrepreneur' => '#ea580c',
+      'seller' => '#0ea5e9',
+      'inventor' => '#6366f1',
+    ];
+
+    foreach ($targetGoals as $key) {
+      if (isset($activeGoals[$key])) {
+        $entLabels[] = $activeGoals[$key]['label'];
+        $entValues[] = $activeGoals[$key]['count'];
+        $entColors[] = $colorMap[$key] ?? '#94a3b8';
+      }
+    }
+
+    if ($entValues) {
+        $groups['entrepreneurship']['entrepreneurship_goals'] = [
+            '#type' => 'details',
+            '#title' => $this->t('Active Members with Entrepreneurship-related Goals'),
+            '#open' => TRUE,
+            'chart' => [
+                '#type' => 'chart',
+                '#chart_type' => 'bar',
+                '#options' => ['indexAxis' => 'y'], // Horizontal
+                'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $entLabels],
+                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
+                'members' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#data' => $entValues, '#color' => '#ea580c'],
+            ],
+        ];
+    }
+
+    // 2. All Goals Chart
+    if ($activeGoals) {
+      // Sort by count desc
+      uasort($activeGoals, fn($a, $b) => $b['count'] <=> $a['count']);
+      $allLabels = array_column($activeGoals, 'label');
+      $allValues = array_column($activeGoals, 'count');
+
+      $groups['entrepreneurship']['all_goals'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Member Goals Breakdown'),
+        '#open' => FALSE,
+        'chart' => [
+          '#type' => 'chart',
+          '#chart_type' => 'bar',
+          '#options' => ['indexAxis' => 'y'], // Horizontal
+          'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $allLabels],
+          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
+          'members' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#data' => $allValues, '#color' => '#10b981'],
+        ],
+      ];
     }
 
 
     // --- DIVERSITY ---
-    // Ethnicity (BIPOC)
-    $bipocData = $this->demographicsData->getMembershipEthnicitySummary();
-    if (!empty($bipocData['distribution'])) {
-      $eDist = $bipocData['distribution'];
-      unset($eDist['not_specified']);
-      arsort($eDist);
-      // Filter out small values if too many
-      if (count($eDist) > 10) $eDist = array_slice($eDist, 0, 10);
-      
-      $eLabels = array_map(fn($k) => ucfirst(str_replace('_', ' ', $k)), array_keys($eDist));
-      $eCounts = array_values($eDist);
-      
-      $groups['diversity']['ethnicity_dist'] = [
-        '#type' => 'details',
-        '#title' => $this->t('Ethnicity Distribution'),
-        '#open' => TRUE,
-        'chart' => [
-          '#type' => 'chart',
-          '#chart_type' => 'pie',
-          'pie_data' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#labels' => $eLabels, '#data' => $eCounts],
-        ],
-      ];
-    }
-    
-    // Gender
-    $gender = $this->demographicsData->getGenderDistribution();
-    if ($gender) {
-      $gender = array_filter($gender, function($row) {
-        return !in_array($row['label'], ['Prefer Not To Say', 'Not provided']);
-      });
-      $gLabels = array_column($gender, 'label');
-      $gCounts = array_column($gender, 'count');
-      $groups['diversity']['gender_dist'] = [
-        '#type' => 'details',
-        '#title' => $this->t('Gender Distribution'),
-        '#open' => FALSE,
-        'chart' => [
-          '#type' => 'chart',
-          '#chart_type' => 'pie',
-          'pie_data' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#labels' => $gLabels, '#data' => $gCounts],
-        ],
-      ];
-    }
-
-    // Ages
-    $ages = $this->demographicsData->getAgeDistribution();
-    if ($ages) {
-        $ageLabels = array_column($ages, 'label');
-        $ageCounts = array_values(array_column($ages, 'count'));
-
-        // Calculate moving average
-        $movingAvgData = [];
-        $window = 5;
-        for ($i = 0; $i < count($ageCounts); $i++) {
-            $sliceStart = max(0, $i - intdiv($window, 2));
-            $sliceEnd = min(count($ageCounts) - 1, $i + intdiv($window, 2));
-            $slice = array_slice($ageCounts, $sliceStart, $sliceEnd - $sliceStart + 1);
-            $movingAvgData[] = round(array_sum($slice) / count($slice), 2);
-        }
-
-        $groups['diversity']['age_dist'] = [
-            '#type' => 'details',
-            '#title' => $this->t('Age Distribution'),
-            '#open' => FALSE,
-            'chart' => [
-                '#type' => 'chart',
-                '#chart_type' => 'column',
-                'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $ageLabels],
-                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
-                'ages' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#data' => $ageCounts, '#color' => '#6366f1'],
-                'avg' => ['#type' => 'chart_data', '#title' => $this->t('Moving Average'), '#data' => $movingAvgData, '#type' => 'line'],
-            ],
-        ];
-    }
-    
-    // Greater New Haven Saturation
-    $localityCounts = $this->demographicsData->getLocalityCounts();
-    if (!empty(self::GREATER_NEW_HAVEN_TOWNS) && $localityCounts) {
-        $saturationRows = [];
-        foreach (self::GREATER_NEW_HAVEN_TOWNS as $town) {
-            $key = mb_strtolower($town['name']);
-            $members = (int) ($localityCounts[$key]['count'] ?? 0);
-            $population = (int) $town['population'];
-            $penetration = $population > 0 ? ($members / $population) * 100 : 0;
-
-            $saturationRows[] = [
-                $town['name'],
-                number_format($population),
-                number_format($members),
-                number_format($penetration, 2) . '%',
-            ];
-        }
-
-        $groups['diversity']['saturation'] = [
-            '#type' => 'details',
-            '#title' => $this->t('Greater New Haven Saturation'),
-            '#open' => TRUE,
-            'chart' => [
-                '#type' => 'table',
-                '#header' => [
-                    $this->t('Town'),
-                    $this->t('Population'),
-                    $this->t('Members'),
-                    $this->t('Penetration %'),
-                ],
-                '#rows' => $saturationRows,
-                '#attributes' => ['class' => ['makerspace-dashboard-table']],
-            ],
-        ];
-    }
-    
     // Member Map (Heatmap)
     $mapId = Html::getUniqueId('member-location-map');
 
-    $groups['diversity']['map'] = [
+    $groups['demographics']['map'] = [
       '#type' => 'details',
       '#title' => $this->t('Member Location Heatmap'),
       '#open' => TRUE,
@@ -858,19 +897,140 @@ class AnnualReportController extends ControllerBase {
       ],
     ];
 
+    // Ethnicity (BIPOC)
+    $bipocData = $this->demographicsData->getMembershipEthnicitySummary();
+    if (!empty($bipocData['distribution'])) {
+      $eDist = $bipocData['distribution'];
+      unset($eDist['not_specified']);
+      arsort($eDist);
+      // Filter out small values if too many
+      if (count($eDist) > 10) $eDist = array_slice($eDist, 0, 10);
+      
+      $eLabels = array_map(fn($k) => ucfirst(str_replace('_', ' ', $k)), array_keys($eDist));
+      $eCounts = array_values($eDist);
+      
+      $groups['demographics']['ethnicity_dist'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Ethnicity Distribution'),
+        '#open' => TRUE,
+        'chart' => [
+          '#type' => 'chart',
+          '#chart_type' => 'pie',
+          'pie_data' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#labels' => $eLabels, '#data' => $eCounts],
+        ],
+      ];
+    }
+    
+    // Gender
+    $gender = $this->demographicsData->getGenderDistribution();
+    if ($gender) {
+      $gender = array_filter($gender, function($row) {
+        return !in_array($row['label'], ['Prefer Not To Say', 'Not provided']);
+      });
+      $gLabels = array_column($gender, 'label');
+      $gCounts = array_column($gender, 'count');
+      $groups['demographics']['gender_dist'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Gender Distribution'),
+        '#open' => FALSE,
+        'chart' => [
+          '#type' => 'chart',
+          '#chart_type' => 'pie',
+          'pie_data' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#labels' => $gLabels, '#data' => $gCounts],
+        ],
+      ];
+    }
+
+    // Ages
+    $ages = $this->demographicsData->getAgeDistribution();
+    if ($ages) {
+        $ageLabels = array_column($ages, 'label');
+        $ageCounts = array_values(array_column($ages, 'count'));
+
+        $groups['demographics']['age_dist'] = [
+            '#type' => 'details',
+            '#title' => $this->t('Age Distribution'),
+            '#open' => FALSE,
+            'chart' => [
+                '#type' => 'chart',
+                '#chart_type' => 'column',
+                '#options' => [
+                  'trendlines' => [
+                    0 => [
+                      'type' => 'polynomial',
+                      'degree' => 3,
+                      'color' => '#16a34a',
+                      'lineWidth' => 3,
+                      'opacity' => 0.8,
+                      'visibleInLegend' => TRUE,
+                    ],
+                  ],
+                ],
+                'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $ageLabels],
+                'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Members')],
+                'ages' => ['#type' => 'chart_data', '#title' => $this->t('Members'), '#data' => $ageCounts, '#color' => '#6366f1'],
+            ],
+        ];
+    }
+    
+    // Greater New Haven Saturation
+    $localityCounts = $this->demographicsData->getLocalityCounts();
+    if (!empty(self::GREATER_NEW_HAVEN_TOWNS) && $localityCounts) {
+        $saturationRows = [];
+        foreach (self::GREATER_NEW_HAVEN_TOWNS as $town) {
+            $key = mb_strtolower($town['name']);
+            $members = (int) ($localityCounts[$key]['count'] ?? 0);
+            $population = (int) $town['population'];
+            $penetration = $population > 0 ? ($members / $population) * 100 : 0;
+
+            $saturationRows[] = [
+                $town['name'],
+                number_format($population),
+                number_format($members),
+                number_format($penetration, 2) . '%',
+            ];
+        }
+
+        $groups['demographics']['saturation'] = [
+            '#type' => 'details',
+            '#title' => $this->t('Greater New Haven Saturation'),
+            '#open' => TRUE,
+            'chart' => [
+                '#type' => 'table',
+                '#header' => [
+                    $this->t('Town'),
+                    $this->t('Population'),
+                    $this->t('Members'),
+                    $this->t('Penetration %'),
+                ],
+                '#rows' => $saturationRows,
+                '#attributes' => ['class' => ['makerspace-dashboard-table']],
+            ],
+        ];
+    }
+
 
     // --- USAGE ---
     // Entries
     $usageStartTimestamp = $startDate instanceof \DateTimeInterface
       ? $startDate->getTimestamp()
       : (int) $startDate;
-    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($usageStartTimestamp, $end->getTimestamp());
+    $now = new \DateTimeImmutable();
+    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($usageStartTimestamp, $now->getTimestamp());
     $monthlyEntries = [];
     foreach ($dailyEntries as $date => $count) {
       $month = substr($date, 0, 7);
       if (!isset($monthlyEntries[$month])) $monthlyEntries[$month] = 0;
       $monthlyEntries[$month] += $count;
     }
+
+    // Filter to start from October 2024
+    $monthlyEntries = array_filter(
+      $monthlyEntries,
+      fn($month) => strtotime($month . '-01') >= strtotime('2024-10-01'),
+      ARRAY_FILTER_USE_KEY
+    );
+
     if ($monthlyEntries) {
       $entryLabels = [];
       $entryValues = [];
@@ -880,14 +1040,14 @@ class AnnualReportController extends ControllerBase {
       }
       $groups['usage']['entries'] = [
         '#type' => 'details',
-        '#title' => $this->t('Monthly Member Visits (Unique)'),
+        '#title' => $this->t('Total Monthly Visits'),
         '#open' => TRUE,
         'chart' => [
           '#type' => 'chart',
           '#chart_type' => 'column',
           'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $entryLabels],
-          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Unique Visits')],
-          'visits' => ['#type' => 'chart_data', '#title' => $this->t('Unique Visits'), '#data' => $entryValues, '#color' => '#10b981'],
+          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Total Visits')],
+          'visits' => ['#type' => 'chart_data', '#title' => $this->t('Total Visits'), '#data' => $entryValues, '#color' => '#10b981'],
         ],
       ];
     }
@@ -910,6 +1070,22 @@ class AnnualReportController extends ControllerBase {
           'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Rolling Average')],
           'visits' => ['#type' => 'chart_data', '#title' => $this->t('7-Day Average'), '#data' => $rollingAverages, '#color' => '#f97316'],
           'trend' => ['#type' => 'chart_data', '#title' => $this->t('Trend'), '#data' => $trendLine, '#color' => '#22c55e'],
+        ],
+      ];
+    }
+
+    // Average Members by Day of Week
+    if (!empty($windowMetrics['weekday_labels']) && !empty($windowMetrics['weekday_averages'])) {
+      $groups['usage']['weekday_profile'] = [
+        '#type' => 'details',
+        '#title' => $this->t('Average Members by Day of Week'),
+        '#open' => TRUE,
+        'chart' => [
+          '#type' => 'chart',
+          '#chart_type' => 'column',
+          'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $windowMetrics['weekday_labels']],
+          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Average Members')],
+          'average' => ['#type' => 'chart_data', '#title' => $this->t('Average Members'), '#data' => $windowMetrics['weekday_averages'], '#color' => '#4f46e5'],
         ],
       ];
     }
@@ -972,28 +1148,36 @@ class AnnualReportController extends ControllerBase {
         ];
     }
 
-    // Lending
-    $stats = $this->lendingStats->collect();
-    $history = $stats['chart_data']['full_history'] ?? [];
-    $history24 = array_slice($history, -24);
-    if ($history24) {
-      $lendingLabels = array_column($history24, 'label');
-      $loans = array_column($history24, 'loans');
-      $groups['usage']['lending'] = [
-        '#type' => 'details',
-        '#title' => $this->t('Lending Library Usage'),
-        '#open' => TRUE,
-        'chart' => [
-          '#type' => 'chart',
-          '#chart_type' => 'area',
-          'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $lendingLabels],
-          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Loans')],
-          'loans' => ['#type' => 'chart_data', '#title' => $this->t('Monthly Loans'), '#data' => $loans, '#color' => '#f97316'],
-        ],
-      ];
+    return $groups;
+  }
+
+  /**
+   * Formats a bucket label for display.
+   */
+  protected function formatBucketLabel(array $bucket, int $memberCount = 0): string {
+    $min = (int) ($bucket['badge_min'] ?? 0);
+    $max = $bucket['badge_max'];
+
+    if ($min === 1 && $max === 1) {
+      $label = (string) $this->t('1 badge');
+    }
+    elseif ($max === NULL) {
+      $label = (string) $this->t('@min+ badges', ['@min' => $min]);
+    }
+    elseif ($min === $max) {
+      $label = (string) $this->t('@count badges', ['@count' => $min]);
+    }
+    else {
+      $label = (string) $this->t('@min-@max badges', ['@min' => $min, '@max' => (int) $max]);
     }
 
-    return $groups;
+    if ($memberCount > 0) {
+      $label = (string) $this->t('@label (@count)', [
+        '@label' => $label,
+        '@count' => $memberCount,
+      ]);
+    }
+    return $label;
   }
 
 }

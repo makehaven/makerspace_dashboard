@@ -187,3 +187,17 @@ function makerspace_dashboard_schema() {
 
   return $schema;
 }
+
+/**
+ * Create ms_snapshot and related fact tables if they do not exist.
+ */
+function makerspace_dashboard_update_9001() {
+  $schema = \Drupal::database()->schema();
+  $spec = makerspace_dashboard_schema();
+
+  foreach ($spec as $table_name => $table_schema) {
+    if (!$schema->tableExists($table_name)) {
+      $schema->createTable($table_name, $table_schema);
+    }
+  }
+}
