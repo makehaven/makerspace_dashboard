@@ -65,9 +65,9 @@ function makerspace_dashboard_theme($existing, $type, $theme, $path) {
       'variables' => [
         'title' => NULL,
         'description' => NULL,
+        'notice' => NULL,
         'rows' => [],
-        'table' => [],
-        'copy_help' => NULL,
+        'tables' => [],
         'charts' => [],
       ],
     ],

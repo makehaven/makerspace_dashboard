@@ -194,15 +194,13 @@ class UtilizationDataService {
    *   Array with averages keyed by hour, plus metadata.
    */
   public function getAverageEntriesByHour(int $startTimestamp, int $endTimestamp): array {
-    $cid = sprintf('makerspace_dashboard:utilization:hourly_average:%d:%d', $startTimestamp, $endTimestamp);
+    $cid = sprintf('makerspace_dashboard:utilization:hourly_average:v2:%d:%d', $startTimestamp, $endTimestamp);
     if ($cache = $this->cache->get($cid)) {
       return $cache->data;
     }
 
     $query = $this->database->select('access_control_log_field_data', 'acl');
-    $query->addExpression("DATE(FROM_UNIXTIME(acl.created))", 'day_key');
-    $query->addExpression('HOUR(FROM_UNIXTIME(acl.created))', 'hour_key');
-    $query->addExpression('COUNT(*)', 'entry_count');
+    $query->addField('acl', 'created');
     $query->condition('acl.type', 'access_control_request');
     $query->condition('acl.created', $startTimestamp, '>=');
     $query->condition('acl.created', $endTimestamp, '<=');
@@ -213,23 +211,24 @@ class UtilizationDataService {
     $query->innerJoin('users_field_data', 'u', 'u.uid = user_ref.field_access_request_user_target_id');
     $query->condition('u.status', 1);
 
-    $query->groupBy('day_key');
-    $query->groupBy('hour_key');
-    $query->orderBy('day_key', 'ASC');
-    $query->orderBy('hour_key', 'ASC');
-
     $results = $query->execute();
 
-    $hourTotals = array_fill(0, 24, 0.0);
+    $hourTotals = array_fill(0, 24, 0);
     $daysWithActivity = [];
+    $est = new \DateTimeZone('America/New_York');
+
     foreach ($results as $record) {
-      $hour = (int) $record->hour_key;
-      if ($hour < 0 || $hour > 23) {
-        continue;
+      $utc_timestamp = (int) $record->created;
+      $date = new \DateTime('@' . $utc_timestamp);
+      $date->setTimezone($est);
+      
+      $hour = (int) $date->format('G'); // Hour (0-23)
+      $day_key = $date->format('Y-m-d');
+
+      if ($hour >= 0 && $hour <= 23) {
+        $hourTotals[$hour]++;
+        $daysWithActivity[$day_key] = TRUE;
       }
-      $count = (int) $record->entry_count;
-      $hourTotals[$hour] += $count;
-      $daysWithActivity[$record->day_key] = TRUE;
     }
 
     $rangeDays = max(1, (int) floor(max(0, $endTimestamp - $startTimestamp) / 86400) + 1);

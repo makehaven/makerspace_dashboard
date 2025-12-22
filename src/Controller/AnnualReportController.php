@@ -156,6 +156,7 @@ class AnnualReportController extends ControllerBase {
     $charts = $this->buildCharts($currentEnd);
     $highlights = $this->calculateHighlights($data['prev'], $data['current']);
     $tables = $this->buildTables();
+    $notice = $this->t('These metrics feed directly from the live database as part of our new data initiative. We believe they are accurate, but we are still actively validating the pipelines so surprises can happen. If you spot something that looks off, please let @email know.', ['@email' => 'jrlogan@makehaven.org']);
 
     return [
       '#theme' => 'annual_report',
@@ -167,6 +168,7 @@ class AnnualReportController extends ControllerBase {
         '@curr_end' => $currentEnd->modify('-1 day')->format('M Y'),
       ]),
       '#highlights' => $highlights,
+      '#notice' => $notice,
       '#rows' => $metricCards,
       '#charts' => $charts,
       '#tables' => $tables,

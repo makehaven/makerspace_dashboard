@@ -8,6 +8,11 @@
   <header class="annual-report-header">
     <div class="header-content">
       <div class="lead">{{ description }}</div>
+      {% if notice %}
+        <div class="annual-report-notice">
+          {{ notice }}
+        </div>
+      {% endif %}
     </div>
   </header>
 
@@ -36,11 +41,6 @@
         </div>
       {% endfor %}
     </div>
-    
-    <div class="comparison-table-wrapper">
-      {{ table }}
-    </div>
-    {{ copy_help }}
   </section>
 
   {% if tables %}
