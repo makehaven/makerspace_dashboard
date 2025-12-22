@@ -350,10 +350,18 @@ class AnnualReportController extends ControllerBase {
     $appointmentData = $this->appointmentInsights->getFeedbackOutcomeSeries($start, $end);
     $stats['appointments'] = $appointmentData['totals']['appointments'] ?? 0;
 
-    // Get lending stats for the period.
-    $lending = $this->lendingStats->getStatsForPeriod($start, $end);
-    $stats['lending_loans'] = $lending['loan_count'] ?? 0;
-    $stats['lending_borrowers'] = $lending['unique_borrowers'] ?? 0;
+    // Get lending stats from the service's summary data.
+    $lendingStats = $this->lendingStats->collect();
+    $lendingHistory = $lendingStats['chart_data']['full_history'] ?? [];
+    $loanCount = 0;
+    foreach ($lendingHistory as $monthData) {
+      $monthDate = \DateTimeImmutable::createFromFormat('M Y', $monthData['label']);
+      if ($monthDate && $monthDate >= $start && $monthDate < $end) {
+        $loanCount += (int)($monthData['loans'] ?? 0);
+      }
+    }
+    $stats['lending_loans'] = $loanCount;
+    $stats['lending_borrowers'] = 0; // Set to 0 as we can't calculate this currently.
 
     // Get total member count (including paused)
     $query = $this->database->select('user__roles', 'ur');
@@ -476,7 +484,6 @@ class AnnualReportController extends ControllerBase {
       'event_registrations' => ['label' => 'Workshop Registrations', 'format' => 'number'],
       'appointments' => ['label' => 'Volunteer Appointments (Last 12 Months)', 'format' => 'number'],
       'lending_loans' => ['label' => 'Tool Loans (Last 12 Months)', 'format' => 'number'],
-      'lending_borrowers' => ['label' => 'Unique Borrowers (Last 12 Months)', 'format' => 'number'],
       'badges_earned' => ['label' => 'Badges Earned (Last 12 Months)', 'format' => 'number'],
       'total_visits' => ['label' => 'Total Visits (Last 12 Months)', 'format' => 'number'],
     ];
