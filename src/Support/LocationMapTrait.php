@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Support;
 
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Url;
+use Drupal\Core\Utility\Error;
 use Symfony\Component\Routing\Exception\RouteNotFoundException;
 
 /**
@@ -43,7 +44,7 @@ trait LocationMapTrait {
       $locationsUrl = Url::fromRoute('makerspace_dashboard.api.locations')->toString();
     }
     catch (RouteNotFoundException $exception) {
-      watchdog_exception('makerspace_dashboard', $exception);
+      Error::logException(\Drupal::logger('makerspace_dashboard'), $exception);
     }
 
     if ($locationsUrl === NULL) {
