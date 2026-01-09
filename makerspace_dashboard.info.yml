@@ -2,7 +2,8 @@ name: 'Makerspace Dashboard'
 type: module
 description: 'Provides aggregated dashboards for makerspace utilization, engagement, and retention insights.'
 core_version_requirement: ^10 || ^11
-package: 'MakeHaven'
+package: Makerspace
 dependencies:
   - drupal:charts
   - charts:charts_google
+configure: makerspace_dashboard.settings
