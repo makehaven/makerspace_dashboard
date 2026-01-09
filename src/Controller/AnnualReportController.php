@@ -346,7 +346,7 @@ class AnnualReportController extends ControllerBase {
     $stats['badges_earned'] = (int) $query->execute()->fetchField();
 
     // Total Visits (sum of daily unique entries)
-    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($start->getTimestamp(), $end->getTimestamp());
+    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($start->getTimestamp(), $end->getTimestamp(), FALSE);
     $stats['total_visits'] = array_sum($dailyEntries);
 
     $appointmentData = $this->appointmentInsights->getFeedbackOutcomeSeries($start, $end);
@@ -1019,13 +1019,12 @@ class AnnualReportController extends ControllerBase {
     }
 
 
-    // --- USAGE ---
     // Entries
     $usageStartTimestamp = $startDate instanceof \DateTimeInterface
       ? $startDate->getTimestamp()
       : (int) $startDate;
-    $now = new \DateTimeImmutable();
-    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($usageStartTimestamp, $now->getTimestamp());
+    
+    $dailyEntries = $this->utilizationData->getDailyUniqueEntries($usageStartTimestamp, $end->getTimestamp(), FALSE);
     $monthlyEntries = [];
     foreach ($dailyEntries as $date => $count) {
       $month = substr($date, 0, 7);

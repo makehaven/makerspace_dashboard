@@ -70,11 +70,18 @@ class UtilizationDataService {
   /**
    * Aggregates daily unique member entries between timestamps.
    *
+   * @param int $startTimestamp
+   *   Start timestamp.
+   * @param int $endTimestamp
+   *   End timestamp.
+   * @param bool $activeOnly
+   *   Whether to only count members who are currently active.
+   *
    * @return array
    *   Array keyed by Y-m-d date string with integer counts.
    */
-  public function getDailyUniqueEntries(int $startTimestamp, int $endTimestamp): array {
-    $cid = sprintf('makerspace_dashboard:utilization:daily:%d:%d', $startTimestamp, $endTimestamp);
+  public function getDailyUniqueEntries(int $startTimestamp, int $endTimestamp, bool $activeOnly = TRUE): array {
+    $cid = sprintf('makerspace_dashboard:utilization:daily:%d:%d:%d', $startTimestamp, $endTimestamp, (int) $activeOnly);
     if ($cache = $this->cache->get($cid)) {
       return $cache->data;
     }
@@ -87,9 +94,12 @@ class UtilizationDataService {
     $query->condition('acl.created', $endTimestamp, '<=');
 
     $query->innerJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.entity_id = acl.id');
-    // Only consider members with active membership role.
-    $query->innerJoin('user__roles', 'user_roles', 'user_roles.entity_id = user_ref.field_access_request_user_target_id');
-    $query->condition('user_roles.roles_target_id', $this->memberRoles, 'IN');
+    
+    if ($activeOnly) {
+      // Only consider members with active membership role.
+      $query->innerJoin('user__roles', 'user_roles', 'user_roles.entity_id = user_ref.field_access_request_user_target_id');
+      $query->condition('user_roles.roles_target_id', $this->memberRoles, 'IN');
+    }
 
     $query->groupBy('day');
     $query->orderBy('day', 'ASC');
@@ -701,7 +711,10 @@ class UtilizationDataService {
    */
   protected function resolveTimeOfDayBucket(int $timestamp): string {
     $buckets = $this->timeOfDayBuckets();
-    $timeOfDay = (int) date('H', $timestamp) * 3600 + (int) date('i', $timestamp) * 60 + (int) date('s', $timestamp);
+    $date = new \DateTime('@' . $timestamp);
+    $date->setTimezone(new \DateTimeZone('America/New_York'));
+    
+    $timeOfDay = (int) $date->format('H') * 3600 + (int) $date->format('i') * 60 + (int) $date->format('s');
 
     foreach ($buckets as $id => $info) {
       $start = $info['start'];

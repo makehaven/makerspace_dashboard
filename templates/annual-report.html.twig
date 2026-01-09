@@ -13,6 +13,14 @@
           {{ notice }}
         </div>
       {% endif %}
+      
+      {% if logged_in %}
+        <div class="mt-4">
+          <a href="/user/{{ user.id }}/year-in-review" class="btn btn-light text-primary fw-bold">
+            <i class="fa fa-user-circle me-1"></i> View My Year in Review
+          </a>
+        </div>
+      {% endif %}
     </div>
   </header>
 
