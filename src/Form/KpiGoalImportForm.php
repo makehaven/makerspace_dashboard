@@ -66,7 +66,7 @@ class KpiGoalImportForm extends FormBase {
       '#description' => $this->t('Upload a UTF-8 CSV file with headers such as <code>section,kpi_id,label,base_2025,goal_2030</code>.'),
       '#upload_location' => 'temporary://makerspace_dashboard',
       '#upload_validators' => [
-        'file_validate_extensions' => ['csv'],
+        'FileExtension' => ['extensions' => 'csv'],
       ],
       '#required' => TRUE,
     ];
