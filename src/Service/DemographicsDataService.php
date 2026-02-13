@@ -953,6 +953,149 @@ class DemographicsDataService {
   }
 
   /**
+   * Returns active-member BIPOC snapshot counts using profile ethnicity values.
+   *
+   * @return array
+   *   Array with:
+   *   - active_members
+   *   - reported_members
+   *   - bipoc_members
+   *   - percentage
+   */
+  public function getActiveBipocSnapshot(): array {
+    $query = $this->database->select('users_field_data', 'u');
+    $query->addField('u', 'uid', 'uid');
+    $query->innerJoin('user__roles', 'ur', 'ur.entity_id = u.uid');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('profile', 'p', "p.uid = u.uid AND p.type = 'main' AND p.status = 1 AND p.is_default = 1");
+    $query->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
+    $query->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
+    $query->condition('u.status', 1);
+
+    $valuesByUid = [];
+    foreach ($query->execute() as $record) {
+      $uid = (int) ($record->uid ?? 0);
+      if ($uid <= 0) {
+        continue;
+      }
+      if (!isset($valuesByUid[$uid])) {
+        $valuesByUid[$uid] = [];
+      }
+      $valuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
+    }
+
+    $activeMembers = count($valuesByUid);
+    $reportedMembers = 0;
+    $bipocMembers = 0;
+    foreach ($valuesByUid as $rawValues) {
+      $classification = $this->classifyEthnicityValues($rawValues);
+      if (!empty($classification['reported'])) {
+        $reportedMembers++;
+      }
+      if (!empty($classification['bipoc'])) {
+        $bipocMembers++;
+      }
+    }
+
+    return [
+      'active_members' => $activeMembers,
+      'reported_members' => $reportedMembers,
+      'bipoc_members' => $bipocMembers,
+      'percentage' => $reportedMembers > 0 ? $bipocMembers / $reportedMembers : 0.0,
+    ];
+  }
+
+  /**
+   * Returns join/cancel BIPOC flow counts for a date range.
+   */
+  public function getEthnicityFlowSnapshot(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $startTs = $start->setTime(0, 0, 0)->getTimestamp();
+    $endTs = $end->setTime(23, 59, 59)->getTimestamp();
+    $startDate = $start->format('Y-m-d');
+    $endDate = $end->format('Y-m-d');
+
+    $joinQuery = $this->database->select('profile', 'p');
+    $joinQuery->addField('p', 'uid', 'uid');
+    $joinQuery->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
+    $joinQuery->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
+    $joinQuery->condition('p.type', 'main');
+    $joinQuery->condition('p.status', 1);
+    $joinQuery->condition('p.is_default', 1);
+    $joinQuery->condition('p.created', $startTs, '>=');
+    $joinQuery->condition('p.created', $endTs, '<=');
+
+    $cancelQuery = $this->database->select('profile', 'p');
+    $cancelQuery->addField('p', 'uid', 'uid');
+    $cancelQuery->innerJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
+    $cancelQuery->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
+    $cancelQuery->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
+    $cancelQuery->condition('p.type', 'main');
+    $cancelQuery->condition('p.status', 1);
+    $cancelQuery->condition('p.is_default', 1);
+    $cancelQuery->condition('end_date.field_member_end_date_value', $startDate, '>=');
+    $cancelQuery->condition('end_date.field_member_end_date_value', $endDate, '<=');
+
+    $joinValuesByUid = [];
+    foreach ($joinQuery->execute() as $record) {
+      $uid = (int) ($record->uid ?? 0);
+      if ($uid <= 0) {
+        continue;
+      }
+      if (!isset($joinValuesByUid[$uid])) {
+        $joinValuesByUid[$uid] = [];
+      }
+      $joinValuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
+    }
+
+    $cancelValuesByUid = [];
+    foreach ($cancelQuery->execute() as $record) {
+      $uid = (int) ($record->uid ?? 0);
+      if ($uid <= 0) {
+        continue;
+      }
+      if (!isset($cancelValuesByUid[$uid])) {
+        $cancelValuesByUid[$uid] = [];
+      }
+      $cancelValuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
+    }
+
+    $joinReported = 0;
+    $joinBipoc = 0;
+    foreach ($joinValuesByUid as $rawValues) {
+      $classification = $this->classifyEthnicityValues($rawValues);
+      if (!empty($classification['reported'])) {
+        $joinReported++;
+      }
+      if (!empty($classification['bipoc'])) {
+        $joinBipoc++;
+      }
+    }
+
+    $cancelReported = 0;
+    $cancelBipoc = 0;
+    foreach ($cancelValuesByUid as $rawValues) {
+      $classification = $this->classifyEthnicityValues($rawValues);
+      if (!empty($classification['reported'])) {
+        $cancelReported++;
+      }
+      if (!empty($classification['bipoc'])) {
+        $cancelBipoc++;
+      }
+    }
+
+    return [
+      'joins_total' => count($joinValuesByUid),
+      'joins_reported' => $joinReported,
+      'joins_bipoc' => $joinBipoc,
+      'joins_bipoc_rate' => $joinReported > 0 ? $joinBipoc / $joinReported : 0.0,
+      'cancels_total' => count($cancelValuesByUid),
+      'cancels_reported' => $cancelReported,
+      'cancels_bipoc' => $cancelBipoc,
+      'cancels_bipoc_rate' => $cancelReported > 0 ? $cancelBipoc / $cancelReported : 0.0,
+    ];
+  }
+
+  /**
    * Returns ethnicity values counted toward the BIPOC percentage.
    */
   protected function getBipocEthnicityValues(): array {
@@ -1077,6 +1220,70 @@ class DemographicsDataService {
       'not_specified' => 'Unspecified',
     ];
     return $map[$code] ?? $this->formatLabel($code, 'Unspecified');
+  }
+
+  /**
+   * Classifies raw ethnicity values as reported/BIPOC.
+   */
+  protected function classifyEthnicityValues(array $rawValues): array {
+    $normalizedValues = [];
+    foreach ($rawValues as $rawValue) {
+      $entries = $this->explodeCustomFieldValues((string) $rawValue);
+      foreach ($entries as $entry) {
+        $normalized = strtolower(trim($entry));
+        if ($normalized === '') {
+          continue;
+        }
+        $normalizedValues[$normalized] = TRUE;
+      }
+    }
+
+    $ignored = $this->getIgnoredEthnicityValues();
+    $filtered = [];
+    foreach (array_keys($normalizedValues) as $value) {
+      if (in_array($value, $ignored, TRUE)) {
+        continue;
+      }
+      $filtered[] = $value;
+    }
+
+    if (empty($filtered)) {
+      return [
+        'reported' => FALSE,
+        'bipoc' => FALSE,
+      ];
+    }
+
+    foreach ($filtered as $value) {
+      if ($this->isBipocEthnicityValue($value)) {
+        return [
+          'reported' => TRUE,
+          'bipoc' => TRUE,
+        ];
+      }
+    }
+
+    return [
+      'reported' => TRUE,
+      'bipoc' => FALSE,
+    ];
+  }
+
+  /**
+   * Determines whether a normalized ethnicity value should count as BIPOC.
+   */
+  protected function isBipocEthnicityValue(string $value): bool {
+    $value = strtolower(trim($value));
+    if ($value === '') {
+      return FALSE;
+    }
+
+    $bipocValues = $this->getBipocEthnicityValues();
+    if (in_array($value, $bipocValues, TRUE)) {
+      return TRUE;
+    }
+
+    return !str_contains($value, 'white');
   }
 
 }

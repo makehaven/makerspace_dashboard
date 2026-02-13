@@ -912,6 +912,9 @@ services:
       - '@makerspace_dashboard.membership_metrics'
       - '@makerspace_dashboard.utilization_data'
       - '@makerspace_dashboard.governance_board_data'
+      - '@makerspace_dashboard.education_evaluation_data'
+      - '@makerspace_dashboard.development_data'
+      - '@makerspace_dashboard.entrepreneurship_data'
 
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager
@@ -1087,4 +1090,3 @@ services:
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
-

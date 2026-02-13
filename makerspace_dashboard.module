@@ -44,13 +44,116 @@ function makerspace_dashboard_charts_process_alter(array &$build, FormStateInter
  */
 function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): array {
   $metrics = [];
+  $snapshotTimestamp = !empty($context['snapshot_date']) ? strtotime((string) $context['snapshot_date']) : \Drupal::time()->getRequestTime();
+  $periodYear = (int) date('Y', $snapshotTimestamp);
+  $periodMonth = (int) date('n', $snapshotTimestamp);
 
   if (isset($context['members_active'])) {
     $metrics['total_active_members'] = [
       'value' => (int) $context['members_active'],
-      'period_year' => (int) date('Y', strtotime($context['snapshot_date'])),
-      'period_month' => (int) date('n', strtotime($context['snapshot_date'])),
+      'period_year' => $periodYear,
+      'period_month' => $periodMonth,
     ];
+  }
+
+  // Snapshot point-in-time utilization so membership-denominator math is frozen.
+  if (!empty($context['period_start']) && !empty($context['period_end']) && \Drupal::hasService('makerspace_dashboard.utilization_data')) {
+    try {
+      $startTs = strtotime((string) $context['period_start']) ?: NULL;
+      $endTs = strtotime((string) $context['period_end']) ?: NULL;
+      if ($startTs && $endTs && $endTs >= $startTs) {
+        $buckets = \Drupal::service('makerspace_dashboard.utilization_data')->getVisitFrequencyBuckets($startTs, $endTs);
+        $bucketTotal = 0;
+        foreach ($buckets as $bucketCount) {
+          if (is_numeric($bucketCount)) {
+            $bucketTotal += (int) $bucketCount;
+          }
+        }
+        $noVisits = isset($buckets['no_visits']) && is_numeric($buckets['no_visits']) ? (int) $buckets['no_visits'] : 0;
+        $participants = max(0, $bucketTotal - $noVisits);
+        $participationRatio = $bucketTotal > 0 ? ($participants / $bucketTotal) : 0.0;
+
+        $metrics['shop_utilization'] = [
+          'value' => $participationRatio,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+        // Keep legacy KPI ID aligned to the same frozen denominator.
+        $metrics['active_participation'] = [
+          'value' => $participationRatio,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot utilization KPI metrics: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
+  // Snapshot demographic state + join/cancel flow to prevent historical drift.
+  if (!empty($context['period_start']) && !empty($context['period_end']) && \Drupal::hasService('makerspace_dashboard.demographics_data')) {
+    try {
+      $start = new \DateTimeImmutable((string) $context['period_start']);
+      $end = new \DateTimeImmutable((string) $context['period_end']);
+      $demographics = \Drupal::service('makerspace_dashboard.demographics_data');
+
+      $active = $demographics->getActiveBipocSnapshot();
+      $activeReported = (int) ($active['reported_members'] ?? 0);
+      $activeBipoc = (int) ($active['bipoc_members'] ?? 0);
+      $activeRate = $activeReported > 0 ? ($activeBipoc / $activeReported) : 0.0;
+
+      $metrics['membership_diversity_bipoc'] = [
+        'value' => $activeRate,
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['active_members_reported_ethnicity_count'] = [
+        'value' => $activeReported,
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['active_members_bipoc_count'] = [
+        'value' => $activeBipoc,
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+
+      $flow = $demographics->getEthnicityFlowSnapshot($start, $end);
+      $metrics['joins_reported_ethnicity_count'] = [
+        'value' => (int) ($flow['joins_reported'] ?? 0),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['joins_bipoc_count'] = [
+        'value' => (int) ($flow['joins_bipoc'] ?? 0),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['joins_bipoc_rate'] = [
+        'value' => (float) ($flow['joins_bipoc_rate'] ?? 0.0),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['cancels_reported_ethnicity_count'] = [
+        'value' => (int) ($flow['cancels_reported'] ?? 0),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['cancels_bipoc_count'] = [
+        'value' => (int) ($flow['cancels_bipoc'] ?? 0),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+      $metrics['cancels_bipoc_rate'] = [
+        'value' => (float) ($flow['cancels_bipoc_rate'] ?? 0.0),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot demographic KPI metrics: @message', ['@message' => $e->getMessage()]);
+    }
   }
 
   return $metrics;

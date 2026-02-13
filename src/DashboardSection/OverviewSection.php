@@ -52,7 +52,8 @@ class OverviewSection extends DashboardSectionBase {
    */
   protected function buildStoplightGrid(): array {
     $definitions = $this->kpiDataService->getAllKpiDefinitions();
-    $rows = [];
+    $wiredRows = [];
+    $inDevelopmentRows = [];
 
     if (!$this->sectionLabels) {
       try {
@@ -86,12 +87,13 @@ class OverviewSection extends DashboardSectionBase {
           $goalYearLabel = (int) $kpi['goal_current_year_label'];
         }
 
-        $rows[] = [
+        $row = [
           $sectionLabel,
           $kpi['label'] ?? ($info['label'] ?? $kpiId),
           $this->buildStoplightBadge($kpi, $format),
           $this->buildCurrentValueCell($kpi, $format),
           $this->buildGoalValueCell($kpi, $format),
+          $this->buildSourceNoteCell($kpi),
           [
             'data' => [
               '#type' => 'container',
@@ -101,6 +103,13 @@ class OverviewSection extends DashboardSectionBase {
             'attributes' => ['class' => 'kpi-sparkline-cell'],
           ],
         ];
+
+        if ($this->isKpiInDevelopment($kpi)) {
+          $inDevelopmentRows[] = $row;
+        }
+        else {
+          $wiredRows[] = $row;
+        }
       }
     }
 
@@ -112,7 +121,7 @@ class OverviewSection extends DashboardSectionBase {
       ],
     ];
 
-    if (!$rows) {
+    if (!$wiredRows && !$inDevelopmentRows) {
       $build['empty'] = [
         '#markup' => '<p class="makerspace-dashboard-empty">' . $this->t('KPI data is not available yet.') . '</p>',
       ];
@@ -120,18 +129,34 @@ class OverviewSection extends DashboardSectionBase {
     }
 
     $goalYearLabel = $goalYearLabel ?? (int) date('Y');
-    $build['table'] = [
+    $header = [
+      $this->t('Section'),
+      $this->t('KPI'),
+      $this->t('Status'),
+      $this->t('Current'),
+      $this->t('Goal @year', ['@year' => $goalYearLabel]),
+      $this->t('Source'),
+      $this->t('Trend'),
+    ];
+    $build['wired_heading'] = [
+      '#markup' => '<h3>' . $this->t('Wired KPIs') . '</h3>',
+    ];
+    $build['wired_table'] = [
       '#type' => 'table',
       '#attributes' => ['class' => ['kpi-stoplight-table']],
-      '#header' => [
-        $this->t('Section'),
-        $this->t('KPI'),
-        $this->t('Status'),
-        $this->t('Current'),
-        $this->t('Goal @year', ['@year' => $goalYearLabel]),
-        $this->t('Trend'),
-      ],
-      '#rows' => $rows,
+      '#header' => $header,
+      '#rows' => $wiredRows,
+      '#empty' => $this->t('No wired KPIs available yet.'),
+    ];
+    $build['in_development_heading'] = [
+      '#markup' => '<h3>' . $this->t('KPIs In Development') . '</h3>',
+    ];
+    $build['in_development_table'] = [
+      '#type' => 'table',
+      '#attributes' => ['class' => ['kpi-stoplight-table', 'kpi-stoplight-table--in-development']],
+      '#header' => $header,
+      '#rows' => $inDevelopmentRows,
+      '#empty' => $this->t('No in-development KPIs currently listed.'),
     ];
 
     $build['#cache'] = [

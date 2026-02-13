@@ -111,24 +111,26 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    *   A render array for the KPI table.
    */
   protected function buildKpiTable(array $kpi_data = []): array {
-    // Main KPI table.
     $currentGoalYear = $this->determineDisplayGoalYear($kpi_data);
-    $main_header = [
+    $header = [
       $this->t('KPI Name'),
       $this->t('Goal 2030'),
       $this->t('Goal @year', ['@year' => $currentGoalYear]),
       $this->t('Current'),
+      $this->t('Source'),
       $this->t('Trend (12 month)'),
     ];
 
-    $main_rows = [];
+    $wiredRows = [];
+    $inDevelopmentRows = [];
     foreach ($kpi_data as $kpi) {
       $format = $kpi['display_format'] ?? NULL;
-      $main_rows[] = [
+      $row = [
         $kpi['label'] ?? '',
         $this->formatKpiValue($kpi['goal_2030'] ?? NULL, $format),
         $this->formatKpiValue($kpi['goal_current_year'] ?? NULL, $format),
         $this->buildCurrentValueCell($kpi, $format),
+        $this->buildSourceNoteCell($kpi),
         [
           'data' => [
             '#type' => 'container',
@@ -138,6 +140,13 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
           'attributes' => ['class' => 'kpi-sparkline-cell'],
         ],
       ];
+
+      if ($this->isKpiInDevelopment($kpi)) {
+        $inDevelopmentRows[] = $row;
+      }
+      else {
+        $wiredRows[] = $row;
+      }
     }
 
     // Annual data table.
@@ -165,6 +174,9 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       if (!empty($kpi['last_updated'])) {
         $noteParts[] = '<em>' . $this->t('Last snapshot: @date', ['@date' => $kpi['last_updated']]) . '</em>';
       }
+      if (!empty($kpi['source_note'])) {
+        $noteParts[] = '<em>' . $this->t('Source: @source', ['@source' => $kpi['source_note']]) . '</em>';
+      }
       if ($noteParts) {
         $notes[] = [
           '#markup' => '<strong>' . ($kpi['label'] ?? '') . ':</strong> ' . implode(' ', $noteParts),
@@ -176,12 +188,25 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       '#type' => 'container',
       '#attributes' => ['class' => ['kpi-table-container']],
       'heading' => ['#markup' => '<h2>' . $this->t('Key Performance Indicators') . '</h2>'],
-      'table' => [
+      'wired_heading' => [
+        '#markup' => '<h3>' . $this->t('Wired KPIs') . '</h3>',
+      ],
+      'wired_table' => [
         '#type' => 'table',
-        '#header' => $main_header,
-        '#rows' => $main_rows,
-        '#empty' => $this->t('KPI data is not yet available.'),
+        '#header' => $header,
+        '#rows' => $wiredRows,
+        '#empty' => $this->t('No wired KPIs available for this section yet.'),
         '#attributes' => ['class' => ['kpi-table']],
+      ],
+      'in_development_heading' => [
+        '#markup' => '<h3>' . $this->t('KPIs In Development') . '</h3>',
+      ],
+      'in_development_table' => [
+        '#type' => 'table',
+        '#header' => $header,
+        '#rows' => $inDevelopmentRows,
+        '#empty' => $this->t('No in-development KPIs currently listed.'),
+        '#attributes' => ['class' => ['kpi-table', 'kpi-table--in-development']],
       ],
     ];
 
@@ -209,6 +234,21 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     ];
 
     return $build;
+  }
+
+  /**
+   * Determines whether a KPI should be treated as in-development.
+   */
+  protected function isKpiInDevelopment(array $kpi): bool {
+    $current = $kpi['current'] ?? NULL;
+    $normalizedCurrent = is_string($current) ? strtolower(trim($current)) : $current;
+    $hasCurrent = !in_array($normalizedCurrent, [NULL, '', 'tbd', 'n/a'], TRUE);
+
+    $trend = array_values(array_filter((array) ($kpi['trend'] ?? []), 'is_numeric'));
+    $annualValues = array_values(array_filter((array) ($kpi['annual_values'] ?? []), 'is_numeric'));
+    $hasLastUpdated = !empty($kpi['last_updated']);
+
+    return !$hasCurrent && empty($trend) && empty($annualValues) && !$hasLastUpdated;
   }
 
   /**
@@ -370,6 +410,26 @@ SVG;
       return number_format($float, $precision);
     }
     return (string) $value;
+  }
+
+  /**
+   * Builds the KPI source note cell.
+   */
+  protected function buildSourceNoteCell(array $kpi) {
+    $source = trim((string) ($kpi['source_note'] ?? ''));
+    if ($source === '') {
+      if ($this->isKpiInDevelopment($kpi)) {
+        $source = (string) $this->t('In development');
+      }
+      elseif (!empty($kpi['last_updated'])) {
+        $source = (string) $this->t('Automated (system data)');
+      }
+      else {
+        $source = (string) $this->t('Automated');
+      }
+    }
+
+    return Html::escape($source);
   }
 
   /**

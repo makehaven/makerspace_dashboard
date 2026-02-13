@@ -1343,10 +1343,69 @@ class MembershipMetricsService {
    *   The annual member NPS.
    */
   public function getAnnualMemberNps(): int {
-    // @todo: Implement logic to get this value from the annual member survey.
-    // This will be called by the 'annual' snapshot in the makerspace_snapshot
-    // module.
-    return 55;
+    $currentYear = (int) date('Y', $this->time->getRequestTime());
+    $cacheId = sprintf('makerspace_dashboard:membership:annual_member_nps:%d', $currentYear);
+    if ($cache = $this->cache->get($cacheId)) {
+      return (int) $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (
+      !$schema->tableExists('webform_submission') ||
+      !$schema->tableExists('webform_submission_data')
+    ) {
+      return 0;
+    }
+
+    // Prefer the current year survey, then step backward to the latest
+    // available member survey with responses.
+    $targetWebforms = [];
+    for ($year = $currentYear; $year >= $currentYear - 5; $year--) {
+      $targetWebforms[] = sprintf('%d_member_survey', $year);
+    }
+
+    foreach ($targetWebforms as $webformId) {
+      $query = $this->database->select('webform_submission_data', 'd');
+      $query->innerJoin('webform_submission', 's', 's.sid = d.sid');
+      $query->addField('d', 'value', 'score');
+      $query->condition('s.webform_id', $webformId);
+      $query->condition('s.in_draft', 0);
+      $query->condition('d.webform_id', $webformId);
+      $query->condition('d.name', 'net_prompt');
+      $query->condition('d.delta', 0);
+
+      $promoters = 0;
+      $detractors = 0;
+      $responses = 0;
+      foreach ($query->execute() as $record) {
+        $value = trim((string) ($record->score ?? ''));
+        if ($value === '' || !is_numeric($value)) {
+          continue;
+        }
+
+        $score = (int) round((float) $value);
+        if ($score < 0 || $score > 10) {
+          continue;
+        }
+
+        $responses++;
+        if ($score >= 9) {
+          $promoters++;
+        }
+        elseif ($score <= 6) {
+          $detractors++;
+        }
+      }
+
+      if ($responses > 0) {
+        $nps = (int) round((($promoters - $detractors) / $responses) * 100);
+        $this->cache->set($cacheId, $nps, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
+        return $nps;
+      }
+    }
+
+    $this->cache->set($cacheId, 0, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
+    return 0;
   }
 
   /**
