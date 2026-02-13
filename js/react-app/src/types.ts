@@ -10,6 +10,8 @@ export interface RangeConfig {
 export interface PlaceholderConfig {
   sectionId: string;
   chartId: string;
+  tier?: 'key' | 'supplemental' | 'experimental' | string;
+  lazyLoad?: boolean;
   ranges?: RangeConfig;
 }
 

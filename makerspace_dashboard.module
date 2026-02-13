@@ -17,6 +17,7 @@ function makerspace_dashboard_library_info_alter(array &$libraries, $extension) 
       }
     }
   }
+
 }
 
 use Drupal\Core\Form\FormStateInterface;

@@ -99,6 +99,15 @@ retention:
     label: 'Active Participation %'
     base_2025: 0.60
     goal_2030: 0.80
+  new_member_28_day_activation:
+    label: 'New Member 28-Day Activation %'
+    base_2025: 0.55
+    goal_2030: 0.80
+  members_at_risk_share:
+    label: 'Members At-Risk %'
+    base_2025: 0.25
+    goal_2030: 0.15
+    goal_direction: lower
   membership_diversity_bipoc:
     label: 'Membership Diversity (% BIPOC)'
     base_2025: 0.15

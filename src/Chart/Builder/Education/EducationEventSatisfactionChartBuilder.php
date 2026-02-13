@@ -11,7 +11,7 @@ class EducationEventSatisfactionChartBuilder extends EducationEvaluationChartBui
 
   protected const CHART_ID = 'event_satisfaction';
   protected const WEIGHT = 25;
-  protected const TIER = 'supplemental';
+  protected const TIER = 'key';
 
   /**
    * {@inheritdoc}

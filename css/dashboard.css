@@ -274,6 +274,220 @@
   font-size: 0.85em;
 }
 
+.overview-kpi-jump-links {
+  margin: 0.75rem 0 1rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #dbe2ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.overview-kpi-jump-links .overview-kpi-jump-list {
+  margin: 0.35rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.overview-kpi-jump-links .overview-kpi-jump-list li {
+  margin: 0;
+  list-style: none;
+}
+
+.overview-kpi-jump-link {
+  display: inline-block;
+  padding: 0.18rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  text-decoration: none;
+  font-size: 0.85rem;
+}
+
+.overview-kpi-section-table {
+  margin: 1.25rem 0;
+}
+
+.overview-kpi-section-table h3 {
+  margin-bottom: 0.6rem;
+}
+
+.overview-kpi-section-link {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.kpi-overview-label-cell {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.kpi-overview-state {
+  display: inline-block;
+  width: fit-content;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  border: 1px solid transparent;
+}
+
+.kpi-overview-state--dev {
+  background: #fffbeb;
+  color: #92400e;
+  border-color: #fde68a;
+}
+
+.kpi-overview-more-link {
+  font-size: 0.78rem;
+}
+
+.kpi-detail-link {
+  white-space: nowrap;
+}
+
+.overview-kpi-table-wrap {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+}
+
+.overview-kpi-sections {
+  display: grid;
+  gap: 1rem;
+  margin-top: 0.75rem;
+}
+
+.overview-kpi-section {
+  border: 1px solid #dbe2ea;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 0.85rem;
+}
+
+.overview-kpi-section > h4 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: #1f2937;
+}
+
+.overview-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.overview-kpi-card {
+  border: 1px solid #d7dee8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.75rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.overview-kpi-card.kpi-progress--good {
+  border-left: 4px solid #15803d;
+}
+
+.overview-kpi-card.kpi-progress--warning {
+  border-left: 4px solid #d97706;
+}
+
+.overview-kpi-card.kpi-progress--poor {
+  border-left: 4px solid #b91c1c;
+}
+
+.overview-kpi-card.kpi-progress--na {
+  border-left: 4px solid #64748b;
+}
+
+.overview-kpi-card__title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #111827;
+}
+
+.overview-kpi-card__status {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #334155;
+}
+
+.overview-kpi-card__metrics {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.overview-kpi-card__current {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.overview-kpi-card__goal,
+.overview-kpi-card__trend {
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.overview-source-notes {
+  font-size: 0.9rem;
+}
+
+@media (max-width: 640px) {
+  .overview-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  table-layout: fixed;
+}
+
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(1),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(1) {
+  width: 38%;
+}
+
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(2),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(2) {
+  width: 14%;
+}
+
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(3),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(3),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(4),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(4) {
+  width: 11%;
+}
+
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(5),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(5) {
+  width: 19%;
+}
+
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(6),
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(6) {
+  width: 7%;
+}
+
+@media (max-width: 900px) {
+  .makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned {
+    min-width: 760px !important;
+    max-width: none !important;
+  }
+}
+
 .chart-tier {
   margin-bottom: 2rem;
 }
@@ -308,6 +522,19 @@
   color: #475569;
   font-size: 1.15rem;
   font-weight: 600;
+}
+
+/* Keep chart-table headers readable regardless of theme table overrides. */
+.makerspace-dashboard-section .metric-container table th,
+.makerspace-dashboard-section .makerspace-dashboard-react-chart__table th {
+  background: #475569 !important;
+  color: #ffffff !important;
+  text-shadow: none;
+}
+
+.makerspace-dashboard-section .metric-container table th a,
+.makerspace-dashboard-section .makerspace-dashboard-react-chart__table th a {
+  color: #ffffff !important;
 }
 
 .makerspace-dashboard-location-map-wrapper {

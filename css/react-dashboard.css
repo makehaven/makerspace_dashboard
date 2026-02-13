@@ -130,6 +130,8 @@
 .makerspace-dashboard-react-chart__table {
   width: 100%;
   border-collapse: collapse;
+  font-size: 0.92rem;
+  line-height: 1.35;
 }
 
 .makerspace-dashboard-react-chart__table th,
@@ -139,9 +141,11 @@
 }
 
 .makerspace-dashboard-react-chart__table th {
-  background: #f1f5f9;
+  background: #475569;
+  color: #ffffff;
   text-align: left;
   font-weight: 600;
+  letter-spacing: 0.01em;
 }
 
 .makerspace-dashboard-react-chart__table caption {
@@ -156,7 +160,12 @@
 }
 
 .makerspace-dashboard-react-chart__children--two-up {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+
+/* Prevent two-up containers from squeezing tabular chart renderings. */
+.makerspace-dashboard-react-chart__children--two-up > .makerspace-dashboard-react-chart__table {
+  grid-column: 1 / -1;
 }
 
 .makerspace-dashboard-react-chart__canvas--funnel {

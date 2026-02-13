@@ -216,6 +216,62 @@ class EntrepreneurshipDataService {
   }
 
   /**
+   * Returns active member counts by every selected goal value.
+   */
+  public function getActiveMemberGoalDistribution(): array {
+    $cid = 'makerspace_dashboard:entrepreneur:active_goal_distribution';
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (
+      !$schema->tableExists('users_field_data') ||
+      !$schema->tableExists('user__roles') ||
+      !$schema->tableExists('profile') ||
+      !$schema->tableExists('profile__field_member_goal')
+    ) {
+      return [];
+    }
+
+    $totalQuery = $this->database->select('users_field_data', 'u');
+    $totalQuery->innerJoin('user__roles', 'ur', 'ur.entity_id = u.uid');
+    $totalQuery->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type_main AND p.is_default = 1 AND p.status = 1', [':type_main' => 'main']);
+    $totalQuery->condition('u.status', 1);
+    $totalQuery->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $totalQuery->addExpression('COUNT(DISTINCT u.uid)', 'active_members');
+    $activeMembers = (int) $totalQuery->execute()->fetchField();
+
+    $goalQuery = $this->database->select('users_field_data', 'u');
+    $goalQuery->innerJoin('user__roles', 'ur', 'ur.entity_id = u.uid');
+    $goalQuery->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type_main AND p.is_default = 1 AND p.status = 1', [':type_main' => 'main']);
+    $goalQuery->leftJoin('profile__field_member_goal', 'goal', 'goal.entity_id = p.profile_id AND goal.deleted = 0');
+    $goalQuery->condition('u.status', 1);
+    $goalQuery->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $goalQuery->addField('goal', 'field_member_goal_value', 'goal_value');
+    $goalQuery->addExpression('COUNT(DISTINCT u.uid)', 'member_count');
+    $goalQuery->groupBy('goal.field_member_goal_value');
+
+    $goalCounts = [];
+    foreach ($goalQuery->execute() as $record) {
+      $goalKey = trim((string) ($record->goal_value ?? ''));
+      if ($goalKey === '') {
+        $goalKey = '_none';
+      }
+      $goalCounts[$goalKey] = (int) ($record->member_count ?? 0);
+    }
+    arsort($goalCounts);
+
+    $data = [
+      'active_members' => $activeMembers,
+      'goal_counts' => $goalCounts,
+    ];
+
+    $this->cache->set($cid, $data, $this->time->getRequestTime() + $this->ttl, ['profile_list', 'user_list']);
+    return $data;
+  }
+
+  /**
    * Summarizes active members with entrepreneurship goals or experience.
    */
   public function getActiveEntrepreneurSnapshot(): array {

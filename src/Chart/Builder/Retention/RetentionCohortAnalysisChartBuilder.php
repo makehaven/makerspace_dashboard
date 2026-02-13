@@ -40,13 +40,13 @@ class RetentionCohortAnalysisChartBuilder extends ChartBuilderBase {
 
     $html = '<div class="cohort-heatmap-container" style="overflow-x: auto;">';
     $html .= '<table class="cohort-heatmap" style="border-collapse: collapse; font-size: 12px; width: 100%;">';
-    
+
     // Header
     $html .= '<thead><tr>';
-    $html .= '<th style="text-align: left; padding: 4px; border-bottom: 1px solid #ccc;">' . $this->t('Cohort') . '</th>';
-    $html .= '<th style="text-align: center; padding: 4px; border-bottom: 1px solid #ccc;">' . $this->t('Size') . '</th>';
+    $html .= '<th style="text-align: left; padding: 6px 4px; border-bottom: 1px solid #cbd5e1; background-color: #f8fafc; color: #0f172a; font-weight: 700; white-space: nowrap;">' . $this->t('Cohort') . '</th>';
+    $html .= '<th style="text-align: center; padding: 6px 4px; border-bottom: 1px solid #cbd5e1; background-color: #f8fafc; color: #0f172a; font-weight: 700;">' . $this->t('Size') . '</th>';
     for ($i = 0; $i <= $monthsBack; $i++) {
-      $html .= '<th style="text-align: center; padding: 4px; border-bottom: 1px solid #ccc; min-width: 30px;">' . $i . '</th>';
+      $html .= '<th style="text-align: center; padding: 6px 4px; border-bottom: 1px solid #cbd5e1; background-color: #f8fafc; color: #0f172a; font-weight: 700; min-width: 34px; letter-spacing: 0.02em;">' . $i . '</th>';
     }
     $html .= '</tr></thead>';
 
@@ -61,11 +61,10 @@ class RetentionCohortAnalysisChartBuilder extends ChartBuilderBase {
           $html .= '<td style="background-color: #f9f9f9; border-bottom: 1px solid #eee;"></td>';
         } else {
           $color = $this->getHeatmapColor($pct);
-          $textColor = ($pct < 50) ? '#000' : '#000'; // Keep text dark for readability on pastel backgrounds
           $html .= sprintf(
             '<td style="background-color: %s; color: %s; text-align: center; padding: 4px; border-bottom: 1px solid #eee;" title="%s%%">%s%%</td>',
             $color,
-            $textColor,
+            '#000',
             $pct,
             round($pct)
           );
@@ -89,7 +88,7 @@ class RetentionCohortAnalysisChartBuilder extends ChartBuilderBase {
     $notes = [
       (string) $this->t('Cohorts are grouped by join month.'),
       (string) $this->t('Columns represent months elapsed since joining (Month 0 = Join Month).'),
-      (string) $this->t('Cells show the percentage of the original cohort retained at the end of that month.'),
+      (string) $this->t('Month 0 is the join-month baseline; later months are measured at each month end.'),
     ];
 
     return $this->newDefinition(

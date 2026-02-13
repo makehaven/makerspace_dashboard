@@ -3,6 +3,7 @@ import { DashboardChart } from './components/DashboardChart';
 import type { PlaceholderConfig } from './types';
 
 const roots = new Map<HTMLElement, Root>();
+const togglesBound = new WeakSet<HTMLDetailsElement>();
 
 function getPlaceholderConfig(element: HTMLElement): (PlaceholderConfig & { reactId: string }) | null {
   const reactId = element.dataset.reactId;
@@ -24,6 +25,12 @@ function mount(element: HTMLElement) {
   if (!config) {
     return;
   }
+  if (config.lazyLoad) {
+    const details = element.closest('details');
+    if (details && !details.open) {
+      return;
+    }
+  }
   const root = createRoot(element);
   root.render(<DashboardChart {...config} />);
   roots.set(element, root);
@@ -38,9 +45,28 @@ function unmount(element: HTMLElement) {
   roots.delete(element);
 }
 
+function bindLazyToggleListeners(scope: ParentNode) {
+  const detailsBlocks = scope.querySelectorAll<HTMLDetailsElement>('details.chart-tier');
+  detailsBlocks.forEach((details) => {
+    if (togglesBound.has(details)) {
+      return;
+    }
+    const onToggle = () => {
+      if (!details.open) {
+        return;
+      }
+      const placeholders = details.querySelectorAll<HTMLElement>('.makerspace-dashboard-react-chart');
+      placeholders.forEach(mount);
+    };
+    details.addEventListener('toggle', onToggle);
+    togglesBound.add(details);
+  });
+}
+
 const behavior: DrupalBehavior = {
   attach(context) {
     const scope = context instanceof HTMLElement ? context : document;
+    bindLazyToggleListeners(scope);
     const placeholders = scope.querySelectorAll<HTMLElement>('.makerspace-dashboard-react-chart');
     placeholders.forEach(mount);
   },

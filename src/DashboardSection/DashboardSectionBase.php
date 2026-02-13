@@ -38,6 +38,14 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   ];
 
   /**
+   * Target chart counts per tier for share-ready sections.
+   */
+  protected const CHART_TIER_LIMITS = [
+    'key' => 5,
+    'supplemental' => 8,
+  ];
+
+  /**
    * Chart builder manager.
    */
   protected ?ChartBuilderManager $chartBuilderManager = NULL;
@@ -117,7 +125,6 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       $this->t('Goal 2030'),
       $this->t('Goal @year', ['@year' => $currentGoalYear]),
       $this->t('Current'),
-      $this->t('Source'),
       $this->t('Trend (12 month)'),
     ];
 
@@ -130,7 +137,6 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
         $this->formatKpiValue($kpi['goal_2030'] ?? NULL, $format),
         $this->formatKpiValue($kpi['goal_current_year'] ?? NULL, $format),
         $this->buildCurrentValueCell($kpi, $format),
-        $this->buildSourceNoteCell($kpi),
         [
           'data' => [
             '#type' => 'container',
@@ -437,7 +443,12 @@ SVG;
    */
   protected function buildCurrentValueCell(array $kpi, ?string $format) {
     $formatted = $this->formatKpiValue($kpi['current'] ?? NULL, $format);
-    $class = $this->determinePerformanceClass($kpi['current'] ?? NULL, $kpi['goal_current_year'] ?? NULL, $format);
+    $class = $this->determinePerformanceClass(
+      $kpi['current'] ?? NULL,
+      $kpi['goal_current_year'] ?? NULL,
+      $format,
+      (string) ($kpi['goal_direction'] ?? 'higher')
+    );
     if (!$class) {
       return $formatted;
     }
@@ -452,7 +463,7 @@ SVG;
   /**
    * Determines the progress class based on goal vs. current values.
    */
-  protected function determinePerformanceClass($current, $goal, ?string $format = NULL): ?string {
+  protected function determinePerformanceClass($current, $goal, ?string $format = NULL, string $goalDirection = 'higher'): ?string {
     if ($goal === NULL || $current === NULL) {
       return NULL;
     }
@@ -462,6 +473,24 @@ SVG;
       return NULL;
     }
     $isPercent = ($format === 'percent') || abs($goalValue) <= 1.5;
+    $goalDirection = strtolower(trim($goalDirection));
+    $lowerIsBetter = in_array($goalDirection, ['lower', 'down', 'decrease'], TRUE);
+
+    if ($lowerIsBetter) {
+      if ($currentValue <= $goalValue) {
+        return 'kpi-progress--good';
+      }
+      if ($isPercent) {
+        if ($currentValue <= $goalValue + 0.08) {
+          return 'kpi-progress--warning';
+        }
+      }
+      elseif ($currentValue <= ($goalValue * 1.1)) {
+        return 'kpi-progress--warning';
+      }
+      return 'kpi-progress--poor';
+    }
+
     if ($currentValue >= $goalValue) {
       return 'kpi-progress--good';
     }
@@ -563,9 +592,11 @@ SVG;
   /**
    * Builds a standardized container using a chart definition object.
    */
-  protected function buildChartRenderableFromDefinition(ChartDefinition $definition): array {
+  protected function buildChartRenderableFromDefinition(ChartDefinition $definition, ?string $effectiveTier = NULL): array {
     $chart_id = $definition->getChartId();
     $placeholder_id = $this->buildChartDomId($chart_id);
+    $tier = $effectiveTier ?? $definition->getTier();
+    $lazyLoad = $tier !== 'key';
     $metadata = $definition->toMetadata();
     $metadata['notes'] = $this->stringifyInfoItems($definition->getNotes());
     $visualization = $definition->getVisualization();
@@ -592,13 +623,13 @@ SVG;
           'data-react-id' => $placeholder_id,
         ],
         'fallback' => [
-          '#markup' => '<div class="makerspace-dashboard-react-chart__status">' . $this->t('Loading chart…') . '</div>',
+          '#markup' => '<div class="makerspace-dashboard-react-chart__status">' . ($lazyLoad ? $this->t('Expand section to load chart.') : $this->t('Loading chart…')) . '</div>',
         ],
       ],
       'info' => $this->buildChartInfo($definition->getNotes()),
     ];
 
-    $container['#cache'] = $this->buildChartCacheMetadata($definition);
+    $container['#cache'] = $this->buildChartCacheMetadata($definition, $tier);
     if ($downloadable) {
       $container['download'] = $this->buildCsvDownloadLink($definition->getSectionId(), $chart_id);
     }
@@ -612,6 +643,8 @@ SVG;
       $settings['ranges'] = $definition->getRange();
     }
     $container['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholder_id] = $settings;
+    $container['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholder_id]['tier'] = $tier;
+    $container['#attached']['drupalSettings']['makerspaceDashboardReact']['placeholders'][$placeholder_id]['lazyLoad'] = $lazyLoad;
 
     return $container;
   }
@@ -619,9 +652,15 @@ SVG;
   /**
    * Builds cache metadata for a chart definition.
    */
-  protected function buildChartCacheMetadata(ChartDefinition $definition): array {
+  protected function buildChartCacheMetadata(ChartDefinition $definition, ?string $effectiveTier = NULL): array {
+    $tier = $effectiveTier ?? $definition->getTier();
+    $tierMaxAge = match ($tier) {
+      'experimental' => 300,
+      'supplemental' => 900,
+      default => 1800,
+    };
     $defaults = [
-      'max-age' => 900,
+      'max-age' => $tierMaxAge,
       'contexts' => ['user.permissions'],
       'tags' => [
         'makerspace_dashboard:section:' . $definition->getSectionId(),
@@ -1145,6 +1184,7 @@ SVG;
       $tier = $definition->getTier();
       $grouped[$tier][] = $definition;
     }
+    $grouped = $this->enforceTierStructureLimits($grouped);
 
     $tiers = [];
     $order = $tierOrder ?: array_keys(self::CHART_TIER_LABELS);
@@ -1173,13 +1213,38 @@ SVG;
       }
 
       foreach ($grouped[$tier] as $definition) {
-        $renderable = $this->buildChartRenderableFromDefinition($definition);
+        $renderable = $this->buildChartRenderableFromDefinition($definition, $tier);
         $container[$definition->getChartId()] = $renderable;
       }
       $tiers[$tier] = $container;
     }
 
     return $tiers;
+  }
+
+  /**
+   * Applies section-wide chart count limits by moving overflow to lower tiers.
+   *
+   * @param array $grouped
+   *   Grouped chart definitions keyed by tier.
+   *
+   * @return array
+   *   Grouped chart definitions with overflow shifted to lower tiers.
+   */
+  protected function enforceTierStructureLimits(array $grouped): array {
+    $keyLimit = self::CHART_TIER_LIMITS['key'] ?? 5;
+    if (!empty($grouped['key']) && count($grouped['key']) > $keyLimit) {
+      $overflow = array_splice($grouped['key'], $keyLimit);
+      $grouped['supplemental'] = array_merge($grouped['supplemental'] ?? [], $overflow);
+    }
+
+    $supplementalLimit = self::CHART_TIER_LIMITS['supplemental'] ?? 8;
+    if (!empty($grouped['supplemental']) && count($grouped['supplemental']) > $supplementalLimit) {
+      $overflow = array_splice($grouped['supplemental'], $supplementalLimit);
+      $grouped['experimental'] = array_merge($grouped['experimental'] ?? [], $overflow);
+    }
+
+    return $grouped;
   }
 
   /**

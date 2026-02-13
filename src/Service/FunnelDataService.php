@@ -101,19 +101,45 @@ class FunnelDataService {
    * Provides stats for recorded visits (activities) through to membership joins.
    */
   public function getVisitFunnelData(): array {
-    $window = $this->buildWindow(self::WINDOW_MONTHS);
-    $cacheId = sprintf('makerspace_dashboard:funnel:visits:%s', $window['cache_key']);
+    $data = $this->getActivityFunnelData('visit', self::WINDOW_MONTHS);
+    return [
+      'range' => $data['range'],
+      'visits' => $data['activities'],
+      'conversions' => $data['conversions'],
+    ];
+  }
+
+  /**
+   * Provides activity-type conversion stats to membership joins.
+   */
+  public function getActivityFunnelData(string $activityTypeLabelMatch, int $months = self::WINDOW_MONTHS): array {
+    $labelMatch = trim($activityTypeLabelMatch);
+    if ($labelMatch === '') {
+      return [
+        'range' => $this->buildWindow(max(1, $months)),
+        'activities' => 0,
+        'conversions' => 0,
+        'conversion_rate' => NULL,
+        'label_match' => $labelMatch,
+      ];
+    }
+
+    $window = $this->buildWindow(max(1, $months));
+    $cacheId = sprintf('makerspace_dashboard:funnel:activity:%s:%s', md5(strtolower($labelMatch)), $window['cache_key']);
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
-    $contactMap = $this->getActivityContactMap('visit', $window['start'], $window['end']);
+    $contactMap = $this->getActivityContactMap($labelMatch, $window['start'], $window['end']);
+    $activities = count($contactMap);
     $converted = $this->countContactConversions($contactMap);
 
     $data = [
       'range' => $window,
-      'visits' => count($contactMap),
+      'activities' => $activities,
       'conversions' => $converted,
+      'conversion_rate' => $activities > 0 ? ($converted / $activities) : NULL,
+      'label_match' => $labelMatch,
     ];
 
     $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [

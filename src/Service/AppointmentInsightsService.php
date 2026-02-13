@@ -213,9 +213,63 @@ class AppointmentInsightsService {
     $data = [
       'labels' => $labels,
       'month_keys' => array_keys($months),
+      'monthly_totals' => array_map('intval', array_values($monthlyTotals)),
       'results' => $resultDatasets,
       'feedback_rates' => $feedbackRates,
       'totals' => $totals,
+    ];
+
+    $this->cache->set($cid, $data, $this->buildTtl(), ['node_list', 'node_list:appointment']);
+    return $data;
+  }
+
+  /**
+   * Returns total non-canceled appointments per month for a date window.
+   */
+  public function getMonthlyAppointmentVolumeSeries(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $startKey = $start->format('Ymd');
+    $endKey = $end->format('Ymd');
+    $cid = "makerspace_dashboard:appointment_volume:$startKey:$endKey";
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $months = $this->buildMonthRange($start, $end);
+    if (empty($months)) {
+      return [];
+    }
+
+    $monthlyTotals = array_fill_keys(array_keys($months), 0);
+    $query = $this->database->select('node_field_data', 'n');
+    $query->innerJoin('node__field_appointment_date', 'date_field', 'date_field.entity_id = n.nid AND date_field.deleted = 0');
+    $query->leftJoin('node__field_appointment_status', 'status', 'status.entity_id = n.nid AND status.deleted = 0');
+    $query->addExpression("DATE_FORMAT(date_field.field_appointment_date_value, '%Y-%m')", 'month_key');
+    $query->addExpression('COUNT(*)', 'appointments');
+    $query->condition('n.type', 'appointment');
+    $query->condition('n.status', 1);
+    $query->condition('date_field.field_appointment_date_value', [
+      $start->format('Y-m-d'),
+      $end->format('Y-m-d'),
+    ], 'BETWEEN');
+    $query->condition('status.field_appointment_status_value', 'canceled', '<>');
+    $query->groupBy('month_key');
+
+    foreach ($query->execute() as $row) {
+      $monthKey = (string) ($row->month_key ?? '');
+      if (isset($monthlyTotals[$monthKey])) {
+        $monthlyTotals[$monthKey] = (int) ($row->appointments ?? 0);
+      }
+    }
+
+    $counts = array_values($monthlyTotals);
+    $data = [
+      'labels' => array_values($months),
+      'month_keys' => array_keys($months),
+      'counts' => array_map('intval', $counts),
+      'totals' => [
+        'appointments' => array_sum($counts),
+        'monthly_average' => count($counts) > 0 ? round(array_sum($counts) / count($counts), 1) : 0,
+      ],
     ];
 
     $this->cache->set($cid, $data, $this->buildTtl(), ['node_list', 'node_list:appointment']);

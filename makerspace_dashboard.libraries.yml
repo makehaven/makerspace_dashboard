@@ -37,6 +37,9 @@ join_location_map:
     - makerspace_dashboard/leaflet
 
 react_app:
+  css:
+    theme:
+      css/react-dashboard.css: {}
   js:
     js/react-app/dist/dashboard.js: { minified: true }
   dependencies:

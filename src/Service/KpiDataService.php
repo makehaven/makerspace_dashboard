@@ -97,6 +97,20 @@ class KpiDataService {
   protected $entrepreneurshipDataService;
 
   /**
+   * Funnel metrics service.
+   *
+   * @var \Drupal\makerspace_dashboard\Service\FunnelDataService
+   */
+  protected $funnelDataService;
+
+  /**
+   * Member success lifecycle and risk metrics service.
+   *
+   * @var \Drupal\makerspace_dashboard\Service\MemberSuccessDataService
+   */
+  protected $memberSuccessDataService;
+
+  /**
    * Sheet-sourced KPI goal overrides cache.
    *
    * @var array|null
@@ -144,8 +158,12 @@ class KpiDataService {
    *   Development-focused fundraising metrics service.
    * @param \Drupal\makerspace_dashboard\Service\EntrepreneurshipDataService $entrepreneurship_data_service
    *   Entrepreneurship metrics service.
+   * @param \Drupal\makerspace_dashboard\Service\FunnelDataService $funnel_data_service
+   *   Funnel metrics service.
+   * @param \Drupal\makerspace_dashboard\Service\MemberSuccessDataService $member_success_data_service
+   *   Member success lifecycle and risk metrics service.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service) {
+  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service) {
     $this->configFactory = $config_factory;
     $this->financialDataService = $financial_data_service;
     $this->googleSheetClientService = $google_sheet_client_service;
@@ -158,6 +176,8 @@ class KpiDataService {
     $this->educationEvaluationDataService = $education_evaluation_data_service;
     $this->developmentDataService = $development_data_service;
     $this->entrepreneurshipDataService = $entrepreneurship_data_service;
+    $this->funnelDataService = $funnel_data_service;
+    $this->memberSuccessDataService = $member_success_data_service;
   }
 
   /**
@@ -252,7 +272,49 @@ class KpiDataService {
       $definitions[$kpi_id] = $definition;
     }
 
-    return $definitions;
+    return $this->applySectionKpiPriorities($section_id, $definitions);
+  }
+
+  /**
+   * Applies section-specific KPI limits/priorities for dashboard scanning.
+   */
+  private function applySectionKpiPriorities(string $section_id, array $definitions): array {
+    if (empty($definitions)) {
+      return $definitions;
+    }
+
+    $priorityBySection = [
+      // Keep outreach KPI rows focused; conversion and funnel depth remains in charts.
+      'outreach' => [
+        'total_new_member_signups',
+        'total_first_time_workshop_participants',
+        'member_referral_rate',
+        'tours_to_member_conversion',
+        'meeting_to_member_conversion',
+      ],
+      // Keep retention KPI rows focused on membership scale, health, and early activation.
+      'retention' => [
+        'total_active_members',
+        'first_year_member_retention',
+        'active_participation',
+        'new_member_28_day_activation',
+        'members_at_risk_share',
+      ],
+    ];
+
+    if (empty($priorityBySection[$section_id])) {
+      return $definitions;
+    }
+
+    $priority = $priorityBySection[$section_id];
+    $filtered = [];
+    foreach ($priority as $kpi_id) {
+      if (isset($definitions[$kpi_id])) {
+        $filtered[$kpi_id] = $definitions[$kpi_id];
+      }
+    }
+
+    return $filtered;
   }
 
   /**
@@ -336,6 +398,7 @@ class KpiDataService {
       'label' => $kpi_info['label'] ?? '',
       'base_2025' => $kpi_info['base_2025'] ?? NULL,
       'goal_2030' => $kpi_info['goal_2030'] ?? NULL,
+      'goal_direction' => $kpi_info['goal_direction'] ?? 'higher',
       'goal_current_year' => $goalCurrentYear,
       'goal_current_year_label' => $goalYear,
       'annual_values' => $annual,
@@ -915,6 +978,154 @@ class KpiDataService {
   }
 
   /**
+   * Gets the data for the "New Member 28-Day Activation %" KPI.
+   */
+  private function getNewMember28DayActivationData(array $kpi_info): array {
+    $series = $this->memberSuccessDataService->getMonthlyActivationSeries(18, 28, 30);
+    if (empty($series)) {
+      $funnel = $this->memberSuccessDataService->getLatestOnboardingFunnel(90);
+      $joined = (int) ($funnel['joined_recent'] ?? 0);
+      $badgeActive = (int) ($funnel['badge_active'] ?? 0);
+      $current = $joined > 0 ? ($badgeActive / $joined) : NULL;
+      $lastUpdated = (!empty($funnel['snapshot_date']) && $funnel['snapshot_date'] instanceof \DateTimeImmutable)
+        ? $funnel['snapshot_date']->format('Y-m-d')
+        : NULL;
+      return $this->buildKpiResult(
+        $kpi_info,
+        [],
+        $current !== NULL ? [$current] : [],
+        NULL,
+        NULL,
+        $lastUpdated,
+        $current,
+        'new_member_28_day_activation',
+        'percent',
+        'Fallback: Latest onboarding funnel (badge active / recent joins).'
+      );
+    }
+
+    $trend = [];
+    $annualOverrides = [];
+    $lastUpdated = NULL;
+    foreach ($series as $row) {
+      if (!array_key_exists('ratio', $row) || !is_numeric($row['ratio'])) {
+        continue;
+      }
+      $ratio = (float) $row['ratio'];
+      $trend[] = $ratio;
+
+      if (!empty($row['snapshot_date']) && $row['snapshot_date'] instanceof \DateTimeImmutable) {
+        $year = $row['snapshot_date']->format('Y');
+        $annualOverrides[$year] = $ratio;
+        $lastUpdated = $row['snapshot_date']->format('Y-m-d');
+      }
+    }
+
+    if (empty($trend)) {
+      $funnel = $this->memberSuccessDataService->getLatestOnboardingFunnel(90);
+      $joined = (int) ($funnel['joined_recent'] ?? 0);
+      $badgeActive = (int) ($funnel['badge_active'] ?? 0);
+      $current = $joined > 0 ? ($badgeActive / $joined) : NULL;
+      $lastUpdated = (!empty($funnel['snapshot_date']) && $funnel['snapshot_date'] instanceof \DateTimeImmutable)
+        ? $funnel['snapshot_date']->format('Y-m-d')
+        : NULL;
+      return $this->buildKpiResult(
+        $kpi_info,
+        [],
+        $current !== NULL ? [$current] : [],
+        NULL,
+        NULL,
+        $lastUpdated,
+        $current,
+        'new_member_28_day_activation',
+        'percent',
+        'Fallback: Latest onboarding funnel (badge active / recent joins).'
+      );
+    }
+
+    $current = (float) end($trend);
+    ksort($annualOverrides, SORT_STRING);
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      array_slice($trend, -12),
+      $this->calculateTrailingAverage($trend, 12),
+      $this->calculateTrailingAverage($trend, 3),
+      $lastUpdated,
+      $current,
+      'new_member_28_day_activation',
+      'percent',
+      'Automated: Member success daily snapshots (join cohort reaching ~28 days).'
+    );
+  }
+
+  /**
+   * Gets the data for the "Members At-Risk %" KPI.
+   */
+  private function getMembersAtRiskShareData(array $kpi_info): array {
+    $series = $this->memberSuccessDataService->getMonthlyRiskShareSeries(18, 20);
+    if (empty($series)) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        [],
+        [],
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        'members_at_risk_share',
+        'percent'
+      );
+    }
+
+    $trend = [];
+    $annualOverrides = [];
+    $lastUpdated = NULL;
+    foreach ($series as $row) {
+      if (!array_key_exists('ratio', $row) || !is_numeric($row['ratio'])) {
+        continue;
+      }
+      $ratio = (float) $row['ratio'];
+      $trend[] = $ratio;
+
+      if (!empty($row['snapshot_date']) && $row['snapshot_date'] instanceof \DateTimeImmutable) {
+        $year = $row['snapshot_date']->format('Y');
+        $annualOverrides[$year] = $ratio;
+        $lastUpdated = $row['snapshot_date']->format('Y-m-d');
+      }
+    }
+
+    if (empty($trend)) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        [],
+        [],
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+        'members_at_risk_share',
+        'percent'
+      );
+    }
+
+    $current = (float) end($trend);
+    ksort($annualOverrides, SORT_STRING);
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      array_slice($trend, -12),
+      $this->calculateTrailingAverage($trend, 12),
+      $this->calculateTrailingAverage($trend, 3),
+      $lastUpdated,
+      $current,
+      'members_at_risk_share',
+      'percent',
+      'Automated: Share of members with member-success risk_score >= 20.'
+    );
+  }
+
+  /**
    * Gets the data for the "Member Referral Rate" KPI.
    */
   private function getMemberReferralRateData(array $kpi_info): array {
@@ -996,6 +1207,174 @@ class KpiDataService {
     }
 
     return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'member_referral_rate', 'percent');
+  }
+
+  /**
+   * Gets the data for the "Tours to Member Conversion %" KPI.
+   */
+  private function getToursToMemberConversionData(array $kpi_info): array {
+    $funnel = $this->funnelDataService->getTourFunnelData();
+    $participants = (int) ($funnel['participants'] ?? 0);
+    $conversions = (int) ($funnel['conversions'] ?? 0);
+    $current = $participants > 0 ? ($conversions / $participants) : NULL;
+
+    $annualOverrides = [];
+    if ($current !== NULL && !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface) {
+      $annualOverrides[$funnel['range']['end']->format('Y')] = $current;
+    }
+
+    $lastUpdated = !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface
+      ? $funnel['range']['end']->format('Y-m-d')
+      : date('Y-m-d');
+
+    $sourceNote = sprintf('Rolling 12 months: %d tour participants, %d converted to membership.', $participants, $conversions);
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'tours_to_member_conversion',
+      'percent',
+      $sourceNote
+    );
+  }
+
+  /**
+   * Gets the data for the "Guest Waivers Signed (12 month)" KPI.
+   */
+  private function getGuestWaiversSignedData(array $kpi_info): array {
+    $funnel = $this->funnelDataService->getActivityFunnelData('guest waiver');
+    $waivers = (int) ($funnel['activities'] ?? 0);
+    $conversions = (int) ($funnel['conversions'] ?? 0);
+
+    $annualOverrides = [];
+    if (!empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface) {
+      $annualOverrides[$funnel['range']['end']->format('Y')] = $waivers;
+    }
+
+    $lastUpdated = !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface
+      ? $funnel['range']['end']->format('Y-m-d')
+      : date('Y-m-d');
+
+    $sourceNote = sprintf('Rolling 12 months: %d guest waivers signed, %d later converted to membership.', $waivers, $conversions);
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $waivers,
+      'guest_waivers_signed',
+      NULL,
+      $sourceNote
+    );
+  }
+
+  /**
+   * Gets the data for the "Guest Waiver to Member Conversion %" KPI.
+   */
+  private function getGuestWaiverConversionData(array $kpi_info): array {
+    $funnel = $this->funnelDataService->getActivityFunnelData('guest waiver');
+    $waivers = (int) ($funnel['activities'] ?? 0);
+    $conversions = (int) ($funnel['conversions'] ?? 0);
+    $current = $waivers > 0 ? ($conversions / $waivers) : NULL;
+
+    $annualOverrides = [];
+    if ($current !== NULL && !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface) {
+      $annualOverrides[$funnel['range']['end']->format('Y')] = $current;
+    }
+
+    $lastUpdated = !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface
+      ? $funnel['range']['end']->format('Y-m-d')
+      : date('Y-m-d');
+
+    $sourceNote = sprintf('Rolling 12 months: %d guest waivers, %d conversions to membership.', $waivers, $conversions);
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'guest_waiver_conversion',
+      'percent',
+      $sourceNote
+    );
+  }
+
+  /**
+   * Gets the data for the "Discovery Meetings Logged (12 month)" KPI.
+   */
+  private function getDiscoveryMeetingsLoggedData(array $kpi_info): array {
+    $funnel = $this->funnelDataService->getActivityFunnelData('meeting');
+    $meetings = (int) ($funnel['activities'] ?? 0);
+    $conversions = (int) ($funnel['conversions'] ?? 0);
+
+    $annualOverrides = [];
+    if (!empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface) {
+      $annualOverrides[$funnel['range']['end']->format('Y')] = $meetings;
+    }
+
+    $lastUpdated = !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface
+      ? $funnel['range']['end']->format('Y-m-d')
+      : date('Y-m-d');
+
+    $sourceNote = sprintf('Rolling 12 months: %d meetings logged, %d converted to membership.', $meetings, $conversions);
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $meetings,
+      'discovery_meetings_logged',
+      NULL,
+      $sourceNote
+    );
+  }
+
+  /**
+   * Gets the data for the "Meeting to Member Conversion %" KPI.
+   */
+  private function getMeetingToMemberConversionData(array $kpi_info): array {
+    $funnel = $this->funnelDataService->getActivityFunnelData('meeting');
+    $meetings = (int) ($funnel['activities'] ?? 0);
+    $conversions = (int) ($funnel['conversions'] ?? 0);
+    $current = $meetings > 0 ? ($conversions / $meetings) : NULL;
+
+    $annualOverrides = [];
+    if ($current !== NULL && !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface) {
+      $annualOverrides[$funnel['range']['end']->format('Y')] = $current;
+    }
+
+    $lastUpdated = !empty($funnel['range']['end']) && $funnel['range']['end'] instanceof \DateTimeInterface
+      ? $funnel['range']['end']->format('Y-m-d')
+      : date('Y-m-d');
+
+    $sourceNote = sprintf('Rolling 12 months: %d meetings, %d conversions to membership.', $meetings, $conversions);
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'meeting_to_member_conversion',
+      'percent',
+      $sourceNote
+    );
   }
 
   /**
@@ -3244,6 +3623,36 @@ class KpiDataService {
           'goal_2030' => 0.50,
           'description' => 'Calculation: (Inferred) % of new members who selected \'Referral\'. Implementation Note: The annual `SnapshotService` will call `DemographicsDataService` to query new member profiles for `field_member_discovery_value` = \'Referral\' and divide by the total number of new members in that year.',
         ],
+        'tours_to_member_conversion' => [
+          'label' => 'Tours to Member Conversion %',
+          'base_2025' => 0.20,
+          'goal_2030' => 0.35,
+          'description' => 'Calculation: (Tour participants who become members) / (total unique tour participants) over a rolling 12 month window. Implementation Note: Uses `FunnelDataService::getTourFunnelData()` from CiviCRM event participants + Drupal member join dates.',
+        ],
+        'guest_waivers_signed' => [
+          'label' => 'Guest Waivers Signed (12 month)',
+          'base_2025' => 200,
+          'goal_2030' => 450,
+          'description' => 'Calculation: Count of unique contacts with CiviCRM activity type matching "Guest Waiver" over the trailing 12 months. Implementation Note: Uses `FunnelDataService::getActivityFunnelData()` and counts activities by unique contact.',
+        ],
+        'guest_waiver_conversion' => [
+          'label' => 'Guest Waiver to Member Conversion %',
+          'base_2025' => 0.20,
+          'goal_2030' => 0.35,
+          'description' => 'Calculation: (Guest waiver contacts who become members) / (total guest waiver contacts) over a rolling 12 month window. Implementation Note: Uses CiviCRM Guest Waiver activities mapped through civicrm_uf_match to Drupal member join dates.',
+        ],
+        'discovery_meetings_logged' => [
+          'label' => 'Discovery Meetings Logged (12 month)',
+          'base_2025' => 50,
+          'goal_2030' => 180,
+          'description' => 'Calculation: Count of unique contacts with CiviCRM activity type matching "Meeting" over the trailing 12 months. Implementation Note: Captures Calendly and other meeting activity once logged to CiviCRM.',
+        ],
+        'meeting_to_member_conversion' => [
+          'label' => 'Meeting to Member Conversion %',
+          'base_2025' => 0.20,
+          'goal_2030' => 0.40,
+          'description' => 'Calculation: (Meeting contacts who become members) / (total meeting contacts) over a rolling 12 month window. Implementation Note: Uses CiviCRM Meeting activities mapped to Drupal join dates via civicrm_uf_match.',
+        ],
       ],
       'retention' => [
         'total_active_members' => [
@@ -3269,6 +3678,19 @@ class KpiDataService {
           'base_2025' => 0.60,
           'goal_2030' => 0.80,
           'description' => 'Calculation: "Percent of all currently active members who have at least one card read/entry in the previous quarter.". Implementation Note: The annual `SnapshotService` will call a new method (likely in `UtilizationDataService`) to count unique UIDs with door access logs in Q4 and divide by `members_active` in the December snapshot.',
+        ],
+        'new_member_28_day_activation' => [
+          'label' => 'New Member 28-Day Activation %',
+          'base_2025' => 0.55,
+          'goal_2030' => 0.80,
+          'description' => 'Calculation: Share of recent join cohort members who have at least one badge activity once they reach roughly day 28. Implementation Note: Derived from `ms_member_success_snapshot` daily rows using month-end snapshots and badge_count_total.',
+        ],
+        'members_at_risk_share' => [
+          'label' => 'Members At-Risk %',
+          'base_2025' => 0.25,
+          'goal_2030' => 0.15,
+          'goal_direction' => 'lower',
+          'description' => 'Calculation: Share of members with member success risk_score >= 20 at month-end. Implementation Note: Derived from `ms_member_success_snapshot` and intended as an early-warning indicator.',
         ],
         'membership_diversity_bipoc' => [
           'label' => 'Membership Diversity (% BIPOC)',

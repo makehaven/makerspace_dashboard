@@ -102,75 +102,67 @@ class MembershipMetricsService {
    *   Array of cohorts keyed by 'Y-m', containing 'joined', 'label', and 'retention' map.
    */
   public function getMonthlyCohortRetentionMatrix(int $monthsBack = 24): array {
-    $cacheId = sprintf('makerspace_dashboard:membership:cohort_matrix:v2:%d', $monthsBack);
+    $cacheId = sprintf('makerspace_dashboard:membership:cohort_matrix:v3:%d', $monthsBack);
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
     $members = $this->loadMemberTenureRecords();
-    $now = (int) $this->time->getRequestTime();
-    $cutoff = strtotime("-{$monthsBack} months first day of this month"); // Cohort start cutoff
+    $nowTs = (int) $this->time->getRequestTime();
+    $tz = new \DateTimeZone(date_default_timezone_get());
+    $nowDate = (new \DateTimeImmutable('@' . $nowTs))->setTimezone($tz);
+    $cutoffDate = $nowDate
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->modify(sprintf('-%d months', $monthsBack));
+    $cutoff = $cutoffDate->getTimestamp();
 
     $cohorts = [];
-    $tz = new \DateTimeZone(date_default_timezone_get());
 
     foreach ($members as $record) {
       if ($record['end'] === NULL && !$record['has_member_role']) {
-        continue; // Ignore this record as per user's instruction
+        continue;
       }
       $joinTs = $record['join'];
       if ($joinTs < $cutoff) {
-        continue; // Too old
+        continue;
       }
-      
-      // Determine cohort key (Join Month)
+
       $joinDate = (new \DateTimeImmutable('@' . $joinTs))->setTimezone($tz);
       $key = $joinDate->format('Y-m');
       $label = $joinDate->format('M Y');
+      $cohortStart = $joinDate->modify('first day of this month')->setTime(0, 0, 0);
 
       if (!isset($cohorts[$key])) {
         $cohorts[$key] = [
           'key' => $key,
           'label' => $label,
-          'join_ts' => $joinDate->modify('first day of this month')->getTimestamp(),
+          'cohort_start' => $cohortStart,
           'joined' => 0,
           'survived_counts' => array_fill(0, $monthsBack + 1, 0),
         ];
       }
 
       $cohorts[$key]['joined']++;
+      $endTs = $record['end'];
 
-      // Calculate months survived
-      $endTs = $record['end'] ?? $now;
-      // If endTs is in future (e.g. pre-scheduled end), cap at now? 
-      // Usually retention is "is member active at month X".
-      // If end_date > join_date + X months, they survived month X.
-      
-      // We check survival at the *end* of month X? Or start?
-      // Month 0 is usually "Joined". Retention 100%.
-      // Month 1 is "Still here after 1 month".
-      
-      // Let's iterate months 0..monthsBack
       for ($m = 0; $m <= $monthsBack; $m++) {
-        // Milestone timestamp: Join Month Start + m months
-        // Or Join Date + m months? Cohort analysis usually normalizes to relative time.
-        // Simple logic: Did they survive m months?
-        // Tenure = (End - Join).
-        // If Tenure >= m months, they survived.
-        
-        // Exact logic:
-        // Join: Jan 15.
-        // Month 1 milestone: Feb 15.
-        // If End Date is NULL or >= Feb 15, they retained Month 1.
-        
-        $milestone = strtotime("+{$m} months", $joinTs);
-        
-        // If milestone is in the future, we cannot count it yet.
-        if ($milestone > $now) {
-          continue; 
+        if ($m === 0) {
+          $milestone = $cohortStart;
+        }
+        else {
+          // Month m becomes observable after the end of that elapsed month.
+          $milestone = $cohortStart
+            ->modify(sprintf('+%d months', $m))
+            ->modify('last day of this month')
+            ->setTime(23, 59, 59);
         }
 
-        if ($record['end'] === NULL || $record['end'] >= $milestone) {
+        if ($milestone > $nowDate) {
+          continue;
+        }
+
+        if ($endTs === NULL || $endTs >= $milestone->getTimestamp()) {
           $cohorts[$key]['survived_counts'][$m]++;
         }
       }
@@ -188,18 +180,21 @@ class MembershipMetricsService {
         'retention' => [],
       ];
       
-      // Calculate percentages
-      // Verify cohort age to stop future columns
-      $cohortStart = $data['join_ts'];
-      
       foreach ($data['survived_counts'] as $m => $count) {
-        // Check if this month $m is historically observable for this cohort.
-        // Cohort Start + m months.
-        // If Cohort is Dec 2025. m=1 is Jan 2026. Future.
-        $milestoneStart = strtotime("+{$m} months", $cohortStart);
-        if ($milestoneStart > $now) {
+        if ($m === 0) {
+          $milestone = $data['cohort_start'];
+        }
+        else {
+          $milestone = $data['cohort_start']
+            ->modify(sprintf('+%d months', $m))
+            ->modify('last day of this month')
+            ->setTime(23, 59, 59);
+        }
+
+        if ($milestone > $nowDate) {
           $row['retention'][$m] = NULL;
-        } else {
+        }
+        else {
           $pct = $data['joined'] > 0 ? round(($count / $data['joined']) * 100, 1) : 0;
           $row['retention'][$m] = $pct;
         }

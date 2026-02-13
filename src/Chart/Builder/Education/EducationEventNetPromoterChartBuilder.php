@@ -11,7 +11,7 @@ class EducationEventNetPromoterChartBuilder extends EducationEvaluationChartBuil
 
   protected const CHART_ID = 'event_net_promoter';
   protected const WEIGHT = 26;
-  protected const TIER = 'supplemental';
+  protected const TIER = 'key';
 
   /**
    * {@inheritdoc}
