@@ -6,4 +6,5 @@ package: Makerspace
 dependencies:
   - drupal:charts
   - charts:charts_google
+  - makerspace_member_success:makerspace_member_success
 configure: makerspace_dashboard.settings

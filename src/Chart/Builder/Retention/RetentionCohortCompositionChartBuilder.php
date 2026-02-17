@@ -13,7 +13,7 @@ class RetentionCohortCompositionChartBuilder extends RetentionCohortChartBuilder
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'annual_cohorts';
-  protected const WEIGHT = 80;
+  protected const WEIGHT = 5;
 
   public function __construct(MembershipMetricsService $membershipMetrics, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($membershipMetrics, $stringTranslation);

@@ -14,7 +14,8 @@ class RetentionDailySnapshotChartBuilder extends RetentionSnapshotChartBuilderBa
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'snapshot_daily';
-  protected const WEIGHT = 10;
+  protected const WEIGHT = 60;
+  protected const TIER = 'supplemental';
 
   public function __construct(SnapshotDataService $snapshot_data, DateFormatterInterface $date_formatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($snapshot_data, $date_formatter, $stringTranslation);
@@ -24,7 +25,11 @@ class RetentionDailySnapshotChartBuilder extends RetentionSnapshotChartBuilderBa
    * {@inheritdoc}
    */
   public function build(array $filters = []): ?ChartDefinition {
-    $snapshots = $this->snapshotData->getMembershipCountSeries('day');
+    $snapshots = $this->snapshotData->getMembershipCountSeries('day', FALSE, ['daily']);
+    $isDailySeries = !empty($snapshots);
+    if (!$isDailySeries) {
+      $snapshots = $this->snapshotData->getMembershipCountSeries('month');
+    }
     if (empty($snapshots)) {
       return NULL;
     }
@@ -99,10 +104,17 @@ class RetentionDailySnapshotChartBuilder extends RetentionSnapshotChartBuilderBa
     if ($coverage = $this->buildCoverageNote($snapshots)) {
       $notes[] = $coverage;
     }
+    if (!$isDailySeries) {
+      $notes[] = (string) $this->t('Daily snapshot rows are not currently available; this chart is currently showing the monthly cadence.');
+    }
 
     return $this->newDefinition(
-      (string) $this->t('Active Members (Daily Snapshots)'),
-      (string) $this->t('Latest @count snapshots of active membership headcount.', ['@count' => count($series)]),
+      $isDailySeries
+        ? (string) $this->t('Active Members (Daily Snapshots)')
+        : (string) $this->t('Active Members (Monthly Snapshot Cadence)'),
+      $isDailySeries
+        ? (string) $this->t('Latest @count daily snapshots of active membership headcount.', ['@count' => count($series)])
+        : (string) $this->t('Latest @count monthly snapshots of active membership headcount.', ['@count' => count($series)]),
       $visualization,
       $notes,
     );

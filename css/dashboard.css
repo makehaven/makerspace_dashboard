@@ -274,38 +274,6 @@
   font-size: 0.85em;
 }
 
-.overview-kpi-jump-links {
-  margin: 0.75rem 0 1rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid #dbe2ea;
-  border-radius: 8px;
-  background: #f8fafc;
-}
-
-.overview-kpi-jump-links .overview-kpi-jump-list {
-  margin: 0.35rem 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding: 0;
-  list-style: none;
-}
-
-.overview-kpi-jump-links .overview-kpi-jump-list li {
-  margin: 0;
-  list-style: none;
-}
-
-.overview-kpi-jump-link {
-  display: inline-block;
-  padding: 0.18rem 0.5rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  background: #fff;
-  text-decoration: none;
-  font-size: 0.85rem;
-}
-
 .overview-kpi-section-table {
   margin: 1.25rem 0;
 }

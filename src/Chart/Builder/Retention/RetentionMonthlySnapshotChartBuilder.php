@@ -14,7 +14,8 @@ class RetentionMonthlySnapshotChartBuilder extends RetentionSnapshotChartBuilder
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'snapshot_monthly';
-  protected const WEIGHT = 20;
+  protected const WEIGHT = 61;
+  protected const TIER = 'supplemental';
 
   public function __construct(SnapshotDataService $snapshot_data, DateFormatterInterface $date_formatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($snapshot_data, $date_formatter, $stringTranslation);

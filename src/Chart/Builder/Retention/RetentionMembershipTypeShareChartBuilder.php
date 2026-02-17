@@ -14,7 +14,8 @@ class RetentionMembershipTypeShareChartBuilder extends RetentionMembershipTypeSn
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'snapshot_membership_type_share';
-  protected const WEIGHT = 26;
+  protected const WEIGHT = 64;
+  protected const TIER = 'supplemental';
 
   public function __construct(SnapshotDataService $snapshot_data, DateFormatterInterface $date_formatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($snapshot_data, $date_formatter, $stringTranslation);

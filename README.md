@@ -55,3 +55,4 @@ The resulting `dist/dashboard.js` file is referenced by the `makerspace_dashboar
 - `/admin/config/makerspace/dashboard/kpi-import` – Upload a CSV snapshot and (optionally) dry-run KPI goal metadata updates (label / baseline / goal / description) before committing them.
 - `drush makerspace-dashboard:import-kpi-goals /path/to/file.csv` – Bulk update KPI baseline, goal, and annual values from a spreadsheet export. See `docs/kpi-goal-import.md` for the CSV format.
 - `makerspace_snapshot` captures live KPI metrics via `hook_makerspace_snapshot_collect_kpi()` and persists them in `ms_fact_kpi_snapshot`, which the dashboard pulls into each KPI table.
+- `drush makerspace-dashboard:backfill-kpi-snapshots ...` – Backfill annual KPI facts into existing annual snapshots using a conservative default KPI set. See `docs/backfill-kpi-snapshots.md` for safe/risky scope and dev/live run steps.

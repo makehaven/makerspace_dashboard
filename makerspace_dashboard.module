@@ -56,6 +56,26 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
       'period_month' => $periodMonth,
     ];
   }
+  if (isset($context['joins']) && is_numeric($context['joins'])) {
+    $metrics['total_new_member_signups'] = [
+      'value' => (int) $context['joins'],
+      'period_year' => $periodYear,
+      'period_month' => $periodMonth,
+    ];
+  }
+
+  $periodStart = NULL;
+  $periodEnd = NULL;
+  if (!empty($context['period_start']) && !empty($context['period_end'])) {
+    try {
+      $periodStart = new \DateTimeImmutable((string) $context['period_start']);
+      $periodEnd = new \DateTimeImmutable((string) $context['period_end']);
+    }
+    catch (\Exception $e) {
+      $periodStart = NULL;
+      $periodEnd = NULL;
+    }
+  }
 
   // Snapshot point-in-time utilization so membership-denominator math is frozen.
   if (!empty($context['period_start']) && !empty($context['period_end']) && \Drupal::hasService('makerspace_dashboard.utilization_data')) {
@@ -157,7 +177,249 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
     }
   }
 
+  // Snapshot outreach and education KPI metrics for annual table population.
+  if ($periodStart && $periodEnd && \Drupal::hasService('makerspace_dashboard.events_membership_data')) {
+    try {
+      $eventsService = \Drupal::service('makerspace_dashboard.events_membership_data');
+
+      $attendanceSeries = $eventsService->getMonthlyWorkshopAttendanceSeries($periodStart, $periodEnd);
+      $workshopAttendees = makerspace_dashboard_sum_count_items((array) ($attendanceSeries['items'] ?? []));
+      $metrics['workshop_attendees'] = [
+        'value' => $workshopAttendees,
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+
+      $firstTimeSeries = $eventsService->getMonthlyFirstTimeWorkshopParticipantsSeries($periodStart, $periodEnd);
+      $firstTimeParticipants = makerspace_dashboard_sum_count_items((array) ($firstTimeSeries['items'] ?? []));
+      $metrics['total_first_time_workshop_participants'] = [
+        'value' => $firstTimeParticipants,
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
+
+      $participantDemo = $eventsService->getParticipantDemographics($periodStart, $periodEnd);
+      $workshopBipocRate = makerspace_dashboard_calculate_workshop_bipoc_rate((array) $participantDemo);
+      if ($workshopBipocRate !== NULL) {
+        $metrics['workshop_participants_bipoc'] = [
+          'value' => $workshopBipocRate,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+
+      $instructorDemo = $eventsService->getActiveInstructorDemographics($periodStart, $periodEnd);
+      $instructorBipocRate = makerspace_dashboard_calculate_instructor_bipoc_rate((array) $instructorDemo);
+      if ($instructorBipocRate !== NULL) {
+        $metrics['active_instructors_bipoc'] = [
+          'value' => $instructorBipocRate,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot outreach/education event KPIs: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
+  if ($periodStart && $periodEnd && \Drupal::hasService('makerspace_dashboard.education_evaluation_data')) {
+    try {
+      $evaluationService = \Drupal::service('makerspace_dashboard.education_evaluation_data');
+      $npsSeries = $evaluationService->getNetPromoterSeries($periodStart, $periodEnd);
+      $overallNps = $npsSeries['overall']['nps'] ?? NULL;
+      if (is_numeric($overallNps)) {
+        $metrics['education_nps'] = [
+          'value' => (float) $overallNps,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot education NPS KPI: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
+  if (\Drupal::hasService('makerspace_dashboard.funnel_data')) {
+    try {
+      $funnelService = \Drupal::service('makerspace_dashboard.funnel_data');
+
+      $tourFunnel = $funnelService->getTourFunnelData();
+      $tourParticipants = (int) ($tourFunnel['participants'] ?? 0);
+      $tourConversions = (int) ($tourFunnel['conversions'] ?? 0);
+      if ($tourParticipants > 0) {
+        $metrics['tours_to_member_conversion'] = [
+          'value' => $tourConversions / $tourParticipants,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+
+      $meetingFunnel = $funnelService->getActivityFunnelData('meeting');
+      $meetingActivities = (int) ($meetingFunnel['activities'] ?? 0);
+      $meetingConversions = (int) ($meetingFunnel['conversions'] ?? 0);
+      if ($meetingActivities > 0) {
+        $metrics['meeting_to_member_conversion'] = [
+          'value' => $meetingConversions / $meetingActivities,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot outreach funnel KPIs: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
+  if (\Drupal::hasService('makerspace_dashboard.demographics_data')) {
+    try {
+      $discovery = \Drupal::service('makerspace_dashboard.demographics_data')->getDiscoveryDistribution();
+      $total = 0;
+      $referrals = 0;
+      foreach ((array) $discovery as $row) {
+        $count = (int) ($row['count'] ?? 0);
+        $label = strtolower(trim((string) ($row['label'] ?? '')));
+        $total += $count;
+        if ($label !== '' && (str_contains($label, 'referral') || str_contains($label, 'friend'))) {
+          $referrals += $count;
+        }
+      }
+      if ($total > 0) {
+        $metrics['member_referral_rate'] = [
+          'value' => $referrals / $total,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot member referral KPI: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
   return $metrics;
+}
+
+/**
+ * Sums a list of KPI series items containing a numeric "count" field.
+ */
+function makerspace_dashboard_sum_count_items(array $items): int {
+  $sum = 0;
+  foreach ($items as $item) {
+    $value = $item['count'] ?? NULL;
+    if (is_numeric($value)) {
+      $sum += (int) $value;
+    }
+  }
+  return $sum;
+}
+
+/**
+ * Calculates workshop participant BIPOC rate from demographics payload.
+ */
+function makerspace_dashboard_calculate_workshop_bipoc_rate(array $participant_demo): ?float {
+  $labels = (array) ($participant_demo['ethnicity']['labels'] ?? []);
+  $workshop = (array) ($participant_demo['ethnicity']['workshop'] ?? []);
+  if (empty($labels) || empty($workshop)) {
+    return NULL;
+  }
+
+  $knownCount = 0.0;
+  $bipocCount = 0.0;
+  foreach ($labels as $index => $label) {
+    $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
+    if ($count <= 0) {
+      continue;
+    }
+    if (makerspace_dashboard_is_unspecified_ethnicity((string) $label)) {
+      continue;
+    }
+    $knownCount += $count;
+    if (makerspace_dashboard_is_bipoc_ethnicity_label((string) $label)) {
+      $bipocCount += $count;
+    }
+  }
+
+  return $knownCount > 0 ? ($bipocCount / $knownCount) : NULL;
+}
+
+/**
+ * Calculates active instructor BIPOC rate from demographics payload.
+ */
+function makerspace_dashboard_calculate_instructor_bipoc_rate(array $instructor_demo): ?float {
+  $instructors = (array) ($instructor_demo['instructors'] ?? []);
+  if (empty($instructors)) {
+    return NULL;
+  }
+
+  $knownCount = 0;
+  $bipocCount = 0;
+  foreach ($instructors as $instructor) {
+    $ethnicities = array_unique(array_filter(array_map('strval', (array) ($instructor['ethnicity'] ?? []))));
+    if (empty($ethnicities)) {
+      continue;
+    }
+
+    $hasKnown = FALSE;
+    $hasBipoc = FALSE;
+    foreach ($ethnicities as $label) {
+      if (makerspace_dashboard_is_unspecified_ethnicity($label)) {
+        continue;
+      }
+      $hasKnown = TRUE;
+      if (makerspace_dashboard_is_bipoc_ethnicity_label($label)) {
+        $hasBipoc = TRUE;
+      }
+    }
+
+    if (!$hasKnown) {
+      continue;
+    }
+    $knownCount++;
+    if ($hasBipoc) {
+      $bipocCount++;
+    }
+  }
+
+  return $knownCount > 0 ? ($bipocCount / $knownCount) : NULL;
+}
+
+/**
+ * Determines whether an ethnicity label should be treated as unspecified.
+ */
+function makerspace_dashboard_is_unspecified_ethnicity(string $label): bool {
+  $normalized = strtolower(trim($label));
+  if ($normalized === '') {
+    return TRUE;
+  }
+
+  $unspecifiedTokens = [
+    'unspecified',
+    'unknown',
+    'prefer not',
+    'decline',
+    'not provided',
+    'n/a',
+  ];
+  foreach ($unspecifiedTokens as $token) {
+    if (str_contains($normalized, $token)) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+ * Determines whether an ethnicity label should be counted as BIPOC.
+ */
+function makerspace_dashboard_is_bipoc_ethnicity_label(string $label): bool {
+  $normalized = strtolower(trim($label));
+  if (makerspace_dashboard_is_unspecified_ethnicity($normalized)) {
+    return FALSE;
+  }
+  return !str_contains($normalized, 'white');
 }
 
 /**

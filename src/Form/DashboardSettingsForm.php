@@ -9,6 +9,7 @@ use Drupal\makerspace_dashboard\Service\GoogleSheetClientService;
 use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Drupal\makerspace_dashboard\Service\GoogleSheetChartManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Config\TypedConfigManagerInterface;
 
 /**
  * Settings form for Makerspace dashboard configuration.
@@ -41,6 +42,8 @@ class DashboardSettingsForm extends ConfigFormBase {
    *
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
    *   The factory for configuration objects.
+   * @param \Drupal\Core\Config\TypedConfigManagerInterface $typed_config_manager
+   *   The typed config manager.
    * @param \Drupal\makerspace_dashboard\Service\GoogleSheetClientService $google_sheet_client_service
    *   The Google Sheet Client service.
    * @param \Drupal\makerspace_dashboard\Service\DashboardSectionManager $dashboard_section_manager
@@ -48,8 +51,14 @@ class DashboardSettingsForm extends ConfigFormBase {
    * @param \Drupal\makerspace_dashboard\Service\GoogleSheetChartManager $google_sheet_chart_manager
    *   The Google Sheet Chart Manager service.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, GoogleSheetClientService $google_sheet_client_service, DashboardSectionManager $dashboard_section_manager, GoogleSheetChartManager $google_sheet_chart_manager) {
-    parent::__construct($config_factory);
+  public function __construct(
+    ConfigFactoryInterface $config_factory,
+    TypedConfigManagerInterface $typed_config_manager,
+    GoogleSheetClientService $google_sheet_client_service,
+    DashboardSectionManager $dashboard_section_manager,
+    GoogleSheetChartManager $google_sheet_chart_manager
+  ) {
+    parent::__construct($config_factory, $typed_config_manager);
     $this->googleSheetClientService = $google_sheet_client_service;
     $this->dashboardSectionManager = $dashboard_section_manager;
     $this->googleSheetChartManager = $google_sheet_chart_manager;
@@ -61,6 +70,7 @@ class DashboardSettingsForm extends ConfigFormBase {
   public static function create(ContainerInterface $container) {
     return new static(
       $container->get('config.factory'),
+      $container->get('config.typed'),
       $container->get('makerspace_dashboard.google_sheet_client'),
       $container->get('makerspace_dashboard.section_manager'),
       $container->get('makerspace_dashboard.google_sheet_chart_manager')

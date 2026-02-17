@@ -14,7 +14,7 @@ class RetentionCohortAnalysisChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'cohort_analysis_heatmap';
-  protected const WEIGHT = 100;
+  protected const WEIGHT = 4;
 
   /**
    * Constructs the builder.

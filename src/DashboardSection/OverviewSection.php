@@ -57,7 +57,6 @@ class OverviewSection extends DashboardSectionBase {
     $goalYearLabel = NULL;
     $sectionTables = [];
     $allSourceNotes = [];
-    $jumpLinks = [];
 
     if (!$this->sectionLabels) {
       try {
@@ -143,14 +142,6 @@ class OverviewSection extends DashboardSectionBase {
       }
 
       $sectionAnchor = 'overview-kpi-section-' . Html::getClass($sectionId);
-      $jumpLinks[$sectionId] = [
-        'title' => $sectionLabel,
-        'url' => Url::fromRoute('makerspace_dashboard.dashboard', [], ['fragment' => $sectionAnchor]),
-        'attributes' => [
-          'class' => ['overview-kpi-jump-link'],
-        ],
-      ];
-
       $sectionTables[$sectionId] = [
         'label' => $sectionLabel,
         'anchor' => $sectionAnchor,
@@ -182,17 +173,6 @@ class OverviewSection extends DashboardSectionBase {
       $this->t('Current'),
       $this->t('Goal @year', ['@year' => $goalYearLabel]),
       $this->t('Trend'),
-    ];
-
-    $build['jump_links'] = [
-      '#type' => 'container',
-      '#attributes' => ['class' => ['overview-kpi-jump-links']],
-      'label' => ['#markup' => '<strong>' . $this->t('Jump to section:') . '</strong>'],
-      'links' => [
-        '#theme' => 'links',
-        '#links' => $jumpLinks,
-        '#attributes' => ['class' => ['overview-kpi-jump-list']],
-      ],
     ];
 
     foreach ($sectionTables as $sectionId => $sectionTable) {

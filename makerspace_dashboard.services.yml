@@ -706,6 +706,15 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.retention_flow_ending_reasons_share:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionEndingReasonsShareChartBuilder
+    arguments:
+      - '@makerspace_dashboard.retention_flow_data'
+      - '@date.formatter'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.retention_member_success_lifecycle:
     class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionMemberSuccessLifecycleChartBuilder
     arguments:
@@ -790,6 +799,30 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionCohortAnalysisChartBuilder
     arguments:
       - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_intervention_roi:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionInterventionROIChartBuilder
+    arguments:
+      - '@?makerspace_member_success.recovery_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_intervention_resolution_rate:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionInterventionResolutionRateChartBuilder
+    arguments:
+      - '@?makerspace_member_success.recovery_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_intervention_channel_effectiveness:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionInterventionChannelEffectivenessChartBuilder
+    arguments:
+      - '@?makerspace_member_success.recovery_metrics'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
