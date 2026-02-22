@@ -350,10 +350,6 @@ class KpiDataService {
         'kpi_membership_diversity_bipoc',
       ],
       'dei' => [
-        'kpi_membership_diversity_bipoc',
-        'kpi_workshop_participants_bipoc',
-        'kpi_active_instructors_bipoc',
-        'kpi_board_ethnic_diversity',
         'kpi_retention_poc',
         'kpi_active_participation_bipoc',
         'kpi_active_participation_female_nb',
@@ -4580,30 +4576,6 @@ Process Group PGID: 1032535   *
         ],
       ],
       'dei' => [
-        'kpi_membership_diversity_bipoc' => [
-          'label' => 'Membership Diversity (% BIPOC)',
-          'base_2025' => 0.15,
-          'goal_2030' => 0.30,
-          'description' => 'Calculation: "Percent of membership whose self identities include black, indigenous, and other people of color... Counting only those who have an identity submitted". Implementation Note: The annual `SnapshotService` will call `DemographicsDataService::getEthnicityDistribution()`, sum the counts for all non-white identities, and divide by the total responses.',
-        ],
-        'kpi_workshop_participants_bipoc' => [
-          'label' => '% Workshop Participants (BIPOC)',
-          'base_2025' => 0.17,
-          'goal_2030' => 0.30,
-          'description' => 'Calculation: Percentage of unique workshop participants identifying as BIPOC. Implementation Note: The annual `SnapshotService` will call `EventsMembershipDataService::getParticipantDemographics()` and perform the % calculation.',
-        ],
-        'kpi_active_instructors_bipoc' => [
-          'label' => '% Active Instructors (BIPOC)',
-          'base_2025' => 0.37,
-          'goal_2030' => 0.50,
-          'description' => 'Calculation: Percentage of active instructors identifying as BIPOC. Implementation Note: The annual `SnapshotService` will call `EventsMembershipDataService::getActiveInstructorDemographics()` and sum non-white identities.',
-        ],
-        'kpi_board_ethnic_diversity' => [
-          'label' => 'Board Ethnic diversity (% BIPOC)',
-          'base_2025' => 0.20,
-          'goal_2030' => 0.50,
-          'description' => 'Calculation: "50% (+-10%)BIPOC". Implementation Note: This is not in any system. The annual snapshot value must be read from a manual entry in the `makerspace_dashboard.kpis.yml` config file.',
-        ],
         'kpi_retention_poc' => [
           'label' => 'Retention POC %',
           'base_2025' => 0.45,
