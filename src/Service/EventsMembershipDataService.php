@@ -1740,6 +1740,29 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Gets the total unique participants in entrepreneurial events for a year.
+   */
+  public function getEntrepreneurshipEventParticipants(int $year): int {
+    $start = $year . '-01-01 00:00:00';
+    $end = $year . '-12-31 23:59:59';
+
+    // Areas of interest: 3249 (Entrepreneurship, Startups & Business), 3335 (Prototyping & Invention)
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+    $query->innerJoin('civicrm_event__field_civi_event_area_interest', 'ai', 'ai.entity_id = e.id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    
+    $query->addExpression('COUNT(DISTINCT p.contact_id)', 'unique_participants');
+    
+    $query->condition('ai.field_civi_event_area_interest_target_id', [3249, 3335], 'IN');
+    $query->condition('e.start_date', [$start, $end], 'BETWEEN');
+    $query->condition('pst.is_counted', 1);
+    $query->condition('p.contact_id', 0, '>');
+
+    return (int) $query->execute()->fetchField();
+  }
+
+  /**
    * Gets the total number of workshop attendees for the year.
    *
    * @return int

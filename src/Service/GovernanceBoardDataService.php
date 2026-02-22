@@ -2,14 +2,19 @@
 
 namespace Drupal\makerspace_dashboard\Service;
 
+use Drupal\Core\Database\Connection;
+use DateTimeImmutable;
+use DateTimeZone;
 use RuntimeException;
 
 /**
- * Loads and normalizes board composition data from Google Sheets.
+ * Loads and normalizes board composition data from CiviCRM and Google Sheets.
  */
 class GovernanceBoardDataService {
 
   protected GoogleSheetClientService $sheetClient;
+
+  protected Connection $database;
 
   /**
    * Cached composition array.
@@ -17,10 +22,16 @@ class GovernanceBoardDataService {
   protected ?array $composition = NULL;
 
   /**
+   * ID of the CiviCRM group containing current board members.
+   */
+  protected const BOARD_GROUP_ID = 95;
+
+  /**
    * Constructs the service.
    */
-  public function __construct(GoogleSheetClientService $sheetClient) {
+  public function __construct(GoogleSheetClientService $sheetClient, Connection $database) {
     $this->sheetClient = $sheetClient;
+    $this->database = $database;
   }
 
   /**
@@ -31,109 +42,86 @@ class GovernanceBoardDataService {
       return $this->composition;
     }
 
-    $roster = $this->sheetClient->getSheetData('Board-Roster');
+    // 1. Fetch Goals from Google Sheet.
     $goals = $this->sheetClient->getSheetData('Goals-Percent');
-    if (empty($roster) || count($roster) < 2) {
-      throw new RuntimeException('Unable to load Board-Roster sheet data.');
-    }
     if (empty($goals) || count($goals) < 2) {
       throw new RuntimeException('Unable to load Goals-Percent sheet data.');
     }
 
-    $header = array_map('trim', array_shift($roster));
-    $colGender = array_search('Gender', $header, TRUE);
-    $colBirthdate = array_search('Birthdate', $header, TRUE);
-
-    $ethnicityMap = [
-      'asian' => 'Asian',
-      'black' => 'Black or African American',
-      'mena' => 'Middle Eastern or North African',
-      'nhpi' => 'Native Hawaiian or Pacific Islander',
-      'white' => 'White/Caucasian',
-      'hispanic' => 'Hispanic or Latino',
-      'aian' => 'American Indian or Alaska Native',
-      'multi' => 'Other / Multi',
-      'not_specified' => 'Not Specified',
-    ];
-
-    $ethnicityColumns = [];
-    foreach ($header as $index => $name) {
-      $key = strtolower(trim($name));
-      if (isset($ethnicityMap[$key])) {
-        $ethnicityColumns[$key] = $index;
-      }
-    }
-
-    if ($colGender === FALSE || $colBirthdate === FALSE || empty($ethnicityColumns)) {
-      throw new RuntimeException('Board-Roster sheet is missing required columns.');
-    }
-
+    // 2. Fetch Actuals from CiviCRM.
+    $roster = $this->fetchBoardRosterFromCivi();
     $totalMembers = count($roster);
 
     $genderCounts = ['Male' => 0, 'Female' => 0, 'Non-Binary' => 0, 'Other/Unknown' => 0];
     $ageCounts = ['<30' => 0, '30-39' => 0, '40-49' => 0, '50-59' => 0, '60+' => 0, 'Unknown' => 0];
-    $ethnicityCounts = [];
-    foreach ($ethnicityColumns as $key => $_) {
-      $ethnicityCounts[$ethnicityMap[$key]] = 0;
-    }
-    $ethnicityCounts[$ethnicityMap['not_specified']] = 0;
+    
+    $ethnicityMap = [
+      'asian' => 'Asian',
+      'black' => 'Black or African American',
+      'middleeast' => 'Middle Eastern or North African',
+      'pacific' => 'Native Hawaiian or Pacific Islander',
+      'white' => 'White/Caucasian',
+      'hispanic' => 'Hispanic or Latino',
+      'native' => 'American Indian or Alaska Native',
+      'other' => 'Other / Multi',
+      'not_specified' => 'Not Specified',
+    ];
 
-    $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
+    $ethnicityCounts = array_fill_keys(array_values($ethnicityMap), 0);
+    $now = new DateTimeImmutable('now', new DateTimeZone(date_default_timezone_get()));
 
-    foreach ($roster as $row) {
-      // Gender.
-      $genderValue = isset($row[$colGender]) ? trim((string) $row[$colGender]) : '';
-      if ($genderValue === '' || !isset($genderCounts[$genderValue])) {
-        $genderCounts['Other/Unknown']++;
-      }
-      else {
-        $genderCounts[$genderValue]++;
+    foreach ($roster as $member) {
+      // Gender Mapping.
+      $genderId = (int) ($member['gender_id'] ?? 0);
+      switch ($genderId) {
+        case 1: $genderCounts['Female']++; break;
+        case 2: $genderCounts['Male']++; break;
+        case 4: 
+        case 5: 
+        case 6:
+          $genderCounts['Non-Binary']++; break;
+        default:
+          $genderCounts['Other/Unknown']++; break;
       }
 
-      // Age bucket.
-      try {
-        if (empty($row[$colBirthdate])) {
-          throw new RuntimeException('Missing birthdate');
+      // Age buckets.
+      if (!empty($member['birth_date'])) {
+        try {
+          $birth = new DateTimeImmutable($member['birth_date'], new DateTimeZone('UTC'));
+          $age = $birth->diff($now)->y;
+          if ($age < 30) $ageCounts['<30']++;
+          elseif ($age <= 39) $ageCounts['30-39']++;
+          elseif ($age <= 49) $ageCounts['40-49']++;
+          elseif ($age <= 59) $ageCounts['50-59']++;
+          else $ageCounts['60+']++;
         }
-        $birth = new \DateTimeImmutable($row[$colBirthdate], new \DateTimeZone('UTC'));
-        $age = $birth->diff($now)->y;
-        if ($age < 30) {
-          $ageCounts['<30']++;
+        catch (\Exception $e) {
+          $ageCounts['Unknown']++;
         }
-        elseif ($age <= 39) {
-          $ageCounts['30-39']++;
-        }
-        elseif ($age <= 49) {
-          $ageCounts['40-49']++;
-        }
-        elseif ($age <= 59) {
-          $ageCounts['50-59']++;
-        }
-        else {
-          $ageCounts['60+']++;
-        }
-      }
-      catch (\Exception $e) {
+      } else {
         $ageCounts['Unknown']++;
       }
 
-      // Ethnicity (multi-select).
-      $specified = FALSE;
-      foreach ($ethnicityColumns as $machine => $index) {
-        if (!empty($row[$index])) {
-          $label = $ethnicityMap[$machine];
-          $ethnicityCounts[$label]++;
-          $specified = TRUE;
+      // Ethnicity mapping.
+      $rawEth = (string) ($member['ethnicity'] ?? '');
+      $ethValues = array_filter(explode(',', str_replace(["\x01", "\x02"], ',', $rawEth)));
+      if (empty($ethValues)) {
+        $ethnicityCounts['Not Specified']++;
+      } else {
+        foreach ($ethValues as $val) {
+          $val = strtolower(trim($val));
+          if (isset($ethnicityMap[$val])) {
+            $ethnicityCounts[$ethnicityMap[$val]]++;
+          } else {
+            $ethnicityCounts['Other / Multi']++;
+          }
         }
-      }
-      if (!$specified) {
-        $ethnicityCounts[$ethnicityMap['not_specified']]++;
       }
     }
 
-    // Goal data.
+    // 3. Process Goal Data from Sheet.
     $goalLookup = [];
-    array_shift($goals);
+    array_shift($goals); // remove header
     foreach ($goals as $row) {
       if (!empty($row[0]) && isset($row[1])) {
         $key = strtolower(trim((string) $row[0]));
@@ -152,6 +140,7 @@ class GovernanceBoardDataService {
       'Other/Unknown' => $this->normalizeGoalPercentValue($goalLookup['goal_gender_other'] ?? 0),
     ];
     $goalGender = $this->normalizeGoalGenderTargets($goalGender);
+    
     $goalAge = [
       '<30' => $this->normalizeGoalPercentValue($goalLookup['goal_age_lt30'] ?? 0),
       '30-39' => $this->normalizeGoalPercentValue($goalLookup['goal_age_30_39'] ?? 0),
@@ -160,8 +149,21 @@ class GovernanceBoardDataService {
       '60+' => $this->normalizeGoalPercentValue($goalLookup['goal_age_60plus'] ?? 0),
       'Unknown' => 0,
     ];
+
     $goalEthnicity = [];
-    foreach ($ethnicityMap as $machine => $label) {
+    // Map internal ethnicity keys back to sheet keys if they exist.
+    $sheetEthKeys = [
+      'asian' => 'Asian',
+      'black' => 'Black or African American',
+      'middleeast' => 'Middle Eastern or North African',
+      'pacific' => 'Native Hawaiian or Pacific Islander',
+      'white' => 'White/Caucasian',
+      'hispanic' => 'Hispanic or Latino',
+      'native' => 'American Indian or Alaska Native',
+      'other' => 'Other / Multi',
+      'not_specified' => 'Not Specified',
+    ];
+    foreach ($sheetEthKeys as $machine => $label) {
       $goalEthnicity[$label] = $this->normalizeGoalPercentValue($this->resolveEthnicityGoalValue($goalLookup, $machine));
     }
 
@@ -186,6 +188,33 @@ class GovernanceBoardDataService {
     ];
 
     return $this->composition;
+  }
+
+  /**
+   * Fetches current board member demographics from CiviCRM.
+   */
+  protected function fetchBoardRosterFromCivi(): array {
+    $query = $this->database->select('civicrm_group_contact', 'gc');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = gc.contact_id');
+    $query->leftJoin('civicrm_value_demographics_15', 'd', 'd.entity_id = c.id');
+    
+    $query->fields('c', ['id', 'gender_id', 'birth_date']);
+    $query->fields('d', ['ethnicity_46']);
+    
+    $query->condition('gc.group_id', self::BOARD_GROUP_ID);
+    $query->condition('gc.status', 'Added');
+    $query->condition('c.is_deleted', 0);
+
+    $results = $query->execute();
+    $roster = [];
+    foreach ($results as $row) {
+      $roster[] = [
+        'gender_id' => $row->gender_id,
+        'birth_date' => $row->birth_date,
+        'ethnicity' => $row->ethnicity_46,
+      ];
+    }
+    return $roster;
   }
 
   /**

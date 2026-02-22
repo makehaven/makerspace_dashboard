@@ -836,6 +836,7 @@ services:
     class: Drupal\makerspace_dashboard\Service\GovernanceBoardDataService
     arguments:
       - '@makerspace_dashboard.google_sheet_client'
+      - '@database'
 
   makerspace_dashboard.google_sheet_chart_manager:
     class: Drupal\makerspace_dashboard\Service\GoogleSheetChartManager
@@ -945,6 +946,8 @@ services:
       - '@cache.default'
       - '@date.formatter'
       - '@makerspace_dashboard.membership_metrics'
+      - '@makerspace_dashboard.google_sheet_client'
+      - '@makerspace_dashboard.snapshot_data'
 
   makerspace_dashboard.infrastructure_data:
     class: Drupal\makerspace_dashboard\Service\InfrastructureDataService

@@ -138,7 +138,28 @@ class UtilizationDataService {
 
     $query->innerJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.entity_id = acl.id');
     $query->innerJoin('user__roles', 'user_roles', 'user_roles.entity_id = user_ref.field_access_request_user_target_id');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = user_ref.field_access_request_user_target_id');
     $query->condition('user_roles.roles_target_id', $this->memberRoles, 'IN');
+    $query->condition('u.status', 1);
+
+    $hasChargebeePause = $this->database->schema()->tableExists('user__field_chargebee_payment_pause');
+    $hasManualPause = $this->database->schema()->tableExists('user__field_manual_pause');
+
+    if ($hasChargebeePause) {
+      $query->leftJoin('user__field_chargebee_payment_pause', 'chargebee_pause', 'chargebee_pause.entity_id = u.uid AND chargebee_pause.deleted = 0');
+      $chargebeeNotPaused = $query->orConditionGroup()
+        ->isNull('chargebee_pause.field_chargebee_payment_pause_value')
+        ->condition('chargebee_pause.field_chargebee_payment_pause_value', 0);
+      $query->condition($chargebeeNotPaused);
+    }
+
+    if ($hasManualPause) {
+      $query->leftJoin('user__field_manual_pause', 'manual_pause', 'manual_pause.entity_id = u.uid AND manual_pause.deleted = 0');
+      $manualNotPaused = $query->orConditionGroup()
+        ->isNull('manual_pause.field_manual_pause_value')
+        ->condition('manual_pause.field_manual_pause_value', 0);
+      $query->condition($manualNotPaused);
+    }
 
     $query->groupBy('uid');
 
@@ -510,7 +531,29 @@ class UtilizationDataService {
 
     $query = $this->database->select('user__roles', 'ur');
     $query->fields('ur', ['entity_id']);
+    $query->innerJoin('users_field_data', 'u', 'u.uid = ur.entity_id');
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->condition('u.status', 1);
+
+    $hasChargebeePause = $this->database->schema()->tableExists('user__field_chargebee_payment_pause');
+    $hasManualPause = $this->database->schema()->tableExists('user__field_manual_pause');
+
+    if ($hasChargebeePause) {
+      $query->leftJoin('user__field_chargebee_payment_pause', 'chargebee_pause', 'chargebee_pause.entity_id = ur.entity_id AND chargebee_pause.deleted = 0');
+      $chargebeeNotPaused = $query->orConditionGroup()
+        ->isNull('chargebee_pause.field_chargebee_payment_pause_value')
+        ->condition('chargebee_pause.field_chargebee_payment_pause_value', 0);
+      $query->condition($chargebeeNotPaused);
+    }
+
+    if ($hasManualPause) {
+      $query->leftJoin('user__field_manual_pause', 'manual_pause', 'manual_pause.entity_id = ur.entity_id AND manual_pause.deleted = 0');
+      $manualNotPaused = $query->orConditionGroup()
+        ->isNull('manual_pause.field_manual_pause_value')
+        ->condition('manual_pause.field_manual_pause_value', 0);
+      $query->condition($manualNotPaused);
+    }
+
     $query->distinct();
 
     $uids = [];

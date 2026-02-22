@@ -93,7 +93,7 @@ class SnapshotDataService {
     $query = $this->database->select('ms_snapshot', 's');
     $hasTestFlag = $this->snapshotHasTestFlag();
     $query->innerJoin('ms_fact_org_snapshot', 'o', 'o.snapshot_id = s.id');
-    $snapshotFields = ['snapshot_date', 'snapshot_type'];
+    $snapshotFields = ['id', 'snapshot_date', 'snapshot_type'];
     if ($hasTestFlag) {
       $snapshotFields[] = 'is_test';
     }
@@ -118,6 +118,7 @@ class SnapshotDataService {
     }
 
     $query->orderBy('s.snapshot_date', 'ASC');
+    $query->orderBy('s.id', 'ASC');
     $records = $query->execute()->fetchAll();
 
     if (!$records) {
@@ -135,7 +136,13 @@ class SnapshotDataService {
       $periodKey = $periodDate->format($this->periodFormat($granularity));
       $snapshotTimestamp = $snapshotDate->getTimestamp();
 
-      if (!isset($series[$periodKey]) || $snapshotTimestamp >= $series[$periodKey]['snapshot_timestamp']) {
+      $snapshotId = isset($record->id) ? (int) $record->id : 0;
+
+      if (
+        !isset($series[$periodKey]) ||
+        $snapshotTimestamp > $series[$periodKey]['snapshot_timestamp'] ||
+        ($snapshotTimestamp === $series[$periodKey]['snapshot_timestamp'] && $snapshotId >= $series[$periodKey]['snapshot_id'])
+      ) {
         $series[$periodKey] = [
           'period_key' => $periodKey,
           'period_date' => $periodDate,
@@ -143,6 +150,7 @@ class SnapshotDataService {
           'snapshot_type' => $record->snapshot_type,
           'members_active' => (int) $record->members_active,
           'joins' => (int) $record->joins,
+          'snapshot_id' => $snapshotId,
           'snapshot_timestamp' => $snapshotTimestamp,
         ];
       }
@@ -159,6 +167,7 @@ class SnapshotDataService {
 
     $clean = array_map(static function (array $row): array {
       unset($row['snapshot_timestamp']);
+      unset($row['snapshot_id']);
       return $row;
     }, $ordered);
 

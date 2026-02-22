@@ -148,7 +148,7 @@ class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
     ];
 
     $notes = [
-      (string) $this->t('Source: Balance-Sheet tab ("Cash and Cash Equivalents") and Income-Statement tab ("Total Expense").'),
+      (string) $this->t('Source: Balance-Sheet tab row "Cash and Cash Equivalents" and Income-Statement metric "expense_total".'),
       (string) $this->t('Processing: Converts the latest cash balance into months of runway using the trailing four-quarter average monthly expense.'),
     ];
     if (!empty($series['last_updated'])) {

@@ -371,6 +371,133 @@ class DevelopmentDataService {
   }
 
   /**
+   * Returns a summary of grant performance and pipeline.
+   */
+  public function getGrantsSummary(): array {
+    $cid = $this->cacheId('grants_summary');
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    // 1. Pipeline Count (researching, inquiry, writing, waiting)
+    // Matches CiviCRM Report ID 37 logic.
+    $pipeline = $this->database->select('civicrm_value_funding_7', 'f');
+    $pipeline->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
+    $pipeline->addExpression('COUNT(*)', 'count');
+    $pipeline->condition('f.grant_status_14', ['researching', 'inquiry', 'writing', 'waiting'], 'IN');
+    $pipeline->condition('ct.is_deleted', 0);
+    $pipeline->condition('ct.is_deceased', 0);
+    $pipelineCount = (int) $pipeline->execute()->fetchField();
+
+    // 2. Win Ratio (All-time decided grants)
+    // Matches CiviCRM Report ID 36 logic but without the 12-month date constraint 
+    // to ensure the dashboard has enough data to show a meaningful percentage.
+    $ratioQuery = $this->database->select('civicrm_value_funding_7', 'f');
+    $ratioQuery->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
+    $ratioQuery->fields('f', ['grant_status_14']);
+    $ratioQuery->condition('f.grant_status_14', ['won', 'lost', 'abandoned'], 'IN');
+    $ratioQuery->condition('ct.is_deleted', 0);
+    $results = $ratioQuery->execute()->fetchAll();
+    
+    $counts = ['won' => 0, 'lost' => 0, 'abandoned' => 0];
+    foreach ($results as $row) {
+      $counts[$row->grant_status_14]++;
+    }
+    
+    $totalDecided = array_sum($counts);
+    $winRatio = $totalDecided > 0 ? ($counts['won'] / $totalDecided) : 0.0;
+
+    $data = [
+      'pipeline_count' => $pipelineCount,
+      'win_ratio' => $winRatio,
+      'decided_total' => $totalDecided,
+    ];
+
+    $this->cache->set($cid, $data, $this->time->getRequestTime() + $this->ttl, ['civicrm_contact_list']);
+    return $data;
+  }
+
+  /**
+   * Returns the count of active recurring donors.
+   */
+  public function getRecurringDonorsCount(): int {
+    $query = $this->database->select('civicrm_contribution_recur', 'cr');
+    $query->condition('contribution_status_id', 5); // In Progress
+    $query->addExpression('COUNT(DISTINCT contact_id)', 'count');
+    return (int) $query->execute()->fetchField();
+  }
+
+  /**
+   * Returns donor retention and upgrade statistics.
+   */
+  public function getDonorStats(): array {
+    $cid = $this->cacheId('donor_stats');
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $now = new \DateTimeImmutable();
+    $endB = $now->format('Y-m-d H:i:s');
+    $startB = $now->modify('-12 months')->format('Y-m-d H:i:s');
+    $endA = $now->modify('-12 months')->format('Y-m-d H:i:s');
+    $startA = $now->modify('-24 months')->format('Y-m-d H:i:s');
+
+    $summaryA = $this->getDonorSummariesInRange($startA, $endA);
+    $summaryB = $this->getDonorSummariesInRange($startB, $endB);
+
+    $retained = 0;
+    $upgraded = 0;
+    foreach ($summaryA as $id => $amountA) {
+      if (isset($summaryB[$id])) {
+        $retained++;
+        if ($summaryB[$id] > $amountA) {
+          $upgraded++;
+        }
+      }
+    }
+
+    $donorCountA = count($summaryA);
+    $data = [
+      'retention_rate' => $donorCountA > 0 ? ($retained / $donorCountA) : 0.0,
+      'upgrades_count' => $upgraded,
+      'retained_count' => $retained,
+      'previous_period_donors' => $donorCountA,
+    ];
+
+    $this->cache->set($cid, $data, $this->time->getRequestTime() + $this->ttl, ['civicrm_contribution_list']);
+    return $data;
+  }
+
+  /**
+   * Helper to get total giving per individual contact in a date range.
+   */
+  protected function getDonorSummariesInRange(string $start, string $end): array {
+    $q = $this->database->select('civicrm_contribution', 'c');
+    $q->innerJoin('civicrm_contact', 'ct', 'c.contact_id = ct.id');
+    $q->condition('ct.contact_type', 'Individual');
+    $q->leftJoin('civicrm_participant_payment', 'pp', 'pp.contribution_id = c.id');
+    $q->condition('pp.participant_id', NULL, 'IS NULL');
+    $q->condition('c.financial_type_id', 1);
+    $q->condition('c.contribution_status_id', 1);
+    $q->condition('c.receive_date', [$start, $end], 'BETWEEN');
+    $q->fields('c', ['contact_id']);
+    $q->addExpression('SUM(c.total_amount)', 'total');
+    $q->groupBy('c.contact_id');
+    
+    return $q->execute()->fetchAllKeyed(0, 1);
+  }
+
+  /**
+   * Returns the total dollar value currently in the grant pipeline.
+   */
+  public function getGrantsPipelineValue(): float {
+    $query = $this->database->select('civicrm_value_funding_7', 'f');
+    $query->addExpression('SUM(request_amount_24)', 'total');
+    $query->condition('grant_status_14', ['researching', 'inquiry', 'writing', 'waiting'], 'IN');
+    return (float) ($query->execute()->fetchField() ?: 0.0);
+  }
+
+  /**
    * Builds a cache identifier.
    */
   protected function cacheId(string $suffix): string {

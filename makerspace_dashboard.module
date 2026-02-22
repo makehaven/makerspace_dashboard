@@ -50,14 +50,14 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
   $periodMonth = (int) date('n', $snapshotTimestamp);
 
   if (isset($context['members_active'])) {
-    $metrics['total_active_members'] = [
+    $metrics['kpi_total_active_members'] = [
       'value' => (int) $context['members_active'],
       'period_year' => $periodYear,
       'period_month' => $periodMonth,
     ];
   }
   if (isset($context['joins']) && is_numeric($context['joins'])) {
-    $metrics['total_new_member_signups'] = [
+    $metrics['kpi_total_new_member_signups'] = [
       'value' => (int) $context['joins'],
       'period_year' => $periodYear,
       'period_month' => $periodMonth,
@@ -94,13 +94,13 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
         $participants = max(0, $bucketTotal - $noVisits);
         $participationRatio = $bucketTotal > 0 ? ($participants / $bucketTotal) : 0.0;
 
-        $metrics['shop_utilization'] = [
+        $metrics['kpi_shop_utilization'] = [
           'value' => $participationRatio,
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
         ];
         // Keep legacy KPI ID aligned to the same frozen denominator.
-        $metrics['active_participation'] = [
+        $metrics['kpi_active_participation'] = [
           'value' => $participationRatio,
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
@@ -124,7 +124,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
       $activeBipoc = (int) ($active['bipoc_members'] ?? 0);
       $activeRate = $activeReported > 0 ? ($activeBipoc / $activeReported) : 0.0;
 
-      $metrics['membership_diversity_bipoc'] = [
+      $metrics['kpi_membership_diversity_bipoc'] = [
         'value' => $activeRate,
         'period_year' => $periodYear,
         'period_month' => $periodMonth,
@@ -184,7 +184,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
 
       $attendanceSeries = $eventsService->getMonthlyWorkshopAttendanceSeries($periodStart, $periodEnd);
       $workshopAttendees = makerspace_dashboard_sum_count_items((array) ($attendanceSeries['items'] ?? []));
-      $metrics['workshop_attendees'] = [
+      $metrics['kpi_workshop_attendees'] = [
         'value' => $workshopAttendees,
         'period_year' => $periodYear,
         'period_month' => $periodMonth,
@@ -192,7 +192,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
 
       $firstTimeSeries = $eventsService->getMonthlyFirstTimeWorkshopParticipantsSeries($periodStart, $periodEnd);
       $firstTimeParticipants = makerspace_dashboard_sum_count_items((array) ($firstTimeSeries['items'] ?? []));
-      $metrics['total_first_time_workshop_participants'] = [
+      $metrics['kpi_total_first_time_workshop_participants'] = [
         'value' => $firstTimeParticipants,
         'period_year' => $periodYear,
         'period_month' => $periodMonth,
@@ -201,7 +201,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
       $participantDemo = $eventsService->getParticipantDemographics($periodStart, $periodEnd);
       $workshopBipocRate = makerspace_dashboard_calculate_workshop_bipoc_rate((array) $participantDemo);
       if ($workshopBipocRate !== NULL) {
-        $metrics['workshop_participants_bipoc'] = [
+        $metrics['kpi_workshop_participants_bipoc'] = [
           'value' => $workshopBipocRate,
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
@@ -211,7 +211,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
       $instructorDemo = $eventsService->getActiveInstructorDemographics($periodStart, $periodEnd);
       $instructorBipocRate = makerspace_dashboard_calculate_instructor_bipoc_rate((array) $instructorDemo);
       if ($instructorBipocRate !== NULL) {
-        $metrics['active_instructors_bipoc'] = [
+        $metrics['kpi_active_instructors_bipoc'] = [
           'value' => $instructorBipocRate,
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
@@ -229,7 +229,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
       $npsSeries = $evaluationService->getNetPromoterSeries($periodStart, $periodEnd);
       $overallNps = $npsSeries['overall']['nps'] ?? NULL;
       if (is_numeric($overallNps)) {
-        $metrics['education_nps'] = [
+        $metrics['kpi_education_nps'] = [
           'value' => (float) $overallNps,
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
@@ -249,7 +249,7 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
       $tourParticipants = (int) ($tourFunnel['participants'] ?? 0);
       $tourConversions = (int) ($tourFunnel['conversions'] ?? 0);
       if ($tourParticipants > 0) {
-        $metrics['tours_to_member_conversion'] = [
+        $metrics['kpi_tours_to_member_conversion'] = [
           'value' => $tourConversions / $tourParticipants,
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
@@ -272,29 +272,17 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
     }
   }
 
-  if (\Drupal::hasService('makerspace_dashboard.demographics_data')) {
+  if ($periodStart && $periodEnd && \Drupal::hasService('makerspace_dashboard.funnel_data')) {
     try {
-      $discovery = \Drupal::service('makerspace_dashboard.demographics_data')->getDiscoveryDistribution();
-      $total = 0;
-      $referrals = 0;
-      foreach ((array) $discovery as $row) {
-        $count = (int) ($row['count'] ?? 0);
-        $label = strtolower(trim((string) ($row['label'] ?? '')));
-        $total += $count;
-        if ($label !== '' && (str_contains($label, 'referral') || str_contains($label, 'friend'))) {
-          $referrals += $count;
-        }
-      }
-      if ($total > 0) {
-        $metrics['member_referral_rate'] = [
-          'value' => $referrals / $total,
-          'period_year' => $periodYear,
-          'period_month' => $periodMonth,
-        ];
-      }
+      $funnelService = \Drupal::service('makerspace_dashboard.funnel_data');
+      $metrics['kpi_tours'] = [
+        'value' => $funnelService->getTourParticipantCount($periodStart, $periodEnd),
+        'period_year' => $periodYear,
+        'period_month' => $periodMonth,
+      ];
     }
     catch (\Exception $e) {
-      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot member referral KPI: @message', ['@message' => $e->getMessage()]);
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot tour participant KPI: @message', ['@message' => $e->getMessage()]);
     }
   }
 

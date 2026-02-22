@@ -122,9 +122,9 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     $currentGoalYear = $this->determineDisplayGoalYear($kpi_data);
     $header = [
       $this->t('KPI Name'),
-      $this->t('Goal 2030'),
-      $this->t('Goal @year', ['@year' => $currentGoalYear]),
       $this->t('Current'),
+      $this->t('Goal @year', ['@year' => $currentGoalYear]),
+      $this->t('Goal 2030'),
       $this->t('Trend (12 month)'),
     ];
 
@@ -133,15 +133,41 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     foreach ($kpi_data as $kpi) {
       $format = $kpi['display_format'] ?? NULL;
       $row = [
-        $kpi['label'] ?? '',
-        $this->formatKpiValue($kpi['goal_2030'] ?? NULL, $format),
-        $this->formatKpiValue($kpi['goal_current_year'] ?? NULL, $format),
-        $this->buildCurrentValueCell($kpi, $format),
+        [
+          'data' => [
+            '#type' => 'container',
+            '#attributes' => ['class' => ['kpi-overview-label-cell']],
+            'label' => [
+              '#markup' => '<div class="kpi-title">' . Html::escape($kpi['label'] ?? '') . '</div>',
+            ],
+            'description' => !empty($kpi['description'])
+              ? ['#markup' => '<div class="kpi-description">' . Html::escape($kpi['description']) . '</div>']
+              : [],
+            'shared' => !empty($kpi['shared_sections'])
+              ? ['#markup' => '<div class="kpi-shared-tag">' . $this->t('Shared with @sections', ['@sections' => implode(', ', $kpi['shared_sections'])]) . '</div>']
+              : [],
+          ],
+        ],
+        [
+          'data' => $this->buildCurrentValueCell($kpi, $format),
+          'class' => ['kpi-current-cell'],
+        ],
+        [
+          'data' => ['#markup' => '<span class="kpi-value-big">' . $this->formatKpiValue($kpi['goal_current_year'] ?? NULL, $format) . '</span>'],
+          'class' => ['kpi-goal-cell'],
+        ],
+        [
+          'data' => ['#markup' => '<span class="kpi-value-big">' . $this->formatKpiValue($kpi['goal_2030'] ?? NULL, $format) . '</span>'],
+          'class' => ['kpi-goal-cell', 'kpi-goal-2030-cell'],
+        ],
         [
           'data' => [
             '#type' => 'container',
             '#attributes' => ['class' => ['kpi-sparkline-wrapper']],
             'sparkline' => $this->buildSparkline($kpi['trend'] ?? []),
+            'label' => !empty($kpi['trend_label'])
+              ? ['#markup' => '<div class="kpi-sparkline-label">' . Html::escape($kpi['trend_label']) . '</div>']
+              : [],
           ],
           'attributes' => ['class' => 'kpi-sparkline-cell'],
         ],
@@ -403,6 +429,9 @@ SVG;
       $decimals = abs($percentage) < 10 ? 1 : 0;
       return number_format($percentage, $decimals) . '%';
     }
+    if ($format === 'integer' && is_numeric($value)) {
+      return number_format((float) $value, 0);
+    }
     if (is_numeric($value)) {
       $float = (float) $value;
       $abs = abs($float);
@@ -450,13 +479,11 @@ SVG;
       (string) ($kpi['goal_direction'] ?? 'higher')
     );
     if (!$class) {
-      return $formatted;
+      return ['#markup' => '<span class="kpi-value-big">' . Html::escape($formatted) . '</span>'];
     }
 
     return [
-      'data' => [
-        '#markup' => Markup::create(sprintf('<span class="kpi-progress %s">%s</span>', $class, Html::escape($formatted))),
-      ],
+      '#markup' => Markup::create(sprintf('<span class="kpi-progress %s kpi-value-big">%s</span>', $class, Html::escape($formatted))),
     ];
   }
 

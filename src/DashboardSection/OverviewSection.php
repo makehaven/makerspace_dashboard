@@ -110,7 +110,15 @@ class OverviewSection extends DashboardSectionBase {
             'data' => [
               '#type' => 'container',
               '#attributes' => ['class' => ['kpi-overview-label-cell']],
-              'label' => ['#markup' => Html::escape($kpiLabel)],
+              'label' => [
+                '#markup' => '<div class="kpi-title">' . Html::escape($kpiLabel) . '</div>',
+              ],
+              'description' => !empty($kpi['description']) 
+                ? ['#markup' => '<div class="kpi-description">' . Html::escape($kpi['description']) . '</div>'] 
+                : [],
+              'shared' => !empty($kpi['shared_sections'])
+                ? ['#markup' => '<div class="kpi-shared-tag">' . $this->t('Shared with @sections', ['@sections' => implode(', ', $kpi['shared_sections'])]) . '</div>']
+                : [],
               'state' => $isInDevelopment
                 ? ['#markup' => '<span class="kpi-overview-state kpi-overview-state--dev">' . $this->t('In development') . '</span>']
                 : [],
@@ -121,14 +129,26 @@ class OverviewSection extends DashboardSectionBase {
               ],
             ],
           ],
-          $this->buildStoplightBadge($kpi, $format),
-          $this->buildCurrentValueCell($kpi, $format),
-          $this->buildGoalValueCell($kpi, $format),
+          [
+            'data' => $this->buildCurrentValueCell($kpi, $format),
+            'class' => ['kpi-current-cell'],
+          ],
+          [
+            'data' => $this->buildGoalValueCell($kpi, $format),
+            'class' => ['kpi-goal-cell'],
+          ],
+          [
+            'data' => $this->buildGoal2030ValueCell($kpi, $format),
+            'class' => ['kpi-goal-cell', 'kpi-goal-2030-cell'],
+          ],
           [
             'data' => [
               '#type' => 'container',
               '#attributes' => ['class' => ['kpi-sparkline-wrapper']],
               'sparkline' => $this->buildSparkline($kpi['trend'] ?? []),
+              'label' => !empty($kpi['trend_label'])
+                ? ['#markup' => '<div class="kpi-sparkline-label">' . Html::escape($kpi['trend_label']) . '</div>']
+                : [],
             ],
             'attributes' => ['class' => 'kpi-sparkline-cell'],
           ],
@@ -155,7 +175,15 @@ class OverviewSection extends DashboardSectionBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['overview-stoplight']],
       'heading' => [
-        '#markup' => '<h2>' . $this->t('KPI Stoplight Overview') . '</h2><p>' . $this->t('KPI table grouped by section for quick scanning. Use the More link under each KPI for deeper context in each section tab.') . '</p>',
+        '#markup' => '<h2>' . $this->t('KPI Overview') . '</h2><p>' . $this->t('Performance against annual goals. Use the More link under each KPI for deeper context.') . '</p>',
+      ],
+      'legend' => [
+        '#markup' => '<div class="kpi-legend">
+          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--good"></span> ' . $this->t('On track') . '</span>
+          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--warning"></span> ' . $this->t('Watch') . '</span>
+          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--poor"></span> ' . $this->t('Off track') . '</span>
+          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--na"></span> ' . $this->t('No goal / In dev') . '</span>
+        </div>',
       ],
     ];
 
@@ -169,9 +197,9 @@ class OverviewSection extends DashboardSectionBase {
     $goalYearLabel = $goalYearLabel ?? (int) date('Y');
     $header = [
       $this->t('KPI'),
-      $this->t('Status'),
       $this->t('Current'),
       $this->t('Goal @year', ['@year' => $goalYearLabel]),
+      $this->t('Goal 2030'),
       $this->t('Trend'),
     ];
 
@@ -264,45 +292,41 @@ class OverviewSection extends DashboardSectionBase {
 
     $manual = [
       'outreach' => [
-        'total_new_member_signups' => 'new_member_recruitment',
-        'member_referral_rate' => 'discovery_sources',
-        'tours_to_member_conversion' => 'tour_conversion_funnel',
-        'guest_waivers_signed' => 'guest_waiver_conversion_funnel',
-        'guest_waiver_conversion' => 'guest_waiver_conversion_funnel',
-        'discovery_meetings_logged' => 'meeting_conversion_funnel',
-        'meeting_to_member_conversion' => 'meeting_conversion_funnel',
+        'kpi_total_new_member_signups' => 'new_member_recruitment',
+        'kpi_tours_to_member_conversion' => 'tour_conversion_funnel',
+        'kpi_guest_waiver_to_member_conversion' => 'guest_waiver_conversion_funnel',
+        'kpi_event_participant_to_member_conversion' => 'event_conversion_funnel',
       ],
       'retention' => [
-        'total_active_members' => 'snapshot_monthly',
-        'first_year_member_retention' => 'annual_retention',
-        'member_nps' => 'appointment_feedback_outcomes',
-        'active_participation' => 'badge_tenure_correlation',
-        'membership_diversity_bipoc' => 'annual_retention_ethnicity',
+        'kpi_total_active_members' => 'snapshot_monthly',
+        'kpi_first_year_member_retention' => 'annual_retention',
+        'kpi_member_nps' => 'appointment_feedback_outcomes',
+        'kpi_active_participation' => 'badge_tenure_correlation',
+        'kpi_membership_diversity_bipoc' => 'annual_retention_ethnicity',
       ],
       'education' => [
-        'workshop_attendees' => 'registrations_by_type',
-        'education_nps' => 'event_net_promoter',
-        'workshop_participants_bipoc' => 'participant_ethnicity',
-        'active_instructors_bipoc' => 'active_instructor_demographics',
+        'kpi_workshop_attendees' => 'registrations_by_type',
+        'kpi_education_nps' => 'event_net_promoter',
+        'kpi_workshop_participants_bipoc' => 'participant_ethnicity',
+        'kpi_active_instructors_bipoc' => 'active_instructor_demographics',
       ],
       'finance' => [
-        'member_revenue_quarterly' => 'mrr_trend',
-        'reserve_funds_months' => 'average_monthly_payment',
+        'kpi_member_revenue_quarterly' => 'mrr_trend',
+        'kpi_reserve_funds_months' => 'average_monthly_payment',
       ],
       'governance' => [
-        'board_ethnic_diversity' => 'board_ethnicity',
-        'board_gender_diversity' => 'board_gender_identity',
+        'kpi_board_ethnic_diversity' => 'board_ethnicity',
+        'kpi_board_gender_diversity' => 'board_gender_identity',
       ],
       'infrastructure' => [
-        'shop_utilization' => 'monthly_entries',
-      ],
-      'operations' => [
-        'adherence_to_shop_budget' => 'storage_vacancy_trend',
+        'kpi_equipment_uptime_rate' => 'monthly_entries',
+        'kpi_active_participation' => 'monthly_entries',
+        'kpi_adherence_to_shop_budget' => 'storage_vacancy_trend',
       ],
       'overview' => [
-        'total_active_members' => 'active_members',
-        'workshop_attendees' => 'workshop_attendance',
-        'reserve_funds_months' => 'reserve_funds',
+        'kpi_total_active_members' => 'active_members',
+        'kpi_workshop_attendees' => 'workshop_attendance',
+        'kpi_reserve_funds_months' => 'reserve_funds',
       ],
     ];
 
@@ -360,12 +384,19 @@ class OverviewSection extends DashboardSectionBase {
    * Builds the stoplight badge column.
    */
   protected function buildStoplightBadge(array $kpi, ?string $format): array {
-    $class = $this->determinePerformanceClass($kpi['current'] ?? NULL, $kpi['goal_current_year'] ?? NULL, $format);
+    $current = $kpi['current'] ?? NULL;
+    $goal = $kpi['goal_current_year'] ?? NULL;
+    
+    $class = $this->determinePerformanceClass($current, $goal, $format);
+    
+    $isMissingCurrent = ($current === NULL || $current === 'TBD' || $current === 'n/a');
+    $isMissingGoal = ($goal === NULL || $goal === '' || $goal === 'n/a');
+
     $label = match ($class) {
       'kpi-progress--good' => (string) $this->t('On track'),
       'kpi-progress--warning' => (string) $this->t('Watch'),
       'kpi-progress--poor' => (string) $this->t('Off track'),
-      default => (string) $this->t('No goal'),
+      default => $isMissingCurrent ? (string) $this->t('No data') : (string) $this->t('No goal'),
     };
 
     $indicatorClasses = ['kpi-stoplight-indicator'];
@@ -392,15 +423,23 @@ class OverviewSection extends DashboardSectionBase {
     if (!$goalValue) {
       return $this->t('n/a');
     }
-    $label = $this->normalizeGoalYearLabelForOverview($kpi['goal_current_year_label'] ?? NULL);
-    $markup = Markup::create(sprintf(
-      '<span class="kpi-goal-value">%s</span> <span class="kpi-goal-label">(%s)</span>',
-      Html::escape((string) $goalValue),
-      Html::escape((string) $label),
-    ));
+    
+    return [
+      '#markup' => '<span class="kpi-value-big">' . Html::escape((string) $goalValue) . '</span>',
+    ];
+  }
+
+  /**
+   * Formats the long-range 2030 goal cell.
+   */
+  protected function buildGoal2030ValueCell(array $kpi, ?string $format) {
+    $goalValue = $this->formatKpiValue($kpi['goal_2030'] ?? NULL, $format);
+    if (!$goalValue) {
+      return $this->t('n/a');
+    }
 
     return [
-      'data' => ['#markup' => $markup],
+      '#markup' => '<span class="kpi-value-big">' . Html::escape((string) $goalValue) . '</span>',
     ];
   }
 

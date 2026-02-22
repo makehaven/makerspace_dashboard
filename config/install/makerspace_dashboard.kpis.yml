@@ -7,136 +7,150 @@
 overview:
 
 governance:
-  board_ethnic_diversity:
+  kpi_board_ethnic_diversity:
     label: 'Board Ethnic Diversity (% BIPOC)'
     base_2025: 0.20
     goal_2030: 0.50
-    annual_values:
-      2026: 0.25
-      2027: 0.30
-      2028: 0.35
-      2029: 0.40
-      2030: 0.45
-  board_gender_diversity:
+  kpi_board_gender_diversity:
     label: 'Board Gender Diversity (% Female/Non-binary)'
     base_2025: 0.40
     goal_2030: 0.50
-    annual_values:
-      2026: 0.42
-      2027: 0.44
-      2028: 0.46
-      2029: 0.48
-      2030: 0.50
 
 finance:
-  reserve_funds_months:
+  kpi_reserve_funds_months:
     label: 'Reserve Funds (as Months of Operating Expense)'
     base_2025: 3
     goal_2030: 6
-  earned_income_sustaining_core:
+  kpi_earned_income_sustaining_core:
     label: 'Earned Income Sustaining Core %'
     base_2025: 0.80
     goal_2030: 1.00
-  member_revenue_quarterly:
+  kpi_member_revenue_quarterly:
     label: 'Member Revenue (Quarterly)'
     base_2025: 100000
     goal_2030: 150000
-  net_income_program_lines:
+  kpi_net_income_program_lines:
     label: 'Net Income (Program Lines)'
-    base_2025: 20000
-    goal_2030: 50000
+    base_2025: 86563
+    goal_2030: 120000
+  kpi_member_lifetime_value_projected:
+    label: 'Member Lifetime Value (Projected)'
+    base_2025: 1752
+    goal_2030: 3000
+  kpi_revenue_per_member_index:
+    label: 'Revenue vs Expense Index (per member)'
+    base_2025: 0.62
+    goal_2030: 1.0
+  kpi_monthly_revenue_at_risk:
+    label: 'Monthly Revenue at Risk ($)'
+    base_2025: 0
+    goal_2030: 0
+    goal_direction: lower
+  kpi_payment_resolution_rate:
+    label: 'Payment Resolution Rate %'
+    base_2025: 0.50
+    goal_2030: 0.85
 
 infrastructure:
-  member_satisfaction_equipment:
+  kpi_member_satisfaction_equipment:
     label: 'Member Satisfaction (Equipment)'
-    base_2025: 4.0
-    goal_2030: 4.5
-  member_satisfaction_facility_vibe:
-    label: 'Member Satisfaction (Facility/Vibe)'
-    base_2025: 4.2
-    goal_2030: 4.7
-  shop_utilization:
-    label: 'Shop Utilization (Active Participation %)'
-    base_2025: 0.60
-    goal_2030: 0.80
-  adherence_to_shop_budget:
+    base_2025: 4.49
+    goal_2030: 4.75
+  kpi_equipment_uptime_rate:
+    label: 'Equipment Uptime Rate %'
+    base_2025: 0.90
+    goal_2030: 0.98
+  kpi_adherence_to_shop_budget:
     label: 'Adherence to Shop Budget'
-    base_2025: 1.0
+    base_2025: 0.92
     goal_2030: 1.0
+    goal_direction: lower
 
 outreach:
-  total_new_member_signups:
+  kpi_total_new_member_signups:
     label: 'Total New Member Signups'
     base_2025: 300
     goal_2030: 500
-  total_first_time_workshop_participants:
+  kpi_total_first_time_workshop_participants:
     label: 'Total # First Time Workshop Participants'
     base_2025: 400
     goal_2030: 600
-  total_new_recurring_revenue:
+  kpi_total_new_recurring_revenue:
     label: 'Total $ of New Recurring Revenue'
     base_2025: 50000
     goal_2030: 80000
-  member_referral_rate:
-    label: 'Member Referral Rate'
-    base_2025: 0.30
-    goal_2030: 0.50
+  kpi_tours:
+    label: 'Total Tours (12 month)'
+    base_2025: 400
+    goal_2030: 1000
+  kpi_tours_to_member_conversion:
+    label: 'Tours to Member Conversion %'
+    base_2025: 0.20
+    goal_2030: 0.35
+  kpi_guest_waiver_to_member_conversion:
+    label: 'Guest Waiver to Member Conversion %'
+    base_2025: 0.20
+    goal_2030: 0.35
+  kpi_event_participant_to_member_conversion:
+    label: 'Event Participant to Member Conversion %'
+    base_2025: 0.10
+    goal_2030: 0.20
 
 retention:
-  total_active_members:
+  kpi_total_active_members:
     label: 'Total # Active Members'
     base_2025: 1000
     goal_2030: 1500
-  first_year_member_retention:
+  kpi_first_year_member_retention:
     label: 'First Year Member Retention %'
     base_2025: 0.70
     goal_2030: 0.85
-  member_nps:
+  kpi_member_nps:
     label: 'Member Net Promoter Score (NPS)'
     base_2025: 50
     goal_2030: 75
-  active_participation:
+  kpi_active_participation:
     label: 'Active Participation %'
     base_2025: 0.60
     goal_2030: 0.80
-  new_member_28_day_activation:
-    label: 'New Member 28-Day Activation %'
-    base_2025: 0.55
+  kpi_new_member_first_badge_28_days:
+    label: 'New Member First Badge (28 days) %'
+    base_2025: 0.63
     goal_2030: 0.80
-  members_at_risk_share:
+  kpi_members_at_risk_share:
     label: 'Members At-Risk %'
-    base_2025: 0.25
+    base_2025: 0.40
     goal_2030: 0.15
     goal_direction: lower
-  membership_diversity_bipoc:
+  kpi_membership_diversity_bipoc:
     label: 'Membership Diversity (% BIPOC)'
     base_2025: 0.15
     goal_2030: 0.30
 
 education:
-  workshop_attendees:
+  kpi_workshop_attendees:
     label: '# of Workshop Attendees'
     base_2025: 1200
     goal_2030: 2000
-  education_nps:
+  kpi_education_nps:
     label: 'Education Net Promoter Score (NPS)'
     base_2025: 60
     goal_2030: 80
-  workshop_participants_bipoc:
+  kpi_workshop_participants_bipoc:
     label: '% Workshop Participants (BIPOC)'
-    base_2025: 0.15
+    base_2025: 0.17
     goal_2030: 0.30
-  active_instructors_bipoc:
+  kpi_active_instructors_bipoc:
     label: '% Active Instructors (BIPOC)'
-    base_2025: 0.10
-    goal_2030: 0.25
-  net_income_education:
+    base_2025: 0.37
+    goal_2030: 0.50
+  kpi_net_income_education:
     label: 'Net Income (Education Program)'
-    base_2025: 10000
-    goal_2030: 30000
+    base_2025: 38922
+    goal_2030: 60000
 
 entrepreneurship:
-  incubator_workspace_occupancy:
+  kpi_incubator_workspace_occupancy:
     label: 'Incubator Workspace Occupancy %'
     base_2025: 0.75
     goal_2030: 0.95
@@ -146,7 +160,7 @@ entrepreneurship:
       2028: 0.90
       2029: 0.92
       2030: 0.95
-  active_incubator_ventures:
+  kpi_active_incubator_ventures:
     label: '# of Active Incubator Ventures'
     base_2025: 10
     goal_2030: 20
@@ -156,63 +170,47 @@ entrepreneurship:
       2028: 16
       2029: 18
       2030: 20
-  entrepreneurship_events:
-    label: '# of Entrepreneurship Events Held'
-    base_2025: 5
-    goal_2030: 15
-    annual_values:
-      2026: 7
-      2027: 9
-      2028: 11
-      2029: 13
-      2030: 15
-  milestones_achieved:
-    label: '# of Milestones Achieved by Ventures'
-    base_2025: 20
-    goal_2030: 50
-    annual_values:
-      2026: 25
-      2027: 30
-      2028: 35
-      2029: 40
-      2030: 50
+  kpi_entrepreneurship_event_participation:
+    label: '# of Entrepreneurship Events Participants'
+    base_2025: 49
+    goal_2030: 150
 
 development:
-  annual_individual_giving:
-    label: '$ Annual Individual Giving'
-    base_2025: 50000
-    goal_2030: 100000
-  annual_corporate_sponsorships:
+  kpi_recurring_donors_count:
+    label: '# of Recurring Donors'
+    base_2025: 18
+    goal_2030: 50
+  kpi_annual_corporate_sponsorships:
     label: '$ Annual Corporate Sponsorships'
-    base_2025: 25000
+    base_2025: 7916
     goal_2030: 75000
-  non_government_grants:
-    label: '# of Non-Government Grants Secured'
-    base_2025: 2
-    goal_2030: 5
-  donor_retention_rate:
+  kpi_grant_pipeline_count:
+    label: '# of Active Grants in Pipeline'
+    base_2025: 9
+    goal_2030: 15
+  kpi_grant_win_ratio:
+    label: 'Grant Win Ratio %'
+    base_2025: 0.32
+    goal_2030: 0.50
+  kpi_donor_retention_rate:
     label: 'Donor Retention Rate %'
-    base_2025: 0.60
-    goal_2030: 0.75
+    base_2025: 0.737
+    goal_2030: 0.85
+  kpi_donor_upgrades_count:
+    label: '# of Donor Upgrades'
+    base_2025: 33
+    goal_2030: 100
 
 dei:
-  membership_diversity_bipoc:
-    label: 'Membership Diversity (% BIPOC)'
-    base_2025: 0.15
-    goal_2030: 0.30
-  workshop_participants_bipoc:
-    label: '% Workshop Participants (BIPOC)'
-    base_2025: 0.15
-    goal_2030: 0.30
-  active_instructors_bipoc:
-    label: '% Active Instructors (BIPOC)'
-    base_2025: 0.10
-    goal_2030: 0.25
-  board_ethnic_diversity:
-    label: 'Board Ethnic diversity (% BIPOC)'
-    base_2025: 0.20
-    goal_2030: 0.50
-  retention_poc:
+  kpi_retention_poc:
     label: 'Retention POC %'
-    base_2025: 0.65
+    base_2025: 0.45
+    goal_2030: 0.80
+  kpi_active_participation_bipoc:
+    label: 'Active Participation % (BIPOC)'
+    base_2025: 0.60
+    goal_2030: 0.80
+  kpi_active_participation_female_nb:
+    label: 'Active Participation % (Female/Non-binary)'
+    base_2025: 0.60
     goal_2030: 0.80

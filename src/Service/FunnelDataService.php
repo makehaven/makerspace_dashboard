@@ -80,13 +80,59 @@ class FunnelDataService {
       return $cache->data;
     }
 
-    $contactMap = $this->getEventContactMap('tour', $window['start'], $window['end']);
-    $converted = $this->countContactConversions($contactMap);
+    // 1. Get contact maps from both events and activities.
+    $eventMap = $this->getEventContactMap('tour', $window['start'], $window['end']);
+    $activityMap = $this->getActivityContactMap('tour', $window['start'], $window['end']);
+
+    // 2. Merge maps, taking the earliest date for each contact.
+    $contactMap = $eventMap;
+    foreach ($activityMap as $contactId => $touchDate) {
+      if (!isset($contactMap[$contactId]) || $touchDate < $contactMap[$contactId]) {
+        $contactMap[$contactId] = $touchDate;
+      }
+    }
+
+    $summary = $this->summarizeContactConversions($contactMap);
 
     $data = [
       'range' => $window,
-      'participants' => count($contactMap),
-      'conversions' => $converted,
+      'participants' => $summary['eligible_contacts'],
+      'participants_total' => $summary['total_contacts'],
+      'participants_already_members' => $summary['already_members'],
+      'conversions' => $summary['conversions'],
+      'conversion_rate' => $summary['conversion_rate'],
+    ];
+
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+      'civicrm_participant_list',
+      'civicrm_activity_list',
+      'profile_list',
+    ]);
+
+    return $data;
+  }
+
+  /**
+   * Provides stats for all event participants converting to membership joins.
+   */
+  public function getEventParticipantFunnelData(): array {
+    $window = $this->buildWindow(self::WINDOW_MONTHS);
+    $cacheId = sprintf('makerspace_dashboard:funnel:events:%s', $window['cache_key']);
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    // Empty label match intentionally includes all event types.
+    $contactMap = $this->getEventContactMap('', $window['start'], $window['end']);
+    $summary = $this->summarizeContactConversions($contactMap);
+
+    $data = [
+      'range' => $window,
+      'participants' => $summary['eligible_contacts'],
+      'participants_total' => $summary['total_contacts'],
+      'participants_already_members' => $summary['already_members'],
+      'conversions' => $summary['conversions'],
+      'conversion_rate' => $summary['conversion_rate'],
     ];
 
     $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
@@ -131,12 +177,15 @@ class FunnelDataService {
     }
 
     $contactMap = $this->getActivityContactMap($labelMatch, $window['start'], $window['end']);
-    $activities = count($contactMap);
-    $converted = $this->countContactConversions($contactMap);
+    $summary = $this->summarizeContactConversions($contactMap);
+    $activities = $summary['eligible_contacts'];
+    $converted = $summary['conversions'];
 
     $data = [
       'range' => $window,
       'activities' => $activities,
+      'activities_total' => $summary['total_contacts'],
+      'activities_already_members' => $summary['already_members'],
       'conversions' => $converted,
       'conversion_rate' => $activities > 0 ? ($converted / $activities) : NULL,
       'label_match' => $labelMatch,
@@ -289,39 +338,52 @@ class FunnelDataService {
   }
 
   /**
-   * Counts how many contacts in the supplied map eventually joined.
+   * Summarizes conversion eligibility and outcomes for touchpoint contacts.
    *
    * @param array $contactDates
    *   Map of contact_id => DateTimeImmutable representing the first touch date.
    */
-  protected function countContactConversions(array $contactDates): int {
+  protected function summarizeContactConversions(array $contactDates): array {
+    $build = static fn(int $total, int $eligible, int $alreadyMembers, int $conversions): array => [
+      'total_contacts' => $total,
+      'eligible_contacts' => $eligible,
+      'already_members' => $alreadyMembers,
+      'conversions' => $conversions,
+      'conversion_rate' => $eligible > 0 ? ($conversions / $eligible) : NULL,
+    ];
+
     if (empty($contactDates)) {
-      return 0;
+      return $build(0, 0, 0, 0);
     }
 
     $contactToUid = $this->loadContactUserMap(array_keys($contactDates));
-    if (empty($contactToUid)) {
-      return 0;
-    }
+    $joinDates = !empty($contactToUid) ? $this->loadJoinDates(array_values($contactToUid)) : [];
 
-    $joinDates = $this->loadJoinDates(array_values($contactToUid));
-    if (empty($joinDates)) {
-      return 0;
-    }
-
+    $eligible = 0;
+    $alreadyMembers = 0;
     $converted = 0;
     foreach ($contactDates as $contactId => $touchDate) {
       $uid = $contactToUid[$contactId] ?? NULL;
-      if (!$uid || !isset($joinDates[$uid])) {
+      if (!$uid) {
+        $eligible++;
         continue;
       }
+      if (!isset($joinDates[$uid])) {
+        $eligible++;
+        continue;
+      }
+
       $joinDate = $joinDates[$uid];
-      if ($touchDate > $joinDate) {
+      if ($joinDate < $touchDate) {
+        $alreadyMembers++;
         continue;
       }
+
+      $eligible++;
       $converted++;
     }
-    return $converted;
+
+    return $build(count($contactDates), $eligible, $alreadyMembers, $converted);
   }
 
   /**
@@ -348,20 +410,22 @@ class FunnelDataService {
   }
 
   /**
-   * Loads join dates indexed by user ID.
+   * Loads inferred join dates indexed by user ID.
+   *
+   * Join date source: earliest `profile.created` timestamp for the user's
+   * default main profile. This replaces the legacy member join date field.
    */
   protected function loadJoinDates(array $uids): array {
     if (empty($uids)) {
       return [];
     }
     $query = $this->database->select('profile', 'p');
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
     $query->fields('p', ['uid']);
-    $query->addField('join_date', 'field_member_join_date_value', 'join_value');
+    $query->addExpression('MIN(p.created)', 'join_value');
     $query->condition('p.uid', $uids, 'IN');
     $query->condition('p.type', 'main');
     $query->condition('p.is_default', 1);
-    $query->condition('p.status', 1);
+    $query->groupBy('p.uid');
 
     $map = [];
     foreach ($query->execute() as $record) {
@@ -369,7 +433,7 @@ class FunnelDataService {
       if ($uid <= 0) {
         continue;
       }
-      $joinDate = $this->normalizeDate($record->join_value ?? NULL, 'Y-m-d');
+      $joinDate = $this->normalizeDate($record->join_value ?? NULL);
       if (!$joinDate) {
         continue;
       }
@@ -396,17 +460,36 @@ class FunnelDataService {
   }
 
   /**
-   * Converts a raw date string into a DateTimeImmutable.
+   * Converts a raw date value into a DateTimeImmutable.
    */
-  protected function normalizeDate(?string $value, string $format = 'Y-m-d H:i:s'): ?DateTimeImmutable {
-    if (!$value) {
+  protected function normalizeDate($value): ?DateTimeImmutable {
+    if ($value === NULL || $value === '') {
       return NULL;
     }
-    $timestamp = strtotime($value);
+    if (is_int($value) || (is_string($value) && ctype_digit($value))) {
+      try {
+        return (new DateTimeImmutable('@' . (int) $value))->setTimezone($this->timezone);
+      }
+      catch (\Throwable $e) {
+        return NULL;
+      }
+    }
+    $timestamp = strtotime((string) $value);
     if ($timestamp === FALSE) {
       return NULL;
     }
     return (new DateTimeImmutable("@$timestamp"))->setTimezone($this->timezone);
+  }
+
+  /**
+   * Counts unique tour participants (events + activities) in a date range.
+   */
+  public function getTourParticipantCount(DateTimeImmutable $start, DateTimeImmutable $end): int {
+    $eventMap = $this->getEventContactMap('tour', $start, $end);
+    $activityMap = $this->getActivityContactMap('tour', $start, $end);
+
+    $uids = array_unique(array_merge(array_keys($eventMap), array_keys($activityMap)));
+    return count($uids);
   }
 
   /**

@@ -33,13 +33,25 @@ class FinancialDataService {
   protected MembershipMetricsService $membershipMetricsService;
 
   /**
+   * Google Sheet client service.
+   */
+  protected GoogleSheetClientService $googleSheetClient;
+
+  /**
+   * Snapshot data service.
+   */
+  protected SnapshotDataService $snapshotData;
+
+  /**
    * Constructs the service.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, DateFormatterInterface $dateFormatter, MembershipMetricsService $membershipMetricsService) {
+  public function __construct(Connection $database, CacheBackendInterface $cache, DateFormatterInterface $dateFormatter, MembershipMetricsService $membershipMetricsService, GoogleSheetClientService $googleSheetClient, SnapshotDataService $snapshotData) {
     $this->database = $database;
     $this->cache = $cache;
     $this->dateFormatter = $dateFormatter;
     $this->membershipMetricsService = $membershipMetricsService;
+    $this->googleSheetClient = $googleSheetClient;
+    $this->snapshotData = $snapshotData;
   }
 
   /**
@@ -654,10 +666,11 @@ class FinancialDataService {
    *   The annual member revenue.
    */
   public function getAnnualMemberRevenue(): float {
-    // @todo: Implement logic to get the sum of the four quarters for the year
-    // from Xero "Membership - Individual Recuring". This will be called by the
-    // 'annual' snapshot.
-    return 450000.00;
+    $year = (int) date('Y');
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+    return abs($this->getActualsForMetric('income_membership', $year));
   }
 
   /**
@@ -667,10 +680,16 @@ class FinancialDataService {
    *   The annual net income from program lines.
    */
   public function getAnnualNetIncomeProgramLines(): float {
-    // @todo: Implement logic to get this from Xero. Program lines include:
-    // desk rental, storage, room rental and equipment usage fees. This will be
-    // called by the 'annual' snapshot.
-    return 25000.00;
+    $year = (int) date('Y');
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+
+    $net_storage = $this->getActualsForMetric('income_storage', $year) + $this->getActualsForMetric('expense_storage', $year);
+    $net_workspaces = $this->getActualsForMetric('income_workspaces', $year) + $this->getActualsForMetric('expense_workspaces', $year);
+    $net_media = $this->getActualsForMetric('income_media', $year);
+
+    return (float) ($net_storage + $net_workspaces + $net_media);
   }
 
   /**
@@ -680,9 +699,158 @@ class FinancialDataService {
    *   The adherence to the shop budget as a variance percentage.
    */
   public function getAdherenceToShopBudget(): float {
-    // @todo: Implement logic to get this from Xero as "Budget vs Shop Expense
-    // Line". This will be called by the 'annual' snapshot.
-    return 0.98;
+    $metricKey = 'expense_shop_operations';
+    $year = (int) date('Y');
+    
+    // If it is early in the year (e.g. Feb 2026), 2026 actuals might be too 
+    // sparse. We will check 2025 if we are in Q1.
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+
+    $budget = $this->getBudgetForMetric($metricKey, $year);
+    $actuals = $this->getActualsForMetric($metricKey, $year);
+
+    if ($budget > 0) {
+      return abs($actuals) / $budget;
+    }
+
+    return 1.0;
+  }
+
+  /**
+   * Helper to get budget value from Google Sheet.
+   */
+  protected function getBudgetForMetric(string $metricKey, int $year): float {
+    $data = $this->googleSheetClient->getSheetData('Budgets');
+    if (empty($data)) {
+      return 0.0;
+    }
+
+    $headers = array_shift($data);
+    $yearCol = -1;
+    $targetHeader = $year . '_budget';
+    foreach ($headers as $idx => $header) {
+      if (trim(strtolower($header)) === $targetHeader) {
+        $yearCol = $idx;
+        break;
+      }
+    }
+
+    if ($yearCol === -1) {
+      return 0.0;
+    }
+
+    foreach ($data as $row) {
+      if (isset($row[1]) && $row[1] === $metricKey) {
+        $value = $row[$yearCol] ?? '0';
+        return $this->parseCurrencyValue($value);
+      }
+    }
+
+    return 0.0;
+  }
+
+  /**
+   * Helper to get annual actuals from Income Statement sheet.
+   */
+  /**
+   * Helper to get actuals for a specific year from Google Sheet.
+   *
+   * @param string $metricKey
+   *   The metric ID from the sheet.
+   * @param int $year
+   *   The year to filter by.
+   *
+   * @return float
+   *   The total actuals for that year.
+   */
+  public function getActualsForMetric(string $metricKey, int $year): float {
+    $data = $this->googleSheetClient->getSheetData('Income-Statement');
+    if (empty($data)) {
+      return 0.0;
+    }
+
+    $headers = array_shift($data);
+    $targetCols = [];
+    foreach ($headers as $idx => $header) {
+      if (str_contains($header, (string) $year)) {
+        $targetCols[] = $idx;
+      }
+    }
+
+    if (empty($targetCols)) {
+      return 0.0;
+    }
+
+    $total = 0.0;
+    foreach ($data as $row) {
+      if (isset($row[1]) && $row[1] === $metricKey) {
+        foreach ($targetCols as $col) {
+          $value = $row[$col] ?? '0';
+          $total += $this->parseCurrencyValue($value);
+        }
+        break;
+      }
+    }
+
+    return $total;
+  }
+
+  /**
+   * Gets a flat array of historical actuals for a metric (e.g., for sparklines).
+   *
+   * Returns data points in chronological order (oldest to newest).
+   */
+  public function getMetricTrend(string $metricKey, int $limit = 12): array {
+    $data = $this->googleSheetClient->getSheetData('Income-Statement');
+    if (empty($data)) {
+      return [];
+    }
+
+    $headers = array_shift($data);
+    
+    // Find the row for this metric.
+    $metricRow = NULL;
+    foreach ($data as $row) {
+      if (isset($row[1]) && $row[1] === $metricKey) {
+        $metricRow = $row;
+        break;
+      }
+    }
+
+    if (!$metricRow) {
+      return [];
+    }
+
+    // Extract values from columns that look like periods (e.g. "2025 Q1").
+    $trend = [];
+    foreach ($headers as $idx => $header) {
+      if (preg_match('/\d{4}\sQ[1-4]/', $header)) {
+        $val = $this->parseCurrencyValue($metricRow[$idx] ?? '0');
+        // Store keyed by header so we can sort chronologically.
+        $trend[$header] = $val;
+      }
+    }
+
+    // Sort by year then quarter (e.g. "2023 Q1", "2023 Q2", etc.)
+    ksort($trend);
+    
+    $values = array_values($trend);
+    return array_slice($values, -$limit);
+  }
+
+  /**
+   * Normalizes values like "$32,000" or "(9,584)" into floats.
+   */
+  protected function parseCurrencyValue(string $value): float {
+    $clean = str_replace(['$', ',', ' '], '', $value);
+    $isNegative = str_starts_with($clean, '(') && str_ends_with($clean, ')');
+    if ($isNegative) {
+      $clean = trim($clean, '()');
+    }
+    $float = (float) $clean;
+    return $isNegative ? -1 * $float : $float;
   }
 
   /**
@@ -692,9 +860,26 @@ class FinancialDataService {
    *   The annual individual giving amount.
    */
   public function getAnnualIndividualGiving(): float {
-    // @todo: Implement logic to get this value from the finance system. This
-    // will be called by the 'annual' snapshot.
-    return 60000.00;
+    $year = (int) date('Y');
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+
+    // Individual giving = Financial Type "Donation" (1) + Contact Type "Individual".
+    // We exclude Event Fees (4) and Organization donations.
+    $query = $this->database->select('civicrm_contribution', 'c');
+    $query->innerJoin('civicrm_contact', 'ct', 'c.contact_id = ct.id');
+    $query->addExpression('SUM(c.total_amount)', 'total');
+    $query->condition('c.financial_type_id', 1);
+    $query->condition('c.contribution_status_id', 1);
+    $query->condition('ct.contact_type', 'Individual');
+    
+    $start = $year . '-01-01 00:00:00';
+    $end = $year . '-12-31 23:59:59';
+    $query->condition('c.receive_date', [$start, $end], 'BETWEEN');
+
+    $result = $query->execute()->fetchField();
+    return (float) ($result ?: 0.0);
   }
 
   /**
@@ -704,9 +889,11 @@ class FinancialDataService {
    *   The annual corporate sponsorships amount.
    */
   public function getAnnualCorporateSponsorships(): float {
-    // @todo: Implement logic to get this value from the finance system. This
-    // will be called by the 'annual' snapshot.
-    return 30000.00;
+    $year = (int) date('Y');
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+    return abs($this->getActualsForMetric('income_corporate_donations', $year));
   }
 
   /**
@@ -716,9 +903,9 @@ class FinancialDataService {
    *   The number of non-government grants secured.
    */
   public function getNonGovernmentGrantsSecured(): int {
-    // @todo: Implement logic to get this value from the finance system. This
-    // will be called by the 'annual' snapshot.
-    return 3;
+    // Note: The sheet currently tracks dollar amount, not count.
+    // Returning 0 for now as we don't have a count in the sheet.
+    return 0;
   }
 
   /**
@@ -728,9 +915,8 @@ class FinancialDataService {
    *   The donor retention rate.
    */
   public function getDonorRetentionRate(): float {
-    // @todo: Implement logic to get this value from the finance system. This
-    // will be called by the 'annual' snapshot.
-    return 0.65;
+    // @todo: Implement logic to get this value from the finance system.
+    return 0.0;
   }
 
   /**
@@ -740,10 +926,180 @@ class FinancialDataService {
    *   The net income from the education program.
    */
   public function getNetIncomeEducationProgram(): float {
-    // @todo: Implement logic to get this value from Xero. The formula is:
-    // "Education ... - Education Expense ...". This will be called by the
-    // 'annual' snapshot.
-    return 15000.00;
+    $year = (int) date('Y');
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+    $income = $this->getActualsForMetric('income_education', $year);
+    $expense = $this->getActualsForMetric('expense_education', $year);
+    return (float) ($income + $expense);
+  }
+
+  /**
+   * Calculates the (Revenue per head) / (Expense per head) index.
+   */
+  public function getRevenuePerMemberIndex(): float {
+    $year = (int) date('Y');
+    if (date('n') <= 3) {
+      $year = 2025;
+    }
+
+    $totalExp = abs($this->getActualsForMetric('expense_total', $year));
+    $totalRev = $this->getAnnualMemberRevenue();
+
+    // Get average active members for the year.
+    $snapshots = $this->snapshotData->getMembershipCountSeries('month');
+    $memberSum = 0;
+    $monthCount = 0;
+    foreach ($snapshots as $s) {
+      if ($s['period_date']->format('Y') == (string) $year) {
+        $memberSum += $s['members_active'];
+        $monthCount++;
+      }
+    }
+    $avgMembers = $monthCount > 0 ? ($memberSum / $monthCount) : 1;
+
+    if ($avgMembers <= 0) {
+      return 0.0;
+    }
+
+    $monthlyExpPerMember = ($totalExp / 12) / $avgMembers;
+    $monthlyRevPerMember = ($totalRev / 12) / $avgMembers;
+
+    if ($monthlyExpPerMember > 0) {
+      return $monthlyRevPerMember / $monthlyExpPerMember;
+    }
+
+    return 0.0;
+  }
+
+  /**
+   * Calculates the total monthly revenue for members with failed payments.
+   */
+  public function getMonthlyRevenueAtRisk(): float {
+    $query = $this->database->select('ms_member_success_snapshot', 's');
+    $query->innerJoin('profile', 'p', 'p.uid = s.uid AND p.type = :type', [':type' => 'main']);
+    $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
+    $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+    $query->condition('s.payment_failed', 1);
+    $query->condition('s.is_latest', 1);
+    $query->condition('s.snapshot_type', 'daily');
+
+    $result = $query->execute()->fetchField();
+    return (float) ($result ?: 0.0);
+  }
+
+  /**
+   * Calculates total recurring revenue from members who joined in a specific year.
+   */
+  public function getAnnualNewRecurringRevenue(int $year): float {
+    // 1. Get all Contacts who joined in this year.
+    $query = $this->database->select('civicrm_uf_match', 'ufm');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id');
+    $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type', [':type' => 'main']);
+    $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
+    
+    $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+    
+    $start = strtotime($year . '-01-01 00:00:00');
+    $end = strtotime($year . '-12-31 23:59:59');
+    
+    $query->condition('u.created', [$start, $end], 'BETWEEN');
+    $query->condition('u.status', 1);
+
+    $result = $query->execute()->fetchField();
+    return (float) ($result ?: 0.0);
+  }
+
+  /**
+   * Gets the quarterly net income trend for program lines.
+   */
+  public function getNetIncomeProgramLinesTrend(): array {
+    $storageInc = $this->getMetricTrend('income_storage');
+    $storageExp = $this->getMetricTrend('expense_storage');
+    $workInc = $this->getMetricTrend('income_workspaces');
+    $workExp = $this->getMetricTrend('expense_workspaces');
+    $mediaInc = $this->getMetricTrend('income_media');
+
+    $trend = [];
+    $count = count($storageInc);
+    for ($i = 0; $i < $count; $i++) {
+      $net = ($storageInc[$i] ?? 0) + ($storageExp[$i] ?? 0)
+           + ($workInc[$i] ?? 0) + ($workExp[$i] ?? 0)
+           + ($mediaInc[$i] ?? 0);
+      $trend[] = $net;
+    }
+    return $trend;
+  }
+
+  /**
+   * Gets the quarterly net income trend for education.
+   */
+  public function getNetIncomeEducationTrend(): array {
+    $income = $this->getMetricTrend('income_education');
+    $expense = $this->getMetricTrend('expense_education');
+
+    $trend = [];
+    $count = count($income);
+    for ($i = 0; $i < $count; $i++) {
+      $trend[] = ($income[$i] ?? 0) + ($expense[$i] ?? 0);
+    }
+    return $trend;
+  }
+
+  /**
+   * Gets the quarterly adherence trend for the shop budget.
+   */
+  public function getShopBudgetAdherenceTrend(): array {
+    $actuals = $this->getMetricTrend('expense_shop_operations');
+    
+    // Budget is annual, we need to divide by 4 for quarterly approximation.
+    // Or just use the raw actuals if we want to show spending trend.
+    // Given the user asked for trend links, showing the quarterly spending 
+    // vs a constant 1/4 budget line is most informative.
+    
+    // For now, let is return the raw quarterly actuals so the sparkline 
+    // shows the spending pattern.
+    return $actuals;
+  }
+
+  /**
+   * Calculates Reserve Funds (as Months of Operating Expense).
+   */
+  public function getReserveFundsMonths(): float {
+    $year = (int) date('Y');
+    if (date('n') <= 3) { $year = 2025; }
+
+    // @todo: Identify exact Cash row in spreadsheet. Using a placeholder for now.
+    $cash = 150000.00; 
+    $annualExp = abs($this->getActualsForMetric('expense_total', $year));
+    
+    if ($annualExp > 0) {
+      $avgMonthlyExp = $annualExp / 12;
+      return $cash / $avgMonthlyExp;
+    }
+    return 0.0;
+  }
+
+  /**
+   * Calculates Earned Income Sustaining Core %.
+   */
+  public function getEarnedIncomeSustainingCoreRate(): float {
+    $year = (int) date('Y');
+    if (date('n') <= 3) { $year = 2025; }
+
+    $totalInc = $this->getActualsForMetric('income_total', $year);
+    $grants = $this->getActualsForMetric('income_grants', $year);
+    $indiv = $this->getActualsForMetric('income_individual_donations', $year);
+    $corp = $this->getActualsForMetric('income_corporate_donations', $year);
+    
+    $earnedInc = $totalInc - ($grants + $indiv + $corp);
+    $totalExp = abs($this->getActualsForMetric('expense_total', $year));
+
+    if ($totalExp > 0) {
+      return $earnedInc / $totalExp;
+    }
+    return 0.0;
   }
 
 }

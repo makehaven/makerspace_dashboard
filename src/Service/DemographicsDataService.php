@@ -796,15 +796,43 @@ class DemographicsDataService {
   /**
    * Gets the annual member referral rate.
    *
+   * @param int|null $year
+   *   The year to calculate for. Defaults to current year.
+   *
    * @return float
    *   The member referral rate.
    */
-  public function getAnnualMemberReferralRate(): float {
-    // @todo: Implement logic to query new member profiles for
-    // `field_member_discovery_value` = 'Referral' and divide by the total
-    // number of new members in that year. This will be called by the 'annual'
-    // snapshot.
-    return 0.35;
+  public function getAnnualMemberReferralRate(?int $year = NULL): float {
+    // We are now measuring "Member Referrers Rate (%)":
+    // Unique referrers in the given year / Total active members.
+    $targetYear = $year ?: (int) date('Y');
+
+    // 1. Get unique referrers for the given year.
+    // This looks at new members created in that year and identifies who referred them.
+    $query = $this->database->select('profile__field_member_referring', 'r');
+    $query->innerJoin('profile', 'p', 'r.entity_id = p.profile_id');
+    $query->innerJoin('users_field_data', 'u', 'p.uid = u.uid');
+    $query->addExpression('COUNT(DISTINCT LOWER(TRIM(r.field_member_referring_value)))', 'referrer_count');
+    $query->condition('p.type', 'main');
+    $query->condition('u.created', strtotime($targetYear . '-01-01'), '>=');
+    $query->condition('u.created', strtotime($targetYear . '-12-31 23:59:59'), '<=');
+    $referrerCount = (int) $query->execute()->fetchField();
+
+    // 2. Get total active members.
+    // Note: For historical years, this simple count of CURRENTLY active members 
+    // is an approximation. Ideally we would use snapshots, but this matches 
+    // the user intent for the dashboard fallback.
+    $query = $this->database->select('user__roles', 'ur');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = ur.entity_id');
+    $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $query->condition('u.status', 1);
+    $activeCount = (int) $query->countQuery()->execute()->fetchField();
+
+    if ($activeCount > 0) {
+      return $referrerCount / $activeCount;
+    }
+
+    return 0.0;
   }
 
   /**

@@ -130,7 +130,7 @@ class DashboardForm extends FormBase {
     ];
 
     $tabs['#links']['overview'] = [
-      'title' => $this->t('Overview'),
+      'title' => $this->t('KPI'),
       'url' => Url::fromRoute('makerspace_dashboard.dashboard'),
       'attributes' => [
         'class' => ['nav-link'],

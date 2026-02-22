@@ -3,9 +3,46 @@
 }
 
 .makerspace-dashboard-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.25rem;
   margin-bottom: 1.5rem;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid #d0d7de;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.makerspace-dashboard-tabs .nav-link {
+  color: #374151;
+  font-size: 0.9rem;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 0.45rem 0.65rem;
+}
+
+.makerspace-dashboard-tabs .nav-link:hover,
+.makerspace-dashboard-tabs .nav-link:focus {
+  color: #1f2937;
+  background-color: #e5e7eb;
+}
+
+.makerspace-dashboard-tabs .nav-link:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+
+.makerspace-dashboard-tabs .nav-link.active {
+  color: #ffffff;
+  background-color: #0d6efd;
+}
+
+@media (max-width: 768px) {
+  .makerspace-dashboard-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
 }
 
 .makerspace-dashboard-section {
@@ -228,6 +265,173 @@
   color: #b91c1c;
 }
 
+.kpi-table,
+.kpi-annual-table,
+.kpi-stoplight-table--sectioned {
+  width: 100% !important;
+  table-layout: fixed !important;
+}
+
+.kpi-table th:nth-child(1), .kpi-table td:nth-child(1),
+.kpi-stoplight-table--sectioned th:nth-child(1), .kpi-stoplight-table--sectioned td:nth-child(1) { 
+  width: 40% !important; 
+}
+
+.kpi-table th:nth-child(2), .kpi-table td:nth-child(2),
+.kpi-stoplight-table--sectioned th:nth-child(2), .kpi-stoplight-table--sectioned td:nth-child(2) { 
+  width: 12% !important; 
+}
+
+.kpi-table th:nth-child(3), .kpi-table td:nth-child(3),
+.kpi-stoplight-table--sectioned th:nth-child(3), .kpi-stoplight-table--sectioned td:nth-child(3) { 
+  width: 12% !important; 
+}
+
+.kpi-table th:nth-child(4), .kpi-table td:nth-child(4),
+.kpi-stoplight-table--sectioned th:nth-child(4), .kpi-stoplight-table--sectioned td:nth-child(4) { 
+  width: 12% !important; 
+}
+
+.kpi-table th:nth-child(5), .kpi-table td:nth-child(5),
+.kpi-stoplight-table--sectioned th:nth-child(5), .kpi-stoplight-table--sectioned td:nth-child(5) { 
+  width: 24% !important; 
+}
+
+.kpi-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+  padding: 0.75rem 1rem;
+  background-color: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.kpi-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+}
+
+.kpi-legend-item .kpi-progress {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.kpi-overview-label-cell {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.25rem 0;
+}
+
+.kpi-overview-label-cell .kpi-title {
+  font-weight: 700;
+  color: #111827;
+  font-size: 0.92rem;
+}
+
+.kpi-overview-label-cell .kpi-description {
+  font-size: 0.78rem;
+  line-height: 1.3;
+  color: #64748b;
+  font-weight: 400;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kpi-overview-label-cell:hover .kpi-description {
+  -webkit-line-clamp: 10;
+  overflow: visible;
+}
+
+/* KPI Value Prominence */
+.kpi-value-big {
+  font-size: 1.8rem !important;
+  font-weight: 800 !important;
+  line-height: 1.1;
+}
+
+.kpi-current-cell,
+.kpi-goal-cell {
+  text-align: center !important;
+  vertical-align: middle !important;
+}
+
+/* Status Contrast Improvements */
+.kpi-progress {
+  padding: 0.25rem 0.75rem;
+  border-radius: 6px;
+  font-weight: 700;
+  display: inline-block;
+}
+
+.kpi-progress--good {
+  background-color: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+.kpi-progress--warning {
+  background-color: #fef3c7 !important;
+  color: #92400e !important;
+}
+
+.kpi-progress--poor {
+  background-color: #b91c1c !important;
+  color: #ffffff !important;
+}
+
+.kpi-progress--na {
+  background-color: #f1f5f9 !important;
+  color: #475569 !important;
+}
+
+.kpi-sparkline-label {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  margin-top: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-weight: 500;
+}
+
+.kpi-sparkline-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.kpi-shared-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.7rem;
+  color: #6366f1;
+  background-color: #eef2ff;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-top: 0.3rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.kpi-shared-tag::before {
+  content: '⇄';
+  margin-right: 0.3rem;
+  font-size: 0.8rem;
+}
+
+/* Ensure annual table first column width matches */
+.kpi-annual-table th:first-child,
+.kpi-annual-table td:first-child {
+  width: 45%;
+}
+
 .kpi-stoplight-table {
   margin-top: 1rem;
 }
@@ -291,6 +495,20 @@
 .kpi-overview-label-cell {
   display: grid;
   gap: 0.25rem;
+  padding: 0.25rem 0;
+}
+
+.kpi-overview-label-cell .kpi-title {
+  font-weight: 700;
+  color: #111827;
+  font-size: 0.95rem;
+}
+
+.kpi-overview-label-cell .kpi-description {
+  font-size: 0.82rem;
+  line-height: 1.35;
+  color: #64748b;
+  font-weight: 400;
 }
 
 .kpi-overview-state {
@@ -315,6 +533,13 @@
 
 .kpi-detail-link {
   white-space: nowrap;
+}
+
+@media (max-width: 900px) {
+  .kpi-table,
+  .kpi-annual-table {
+    table-layout: auto;
+  }
 }
 
 .overview-kpi-table-wrap {
@@ -420,33 +645,6 @@
   min-width: 100% !important;
   max-width: 100% !important;
   table-layout: fixed;
-}
-
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(1),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(1) {
-  width: 38%;
-}
-
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(2),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(2) {
-  width: 14%;
-}
-
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(3),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(3),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(4),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(4) {
-  width: 11%;
-}
-
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(5),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(5) {
-  width: 19%;
-}
-
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned th:nth-child(6),
-.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned td:nth-child(6) {
-  width: 7%;
 }
 
 @media (max-width: 900px) {
