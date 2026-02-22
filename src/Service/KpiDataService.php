@@ -1487,12 +1487,13 @@ class KpiDataService {
 
     // "Current" = new MRR from members who joined in the trailing 12 months.
     $current = $this->financialDataService->getTrailingNewRecurringRevenue();
+    $trend = $this->financialDataService->getNewRecurringRevenueTrend();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
@@ -1500,7 +1501,7 @@ class KpiDataService {
       'kpi_total_new_recurring_revenue',
       'currency',
       'CiviCRM: Sum of starting monthly dues for members who joined in the trailing 12 months.',
-      NULL,
+      '8 Quarters',
       'Trailing 12 months',
       1.0
     );
@@ -2302,19 +2303,21 @@ Process Group PGID: 1032535   *
    */
   private function getKpiEarnedIncomeSustainingCoreData(array $kpi_info): array {
     $current = $this->financialDataService->getEarnedIncomeSustainingCoreRate();
+    $trend = $this->financialDataService->getEarnedIncomeSustainingCoreTrend();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_earned_income_sustaining_core',
       'percent',
-      'Google Sheets: (Total Income - Grants/Donations) / (Total Expense).'
+      'Google Sheets: (Total Income - Grants/Donations) / (Total Expense).',
+      '8 Quarters'
     );
   }
 
@@ -2453,19 +2456,21 @@ Process Group PGID: 1032535   *
   private function getKpiGrantWinRatioData(array $kpi_info): array {
     $summary = $this->developmentDataService->getGrantsSummary();
     $current = (float) ($summary['win_ratio'] ?? 0.0);
+    $trend = $this->developmentDataService->getGrantWinRatioTrend();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_grant_win_ratio',
       'percent',
-      'CiviCRM: (Grants Won) / (Grants Won + Lost + Abandoned).'
+      'CiviCRM: (Grants Won) / (Grants Won + Lost + Abandoned).',
+      '8 Quarters'
     );
   }
 
@@ -2475,19 +2480,21 @@ Process Group PGID: 1032535   *
   private function getKpiDonorRetentionRateData(array $kpi_info): array {
     $stats = $this->developmentDataService->getDonorStats();
     $current = (float) ($stats['retention_rate'] ?? 0.0);
+    $trend = $this->developmentDataService->getDonorRetentionRateTrend();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_donor_retention_rate',
       'percent',
-      'CiviCRM: (Donors in current 12mo who also gave in previous 12mo) / (Previous 12mo donors).'
+      'CiviCRM: (Donors in current 12mo who also gave in previous 12mo) / (Previous 12mo donors).',
+      '6 Quarters'
     );
   }
 
@@ -2496,19 +2503,21 @@ Process Group PGID: 1032535   *
    */
   private function getKpiRecurringDonorsCountData(array $kpi_info): array {
     $current = (float) $this->developmentDataService->getRecurringDonorsCount();
+    $trend = $this->developmentDataService->getRecurringDonorsCountTrend();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_recurring_donors_count',
       'integer',
-      'CiviCRM: Count of active (In Progress) recurring contributions.'
+      'CiviCRM: Count of active (In Progress) recurring contributions.',
+      '8 Quarters'
     );
   }
 
@@ -2518,19 +2527,21 @@ Process Group PGID: 1032535   *
   private function getKpiDonorUpgradesCountData(array $kpi_info): array {
     $stats = $this->developmentDataService->getDonorStats();
     $current = (float) ($stats['upgrades_count'] ?? 0);
+    $trend = $this->developmentDataService->getDonorUpgradesCountTrend();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_donor_upgrades_count',
       'integer',
-      'CiviCRM: Donors who increased total giving in the last 12 months vs previous 12 months.'
+      'CiviCRM: Donors who increased total giving in the last 12 months vs previous 12 months.',
+      '6 Quarters'
     );
   }
 
@@ -2545,6 +2556,7 @@ Process Group PGID: 1032535   *
     // "Current" = trailing 12 months — always a full year of data regardless
     // of calendar position, consistent with the other outreach/education KPIs.
     $current = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipantsTrailing();
+    $trend = $this->eventsMembershipDataService->getEntrepreneurshipEventParticipantsTrend();
     $lastUpdated = date('Y-m-d');
 
     // Populate the annual table with prior complete years.
@@ -2557,7 +2569,7 @@ Process Group PGID: 1032535   *
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
@@ -2565,7 +2577,7 @@ Process Group PGID: 1032535   *
       'kpi_entrepreneurship_event_participation',
       'number',
       'CiviCRM: Unique participants in events with interest "Prototyping & Invention" or "Entrepreneurship, Startups & Business".',
-      NULL,
+      '8 Quarters',
       'Trailing 12 months',
       1.0
     );

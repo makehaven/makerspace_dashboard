@@ -488,6 +488,215 @@ class DevelopmentDataService {
   }
 
   /**
+   * Returns quarterly grant win ratios as a trend array (oldest-first).
+   *
+   * Each point = won / (won + lost + abandoned) for grants whose due date
+   * (date_due_21) falls within that quarter.
+   */
+  public function getGrantWinRatioTrend(int $quarters = 8): array {
+    $cid = $this->cacheId('grant_win_ratio_trend:' . $quarters);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $qEnd   = $this->completedQuarterEnd($now, $i);
+      $qStart = $this->quarterStartForEnd($qEnd);
+      // civicrm_value_funding_7.date_due_21 is stored as 'YYYYMMDDHHmmss'.
+      $qStartStr = $qStart->format('Ymd') . '000000';
+      $qEndStr   = $qEnd->format('Ymd') . '235959';
+
+      $query = $this->database->select('civicrm_value_funding_7', 'f');
+      $query->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
+      $query->fields('f', ['grant_status_14']);
+      $query->condition('f.grant_status_14', ['won', 'lost', 'abandoned'], 'IN');
+      $query->condition('f.date_due_21', [$qStartStr, $qEndStr], 'BETWEEN');
+      $query->condition('ct.is_deleted', 0);
+
+      $counts = ['won' => 0, 'lost' => 0, 'abandoned' => 0];
+      foreach ($query->execute() as $row) {
+        if (isset($counts[$row->grant_status_14])) {
+          $counts[$row->grant_status_14]++;
+        }
+      }
+
+      $total = array_sum($counts);
+      $trend[] = $total > 0 ? round($counts['won'] / $total, 4) : 0.0;
+    }
+
+    $this->cache->set($cid, $trend, $this->time->getRequestTime() + $this->ttl);
+    return $trend;
+  }
+
+  /**
+   * Returns quarterly recurring donor counts as a trend array (oldest-first).
+   *
+   * Each point = distinct contacts who received at least one recurring
+   * contribution in that calendar quarter.
+   */
+  public function getRecurringDonorsCountTrend(int $quarters = 8): array {
+    $cid = $this->cacheId('recurring_donors_trend:' . $quarters);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $qEnd   = $this->completedQuarterEnd($now, $i);
+      $qStart = $this->quarterStartForEnd($qEnd);
+
+      $query = $this->database->select('civicrm_contribution', 'c');
+      $query->condition('c.contribution_recur_id', NULL, 'IS NOT NULL');
+      $query->condition('c.contribution_recur_id', 0, '>');
+      $query->condition('c.contribution_status_id', 1);
+      $query->condition('c.is_test', 0);
+      $query->condition('c.receive_date', [
+        $qStart->format('Y-m-d H:i:s'),
+        $qEnd->format('Y-m-d H:i:s'),
+      ], 'BETWEEN');
+      $query->addExpression('COUNT(DISTINCT c.contact_id)', 'donors');
+
+      $trend[] = (float) ($query->execute()->fetchField() ?: 0);
+    }
+
+    $this->cache->set($cid, $trend, $this->time->getRequestTime() + $this->ttl);
+    return $trend;
+  }
+
+  /**
+   * Returns quarterly donor retention rates as a trend array (oldest-first).
+   *
+   * For each quarter Q, retention = donors who gave in Q AND also gave in the
+   * same quarter one year prior, divided by the prior-year quarter's donor count.
+   */
+  public function getDonorRetentionRateTrend(int $quarters = 6): array {
+    $cid = $this->cacheId('donor_retention_trend:' . $quarters);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $qEnd   = $this->completedQuarterEnd($now, $i);
+      $qStart = $this->quarterStartForEnd($qEnd);
+
+      $prevQEnd   = $qEnd->modify('-1 year');
+      $prevQStart = $qStart->modify('-1 year');
+
+      $prevDonors = $this->getDonorSummariesInRange(
+        $prevQStart->format('Y-m-d H:i:s'),
+        $prevQEnd->format('Y-m-d H:i:s')
+      );
+      $currDonors = $this->getDonorSummariesInRange(
+        $qStart->format('Y-m-d H:i:s'),
+        $qEnd->format('Y-m-d H:i:s')
+      );
+
+      $prevCount = count($prevDonors);
+      if ($prevCount === 0) {
+        $trend[] = 0.0;
+        continue;
+      }
+
+      $retained = count(array_intersect_key($currDonors, $prevDonors));
+      $trend[] = round($retained / $prevCount, 4);
+    }
+
+    $this->cache->set($cid, $trend, $this->time->getRequestTime() + $this->ttl);
+    return $trend;
+  }
+
+  /**
+   * Returns quarterly donor upgrade counts as a trend array (oldest-first).
+   *
+   * A donor "upgrades" if their giving in quarter Q exceeds their giving in
+   * the same quarter one year prior.
+   */
+  public function getDonorUpgradesCountTrend(int $quarters = 6): array {
+    $cid = $this->cacheId('donor_upgrades_trend:' . $quarters);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $qEnd   = $this->completedQuarterEnd($now, $i);
+      $qStart = $this->quarterStartForEnd($qEnd);
+
+      $prevQEnd   = $qEnd->modify('-1 year');
+      $prevQStart = $qStart->modify('-1 year');
+
+      $prevDonors = $this->getDonorSummariesInRange(
+        $prevQStart->format('Y-m-d H:i:s'),
+        $prevQEnd->format('Y-m-d H:i:s')
+      );
+      $currDonors = $this->getDonorSummariesInRange(
+        $qStart->format('Y-m-d H:i:s'),
+        $qEnd->format('Y-m-d H:i:s')
+      );
+
+      $upgraded = 0;
+      foreach ($prevDonors as $id => $prevAmount) {
+        if (isset($currDonors[$id]) && (float) $currDonors[$id] > (float) $prevAmount) {
+          $upgraded++;
+        }
+      }
+      $trend[] = (float) $upgraded;
+    }
+
+    $this->cache->set($cid, $trend, $this->time->getRequestTime() + $this->ttl);
+    return $trend;
+  }
+
+  /**
+   * Returns the end of the Nth most recently completed quarter.
+   *
+   * quartersAgo=0 → most recently completed quarter.
+   * quartersAgo=1 → one quarter before that, etc.
+   */
+  protected function completedQuarterEnd(\DateTimeImmutable $now, int $quartersAgo): \DateTimeImmutable {
+    $month = (int) $now->format('n');
+    $year  = (int) $now->format('Y');
+
+    // Determine the most recently completed quarter.
+    $prevQ = (int) ceil($month / 3) - 1;
+    if ($prevQ <= 0) {
+      $prevQ = 4;
+      $year--;
+    }
+
+    // Step back by $quartersAgo additional quarters.
+    $targetQ = $prevQ - $quartersAgo;
+    while ($targetQ <= 0) {
+      $targetQ += 4;
+      $year--;
+    }
+
+    $endMonth = $targetQ * 3;
+    $lastDay  = (int)(new \DateTimeImmutable(sprintf('%d-%02d-01', $year, $endMonth)))->format('t');
+    return new \DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $year, $endMonth, $lastDay));
+  }
+
+  /**
+   * Returns the first day of the quarter that contains the given quarter-end date.
+   */
+  protected function quarterStartForEnd(\DateTimeImmutable $quarterEndDate): \DateTimeImmutable {
+    $endMonth   = (int) $quarterEndDate->format('n');
+    $year       = (int) $quarterEndDate->format('Y');
+    $startMonth = $endMonth - 2;
+    return new \DateTimeImmutable(sprintf('%d-%02d-01 00:00:00', $year, $startMonth));
+  }
+
+  /**
    * Returns the total dollar value currently in the grant pipeline.
    */
   public function getGrantsPipelineValue(): float {

@@ -1762,6 +1762,54 @@ class EventsMembershipDataService {
     return (int) $query->execute()->fetchField();
   }
 
+  /**
+   * Returns quarterly entrepreneurship event participant counts (oldest-first).
+   *
+   * Runs the same query as getEntrepreneurshipEventParticipantsTrailing() but
+   * over discrete quarterly windows to produce a sparkline trend.
+   */
+  public function getEntrepreneurshipEventParticipantsTrend(int $quarters = 8): array {
+    $now   = new \DateTimeImmutable('now');
+    $month = (int) $now->format('n');
+    $year  = (int) $now->format('Y');
+
+    $prevQ = (int) ceil($month / 3) - 1;
+    if ($prevQ <= 0) {
+      $prevQ = 4;
+      $year--;
+    }
+
+    $trend = [];
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $targetQ    = $prevQ - $i;
+      $targetYear = $year;
+      while ($targetQ <= 0) {
+        $targetQ += 4;
+        $targetYear--;
+      }
+
+      $startMonth = ($targetQ - 1) * 3 + 1;
+      $endMonth   = $targetQ * 3;
+      $lastDay    = (int)(new \DateTimeImmutable(sprintf('%d-%02d-01', $targetYear, $endMonth)))->format('t');
+      $start = sprintf('%d-%02d-01 00:00:00', $targetYear, $startMonth);
+      $end   = sprintf('%d-%02d-%02d 23:59:59', $targetYear, $endMonth, $lastDay);
+
+      $query = $this->database->select('civicrm_participant', 'p');
+      $query->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+      $query->innerJoin('civicrm_event__field_civi_event_area_interest', 'ai', 'ai.entity_id = e.id');
+      $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+      $query->addExpression('COUNT(DISTINCT p.contact_id)', 'unique_participants');
+      $query->condition('ai.field_civi_event_area_interest_target_id', [3249, 3335], 'IN');
+      $query->condition('e.start_date', [$start, $end], 'BETWEEN');
+      $query->condition('pst.is_counted', 1);
+      $query->condition('p.contact_id', 0, '>');
+
+      $trend[] = (float) $query->execute()->fetchField();
+    }
+
+    return $trend;
+  }
+
   public function getEntrepreneurshipEventParticipants(int $year): int {
     $start = $year . '-01-01 00:00:00';
     $end = $year . '-12-31 23:59:59';

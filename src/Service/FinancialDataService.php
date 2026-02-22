@@ -1222,6 +1222,81 @@ class FinancialDataService {
   }
 
   /**
+   * Returns quarterly earned income sustaining core rate as a trend (oldest-first).
+   *
+   * Each point = (Total Income - Grants - Individual Donations - Corporate Donations)
+   * / Total Expense for a single quarter from the Income-Statement sheet.
+   */
+  public function getEarnedIncomeSustainingCoreTrend(int $limit = 8): array {
+    $totalInc = $this->getMetricTrend('income_total', $limit);
+    $grants   = $this->getMetricTrend('income_grants', $limit);
+    $indiv    = $this->getMetricTrend('income_individual_donations', $limit);
+    $corp     = $this->getMetricTrend('income_corporate_donations', $limit);
+    $expense  = $this->getMetricTrend('expense_total', $limit);
+
+    $trend = [];
+    $count = max(count($totalInc), count($expense));
+    for ($i = 0; $i < $count; $i++) {
+      $inc    = $totalInc[$i] ?? 0.0;
+      $g      = $grants[$i] ?? 0.0;
+      $d      = $indiv[$i] ?? 0.0;
+      $c      = $corp[$i] ?? 0.0;
+      $exp    = abs($expense[$i] ?? 0.0);
+      $earned = $inc - ($g + $d + $c);
+      $trend[] = $exp > 0 ? round($earned / $exp, 4) : 0.0;
+    }
+    return $trend;
+  }
+
+  /**
+   * Returns quarterly new recurring revenue as a trend (oldest-first).
+   *
+   * Each point = sum of monthly dues for members whose Drupal account was
+   * created in that quarter. Mirrors getTrailingNewRecurringRevenue() but
+   * sliced by discrete quarters instead of a rolling window.
+   */
+  public function getNewRecurringRevenueTrend(int $quarters = 8): array {
+    $now   = new \DateTimeImmutable('now');
+    $month = (int) $now->format('n');
+    $year  = (int) $now->format('Y');
+
+    // Start from the most recently completed quarter.
+    $prevQ = (int) ceil($month / 3) - 1;
+    if ($prevQ <= 0) {
+      $prevQ = 4;
+      $year--;
+    }
+
+    $trend = [];
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $targetQ    = $prevQ - $i;
+      $targetYear = $year;
+      while ($targetQ <= 0) {
+        $targetQ += 4;
+        $targetYear--;
+      }
+
+      $startMonth = ($targetQ - 1) * 3 + 1;
+      $endMonth   = $targetQ * 3;
+      $lastDay    = (int)(new \DateTimeImmutable(sprintf('%d-%02d-01', $targetYear, $endMonth)))->format('t');
+      $start = new \DateTimeImmutable(sprintf('%d-%02d-01 00:00:00', $targetYear, $startMonth));
+      $end   = new \DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $targetYear, $endMonth, $lastDay));
+
+      $query = $this->database->select('civicrm_uf_match', 'ufm');
+      $query->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id');
+      $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type', [':type' => 'main']);
+      $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
+      $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+      $query->condition('u.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
+      $query->condition('u.status', 1);
+
+      $trend[] = (float) ($query->execute()->fetchField() ?: 0.0);
+    }
+
+    return $trend;
+  }
+
+  /**
    * Calculates Earned Income Sustaining Core %.
    */
   public function getEarnedIncomeSustainingCoreRate(): float {
