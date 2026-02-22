@@ -1330,7 +1330,7 @@ class KpiDataService {
       $this->calculateTrailingAverage($trend, 3),
       $lastUpdated,
       $current,
-      'new_member_28_day_activation',
+      'kpi_new_member_first_badge_28_days',
       'percent',
       'Automated: Member success daily snapshots (join cohort reaching ~28 days).'
     );
@@ -1543,7 +1543,7 @@ class KpiDataService {
       NULL,
       $lastUpdated,
       $current,
-      'tours_to_member_conversion',
+      'kpi_tours_to_member_conversion',
       'percent',
       $sourceNote
     );
@@ -1585,7 +1585,7 @@ class KpiDataService {
       NULL,
       $lastUpdated,
       $current,
-      'event_participant_to_member_conversion',
+      'kpi_event_participant_to_member_conversion',
       'percent',
       $sourceNote
     );
@@ -3651,6 +3651,11 @@ Process Group PGID: 1032535   *
       return NULL;
     }
 
+    // Detect a trailing % before stripping non-numeric characters.
+    // Sheet goals for percent KPIs are stored as e.g. "26%" meaning 26%;
+    // KPI values are decimal fractions (0.26), so divide by 100.
+    $isPercent = str_ends_with($trimmed, '%');
+
     $negative = FALSE;
     if (str_starts_with($trimmed, '(') && str_ends_with($trimmed, ')')) {
       $negative = TRUE;
@@ -3663,6 +3668,9 @@ Process Group PGID: 1032535   *
     }
 
     $number = (float) $cleaned;
+    if ($isPercent) {
+      $number = $number / 100;
+    }
     return $negative ? $number * -1 : $number;
   }
 
