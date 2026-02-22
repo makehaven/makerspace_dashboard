@@ -1066,21 +1066,136 @@ class FinancialDataService {
   }
 
   /**
+   * Reads monthly balance sheet values for a named account.
+   *
+   * The Balance-Sheet tab has headers like "Jan 31, 2026", "Dec 31, 2025", etc.
+   * Returns an array sorted oldest-first, each element being:
+   *   ['label' => 'Jan 2026', 'value' => 157007.0, 'month_key' => '2026-01']
+   *
+   * @param string $accountName  Exact string in the Account column, e.g.
+   *   'Cash and Cash Equivalents'.
+   */
+  public function getBalanceSheetAccountByMonth(string $accountName): array {
+    $data = $this->googleSheetClient->getSheetData('Balance-Sheet');
+    if (empty($data)) {
+      return [];
+    }
+
+    $headers = array_shift($data);
+
+    $accountRow = NULL;
+    foreach ($data as $row) {
+      if (isset($row[1]) && trim((string) $row[1]) === $accountName) {
+        $accountRow = $row;
+        break;
+      }
+    }
+
+    if (!$accountRow) {
+      return [];
+    }
+
+    $points = [];
+    foreach ($headers as $idx => $header) {
+      if ($idx < 2 || empty($header)) {
+        continue;
+      }
+      // Parse "Mon DD, YYYY" — handles both "Jan 31, 2026" and "Feb 29, 2024".
+      $cleaned = trim((string) $header);
+      $dt = \DateTimeImmutable::createFromFormat('M j, Y', $cleaned);
+      if (!$dt) {
+        continue;
+      }
+      $val = isset($accountRow[$idx]) ? $this->parseCurrencyValue((string) $accountRow[$idx]) : 0.0;
+      $sortKey = $dt->format('Y-m');
+      $points[$sortKey] = [
+        'label'     => $dt->format('M Y'),
+        'value'     => $val,
+        'month_key' => $sortKey,
+      ];
+    }
+
+    ksort($points);
+    return array_values($points);
+  }
+
+  /**
    * Calculates Reserve Funds (as Months of Operating Expense).
+   *
+   * Cash = most recent "Cash and Cash Equivalents" from Balance Sheet.
+   * Denominator = TTM total expense / 12 (average monthly operating expense).
    */
   public function getReserveFundsMonths(): float {
-    $year = (int) date('Y');
-    if (date('n') <= 3) { $year = 2025; }
+    $cashData = $this->getBalanceSheetAccountByMonth('Cash and Cash Equivalents');
+    if (empty($cashData)) {
+      return 0.0;
+    }
 
-    // @todo: Identify exact Cash row in spreadsheet. Using a placeholder for now.
-    $cash = 150000.00; 
-    $annualExp = abs($this->getActualsForMetric('expense_total', $year));
-    
+    $cash = (float) end($cashData)['value'];
+    $annualExp = abs($this->getMetricTtmSum('expense_total', 4));
+
     if ($annualExp > 0) {
-      $avgMonthlyExp = $annualExp / 12;
-      return $cash / $avgMonthlyExp;
+      return round($cash / ($annualExp / 12), 2);
     }
     return 0.0;
+  }
+
+  /**
+   * Returns a monthly Reserve Funds trend (months of operating expense).
+   *
+   * Uses real Balance Sheet cash balances paired with a per-quarter monthly
+   * expense derived from the Income Statement, falling back to TTM average.
+   *
+   * @param int $months  Number of most-recent months to return (default 18).
+   *
+   * @return float[]  Oldest-first array of reserve-months values.
+   */
+  public function getReserveFundsMonthsTrend(int $months = 18): array {
+    $cashData = $this->getBalanceSheetAccountByMonth('Cash and Cash Equivalents');
+    if (empty($cashData)) {
+      return [];
+    }
+
+    // Build a map of YYYY-MM => monthly_expense from the quarterly expense row.
+    // Each quarter covers 3 months; monthly expense ≈ quarterly total / 3.
+    $quarterMap = ['Jan-Mar' => [1, 2, 3], 'Apr-Jun' => [4, 5, 6], 'Jul-Sep' => [7, 8, 9], 'Oct-Dec' => [10, 11, 12]];
+    $expData    = $this->googleSheetClient->getSheetData('Income-Statement');
+    $monthlyExpMap = [];
+
+    if (!empty($expData)) {
+      $expHeaders = array_shift($expData);
+      $expRow = NULL;
+      foreach ($expData as $row) {
+        if (isset($row[1]) && $row[1] === 'expense_total') {
+          $expRow = $row;
+          break;
+        }
+      }
+
+      if ($expRow) {
+        foreach ($expHeaders as $idx => $header) {
+          if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sep|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+            $qExp = abs($this->parseCurrencyValue($expRow[$idx] ?? '0')) / 3;
+            foreach ($quarterMap[$m[1]] as $mo) {
+              $monthlyExpMap[sprintf('%s-%02d', $m[2], $mo)] = $qExp;
+            }
+          }
+        }
+      }
+    }
+
+    // TTM fallback denominator in case a month has no matched quarter.
+    $ttmExp = abs($this->getMetricTtmSum('expense_total', 4));
+    $fallbackMonthly = $ttmExp > 0 ? $ttmExp / 12 : 0.0;
+
+    $trend = [];
+    foreach (array_slice($cashData, -$months) as $point) {
+      $cash      = (float) $point['value'];
+      $monthlyExp = $monthlyExpMap[$point['month_key']] ?? $fallbackMonthly;
+      $trend[]   = $monthlyExp > 0 ? round($cash / $monthlyExp, 2) : 0.0;
+    }
+
+    return $trend;
   }
 
   /**

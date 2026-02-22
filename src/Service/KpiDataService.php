@@ -2282,19 +2282,21 @@ Process Group PGID: 1032535   *
    */
   private function getKpiReserveFundsMonthsData(array $kpi_info): array {
     $current = $this->financialDataService->getReserveFundsMonths();
+    $trend = $this->financialDataService->getReserveFundsMonthsTrend(18);
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_reserve_funds_months',
       'number',
-      'Google Sheets: Cash / Average Monthly Expense.'
+      'Google Sheets: Cash and Cash Equivalents / Average Monthly Operating Expense.',
+      '18 Months'
     );
   }
 
