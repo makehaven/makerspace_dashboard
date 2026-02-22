@@ -358,7 +358,6 @@ class KpiDataService {
         'kpi_reserve_funds_months',
         'kpi_earned_income_sustaining_core',
         'kpi_member_revenue_quarterly',
-        'kpi_net_income_program_lines',
         'kpi_member_lifetime_value_projected',
         'kpi_revenue_per_member_index',
         'kpi_monthly_revenue_at_risk',
@@ -366,7 +365,6 @@ class KpiDataService {
       ],
       'infrastructure' => [
         'kpi_equipment_uptime_rate',
-        'kpi_member_satisfaction_equipment',
         'kpi_adherence_to_shop_budget',
       ],
       'education' => [
@@ -2426,8 +2424,10 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Net Income (Education Program)" KPI.
    */
   private function getKpiNetIncomeEducationData(array $kpi_info): array {
-    // Use trailing 12 months so the figure never depends on calendar year.
-    $current = $this->financialDataService->getNetIncomeEducationTtm();
+    // Use full-year actuals: sums all quarters labelled with the target year
+    // (2025 when in Q1 of the following year). This avoids the TTM approach
+    // picking up Q4 of the prior year instead of the most recent Q4.
+    $current = $this->financialDataService->getNetIncomeEducationProgram();
     $trend = $this->financialDataService->getNetIncomeEducationTrend();
     $lastUpdated = date('Y-m-d');
 
@@ -2441,9 +2441,9 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_net_income_education',
       'currency',
-      'Google Sheets: Trailing 12-month (last 4 quarters) net income from Education program.',
+      'Google Sheets: Full-year net income from Education program.',
       '12 Quarters',
-      'Trailing 12 months',
+      'Full Year 2025',
       1.0
     );
   }
@@ -4325,12 +4325,6 @@ Process Group PGID: 1032535   *
           'goal_2030' => 150000,
           'description' => 'Calculation: "From Xero \'Membership - Individual Recuring\'". Implementation Note: Not on the balance sheet. The annual `SnapshotService` will call `FinancialDataService` to get the sum of the four quarters for the year.',
         ],
-        'kpi_net_income_program_lines' => [
-          'label' => 'Net Income (Program Lines)',
-          'base_2025' => 86563,
-          'goal_2030' => 120000,
-          'description' => 'Calculation: Net income from desk rental (workspaces), storage, and media. Implementation Note: Pulls from "budgets" and "Income-Statement" tabs in the finance spreadsheet.',
-        ],
         'kpi_member_lifetime_value_projected' => [
           'label' => 'Member Lifetime Value (Projected)',
           'base_2025' => 1752,
@@ -4363,12 +4357,6 @@ Process Group PGID: 1032535   *
           'base_2025' => 0.90,
           'goal_2030' => 0.98,
           'description' => 'Calculation: Percentage of primary equipment available for use (1 - Downtime / Total Capacity). Implementation Note: This will be live-wired to the new equipment maintenance/tracking system.',
-        ],
-        'kpi_member_satisfaction_equipment' => [
-          'label' => 'Member Satisfaction (Equipment)',
-          'base_2025' => 4.49,
-          'goal_2030' => 4.75,
-          'description' => 'Calculation: Average score (1-5) from annual survey (removed in 2026). Implementation Note: Slated for future periodic or real-time feedback collection from equipment users.',
         ],
         'kpi_adherence_to_shop_budget' => [
           'label' => 'Adherence to Shop Budget',
