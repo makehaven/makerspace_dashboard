@@ -2323,6 +2323,7 @@ Process Group PGID: 1032535   *
    */
   private function getKpiMemberRevenueQuarterlyData(array $kpi_info): array {
     [$prevYear, $prevQ] = $this->financialDataService->getPreviousQuarterLabel();
+    $colLabel = $this->financialDataService->quarterToColumnLabel($prevYear, $prevQ);
     $current = $this->financialDataService->getPreviousQuarterMemberRevenue();
     $trend = $this->financialDataService->getMetricTrend('income_membership');
     $lastUpdated = date('Y-m-d');
@@ -2337,9 +2338,9 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_member_revenue_quarterly',
       'currency',
-      "Google Sheets: Membership income for $prevYear Q$prevQ (most recently completed quarter).",
+      "Google Sheets: Membership income for $colLabel (most recently completed quarter).",
       '12 Quarters',
-      "Prior quarter ($prevYear Q$prevQ)",
+      "Prior quarter ($colLabel)",
       1.0
     );
   }

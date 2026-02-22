@@ -823,19 +823,21 @@ class FinancialDataService {
       return [];
     }
 
-    // Extract values from columns that look like periods (e.g. "2025 Q1").
+    // Map the "Mon-Mon YYYY" header format used in the sheet to a sortable key.
+    // Headers look like: "Oct-Dec 2025", "Jul-Sep 2025", "Apr-Jun 2025", etc.
+    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Oct-Dec' => 4];
     $trend = [];
     foreach ($headers as $idx => $header) {
-      if (preg_match('/\d{4}\sQ[1-4]/', $header)) {
+      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sep|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+        $q = $quarterOrder[$m[1]];
+        // Sortable key: YYYY0Q so ksort gives oldest-first chronological order.
+        $sortKey = $m[2] . '0' . $q;
         $val = $this->parseCurrencyValue($metricRow[$idx] ?? '0');
-        // Store keyed by header so we can sort chronologically.
-        $trend[$header] = $val;
+        $trend[$sortKey] = $val;
       }
     }
 
-    // Sort by year then quarter (e.g. "2023 Q1", "2023 Q2", etc.)
     ksort($trend);
-    
     $values = array_values($trend);
     return array_slice($values, -$limit);
   }
@@ -1137,13 +1139,13 @@ class FinancialDataService {
   }
 
   /**
-   * Returns the [year, quarter] of the most recently completed quarter.
+   * Returns [year, quarterNumber] for the most recently completed quarter.
    *
-   * @return array{int, int}  [$year, $quarter]
+   * @return array{int, int}  [$year, $quarter]  e.g. [2025, 4]
    */
   public function getPreviousQuarterLabel(): array {
     $month = (int) date('n');
-    $year = (int) date('Y');
+    $year  = (int) date('Y');
     $currentQ = (int) ceil($month / 3);
     if ($currentQ === 1) {
       return [$year - 1, 4];
@@ -1152,11 +1154,25 @@ class FinancialDataService {
   }
 
   /**
+   * Converts a [year, quarter] pair to the "Mon-Mon YYYY" column label used
+   * in the Income-Statement Google Sheet.
+   *
+   * @param int $year
+   * @param int $q  1–4
+   *
+   * @return string  e.g. "Oct-Dec 2025"
+   */
+  public function quarterToColumnLabel(int $year, int $q): string {
+    $map = [1 => 'Jan-Mar', 2 => 'Apr-Jun', 3 => 'Jul-Sep', 4 => 'Oct-Dec'];
+    return ($map[$q] ?? 'Jan-Mar') . ' ' . $year;
+  }
+
+  /**
    * Gets membership income for the most recently completed quarter.
    */
   public function getPreviousQuarterMemberRevenue(): float {
     [$prevYear, $prevQ] = $this->getPreviousQuarterLabel();
-    $targetCol = "{$prevYear} Q{$prevQ}";
+    $targetCol = $this->quarterToColumnLabel($prevYear, $prevQ);
 
     $data = $this->googleSheetClient->getSheetData('Income-Statement');
     if (empty($data)) {
@@ -1166,7 +1182,7 @@ class FinancialDataService {
     $headers = array_shift($data);
     $colIdx = -1;
     foreach ($headers as $idx => $header) {
-      if (trim($header) === $targetCol) {
+      if (trim((string) $header) === $targetCol) {
         $colIdx = $idx;
         break;
       }
