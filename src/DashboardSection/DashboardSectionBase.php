@@ -125,7 +125,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       $this->t('Current'),
       $this->t('Goal @year', ['@year' => $currentGoalYear]),
       $this->t('Goal 2030'),
-      $this->t('Trend (12 month)'),
+      $this->t('Trend'),
     ];
 
     $wiredRows = [];
@@ -472,25 +472,49 @@ SVG;
    */
   protected function buildCurrentValueCell(array $kpi, ?string $format) {
     $formatted = $this->formatKpiValue($kpi['current'] ?? NULL, $format);
+    $periodFraction = isset($kpi['period_fraction']) ? (float) $kpi['period_fraction'] : 1.0;
     $class = $this->determinePerformanceClass(
       $kpi['current'] ?? NULL,
       $kpi['goal_current_year'] ?? NULL,
       $format,
-      (string) ($kpi['goal_direction'] ?? 'higher')
+      (string) ($kpi['goal_direction'] ?? 'higher'),
+      $periodFraction
     );
+
+    $inner = '<span class="kpi-value-big">' . Html::escape($formatted) . '</span>';
+
+    // Show YTD badge when accumulating (year in progress).
+    if ($periodFraction < 1.0 && $periodFraction > 0.0) {
+      $pct = (int) round($periodFraction * 100);
+      $title = Html::escape("Year in progress ($pct% elapsed) — goal comparison scaled proportionally");
+      $inner .= '<span class="kpi-period-badge kpi-period-badge--ytd" title="' . $title . '">↑ YTD</span>';
+    }
+
+    // Show period label (e.g. "Trailing 12 months", "Prior quarter").
+    $label = $kpi['current_period_label'] ?? NULL;
+    if ($label) {
+      $inner .= '<div class="kpi-period-label">' . Html::escape($label) . '</div>';
+    }
+
     if (!$class) {
-      return ['#markup' => '<span class="kpi-value-big">' . Html::escape($formatted) . '</span>'];
+      return ['#markup' => Markup::create('<span class="kpi-value-cell">' . $inner . '</span>')];
     }
 
     return [
-      '#markup' => Markup::create(sprintf('<span class="kpi-progress %s kpi-value-big">%s</span>', $class, Html::escape($formatted))),
+      '#markup' => Markup::create(sprintf('<span class="kpi-value-cell kpi-progress %s">%s</span>', $class, $inner)),
     ];
   }
 
   /**
    * Determines the progress class based on goal vs. current values.
+   *
+   * @param float $periodFraction
+   *   For accumulating (YTD) KPIs, the fraction of the goal period elapsed
+   *   (e.g. 0.25 for Q1). The annual goal is scaled proportionally so that a
+   *   KPI on pace for the full year never shows "poor" early in the year.
+   *   Pass 1.0 (default) for point-in-time or trailing-period KPIs.
    */
-  protected function determinePerformanceClass($current, $goal, ?string $format = NULL, string $goalDirection = 'higher'): ?string {
+  protected function determinePerformanceClass($current, $goal, ?string $format = NULL, string $goalDirection = 'higher', float $periodFraction = 1.0): ?string {
     if ($goal === NULL || $current === NULL) {
       return NULL;
     }
@@ -499,6 +523,12 @@ SVG;
     if ($goalValue === NULL || $currentValue === NULL || $goalValue == 0.0) {
       return NULL;
     }
+
+    // Scale the goal proportionally for accumulating YTD KPIs.
+    if ($periodFraction > 0.0 && $periodFraction < 1.0) {
+      $goalValue = $goalValue * $periodFraction;
+    }
+
     $isPercent = ($format === 'percent') || abs($goalValue) <= 1.5;
     $goalDirection = strtolower(trim($goalDirection));
     $lowerIsBetter = in_array($goalDirection, ['lower', 'down', 'decrease'], TRUE);

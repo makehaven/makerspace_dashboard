@@ -401,6 +401,38 @@
   font-weight: 500;
 }
 
+/* Period label under the current value */
+.kpi-period-label {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  margin-top: 0.15rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 500;
+}
+
+/* YTD accumulating badge */
+.kpi-period-badge--ytd {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #1e40af;
+  background-color: #dbeafe;
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  margin-left: 0.3rem;
+  vertical-align: middle;
+  cursor: help;
+}
+
+/* Wrapper for current value + badge + period label */
+.kpi-value-cell {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
 .kpi-sparkline-wrapper {
   display: flex;
   flex-direction: column;

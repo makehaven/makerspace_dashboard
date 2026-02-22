@@ -1082,6 +1082,75 @@ class FinancialDataService {
   }
 
   /**
+   * Returns the [year, quarter] of the most recently completed quarter.
+   *
+   * @return array{int, int}  [$year, $quarter]
+   */
+  public function getPreviousQuarterLabel(): array {
+    $month = (int) date('n');
+    $year = (int) date('Y');
+    $currentQ = (int) ceil($month / 3);
+    if ($currentQ === 1) {
+      return [$year - 1, 4];
+    }
+    return [$year, $currentQ - 1];
+  }
+
+  /**
+   * Gets membership income for the most recently completed quarter.
+   */
+  public function getPreviousQuarterMemberRevenue(): float {
+    [$prevYear, $prevQ] = $this->getPreviousQuarterLabel();
+    $targetCol = "{$prevYear} Q{$prevQ}";
+
+    $data = $this->googleSheetClient->getSheetData('Income-Statement');
+    if (empty($data)) {
+      return 0.0;
+    }
+
+    $headers = array_shift($data);
+    $colIdx = -1;
+    foreach ($headers as $idx => $header) {
+      if (trim($header) === $targetCol) {
+        $colIdx = $idx;
+        break;
+      }
+    }
+
+    if ($colIdx === -1) {
+      return 0.0;
+    }
+
+    foreach ($data as $row) {
+      if (isset($row[1]) && $row[1] === 'income_membership') {
+        return abs($this->parseCurrencyValue($row[$colIdx] ?? '0'));
+      }
+    }
+
+    return 0.0;
+  }
+
+  /**
+   * Gets the sum of starting monthly dues for members who joined in the
+   * trailing 12 months (rolling window, not calendar-year).
+   */
+  public function getTrailingNewRecurringRevenue(): float {
+    $end = new \DateTimeImmutable('now');
+    $start = $end->modify('-12 months');
+
+    $query = $this->database->select('civicrm_uf_match', 'ufm');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id');
+    $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type', [':type' => 'main']);
+    $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
+    $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+    $query->condition('u.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
+    $query->condition('u.status', 1);
+
+    $result = $query->execute()->fetchField();
+    return (float) ($result ?: 0.0);
+  }
+
+  /**
    * Calculates Earned Income Sustaining Core %.
    */
   public function getEarnedIncomeSustainingCoreRate(): float {

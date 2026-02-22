@@ -434,7 +434,7 @@ class KpiDataService {
    * @return array
    *   A normalized KPI payload.
    */
-  private function buildKpiResult(array $kpi_info, array $annualOverrides = [], array $trend = [], ?float $ttm12 = NULL, ?float $ttm3 = NULL, ?string $lastUpdated = NULL, $current = NULL, ?string $kpiId = NULL, ?string $displayFormat = NULL, ?string $sourceNote = NULL, ?string $trendLabel = NULL): array {
+  private function buildKpiResult(array $kpi_info, array $annualOverrides = [], array $trend = [], ?float $ttm12 = NULL, ?float $ttm3 = NULL, ?string $lastUpdated = NULL, $current = NULL, ?string $kpiId = NULL, ?string $displayFormat = NULL, ?string $sourceNote = NULL, ?string $trendLabel = NULL, ?string $currentPeriodLabel = NULL, ?float $periodFraction = NULL): array {
     if ($kpiId) {
       $snapshotDefaults = $this->buildSnapshotTrendDefaults($kpiId);
       if (!empty($snapshotDefaults['annual'])) {
@@ -496,6 +496,8 @@ class KpiDataService {
       'display_format' => $displayFormat,
       'source_note' => $sourceNote,
       'trend_label' => $trendLabel,
+      'current_period_label' => $currentPeriodLabel,
+      'period_fraction' => $periodFraction,
     ];
   }
 
@@ -803,7 +805,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, NULL, 'Last 12 months');
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0);
   }
 
   /**
@@ -897,7 +899,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_first_time_workshop_participants');
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_first_time_workshop_participants', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0);
   }
 
   /**
@@ -1003,7 +1005,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_new_member_signups', 'integer', 'System: Count of new users with the "member" role created in the period.', 'Last 12 months');
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_new_member_signups', 'integer', 'System: Count of new users with the "member" role created in the period.', 'Last 12 months', 'Trailing 12 months', 1.0);
   }
 
   /**
@@ -1106,7 +1108,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', NULL, 'Last 12 months');
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', NULL, 'Last 12 months', 'Last 90 days', 1.0);
   }
 
   /**
@@ -1465,7 +1467,9 @@ class KpiDataService {
       'kpi_tours',
       'integer',
       'System: Sum of monthly tour event attendees and tour activities.',
-      'Last 12 months'
+      'Last 12 months',
+      'Trailing 12 months',
+      1.0
     );
   }
 
@@ -1474,18 +1478,15 @@ class KpiDataService {
    */
   private function getKpiTotalNewRecurringRevenueData(array $kpi_info): array {
     $annualOverrides = [];
-    $current = 0.0;
-    
-    // Live pull for recent years.
     $currentYear = (int) date('Y');
+
+    // Pull recent calendar years for the annual table.
     for ($y = $currentYear - 2; $y <= $currentYear; $y++) {
-      $val = $this->financialDataService->getAnnualNewRecurringRevenue($y);
-      $annualOverrides[(string) $y] = $val;
-      if ($y === $currentYear) {
-        $current = $val;
-      }
+      $annualOverrides[(string) $y] = $this->financialDataService->getAnnualNewRecurringRevenue($y);
     }
 
+    // "Current" = new MRR from members who joined in the trailing 12 months.
+    $current = $this->financialDataService->getTrailingNewRecurringRevenue();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
@@ -1498,7 +1499,10 @@ class KpiDataService {
       $current,
       'kpi_total_new_recurring_revenue',
       'currency',
-      'CiviCRM: Annual sum of starting monthly dues for members who joined in that year.'
+      'CiviCRM: Sum of starting monthly dues for members who joined in the trailing 12 months.',
+      NULL,
+      'Trailing 12 months',
+      1.0
     );
   }
 
@@ -2206,6 +2210,10 @@ Process Group PGID: 1032535   *
     $trend = $this->financialDataService->getMetricTrend('income_corporate_donations');
     $lastUpdated = date('Y-m-d');
 
+    // Determine whether we are showing a full prior year or the current YTD.
+    $targetYear = ((int) date('n') <= 3) ? (int) date('Y') - 1 : (int) date('Y');
+    $periodInfo = $this->getYtdPeriodInfo($targetYear);
+
     return $this->buildKpiResult(
       $kpi_info,
       [],
@@ -2216,7 +2224,10 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_annual_corporate_sponsorships',
       'currency',
-      'Google Sheets: Annual total of Corporate Donations from the finance spreadsheet.'
+      'Google Sheets: Annual total of Corporate Donations from the finance spreadsheet.',
+      '12 Quarters',
+      $periodInfo['label'],
+      $periodInfo['fraction']
     );
   }
 
@@ -2250,6 +2261,9 @@ Process Group PGID: 1032535   *
     $trend = $this->financialDataService->getNetIncomeProgramLinesTrend();
     $lastUpdated = date('Y-m-d');
 
+    $targetYear = ((int) date('n') <= 3) ? (int) date('Y') - 1 : (int) date('Y');
+    $periodInfo = $this->getYtdPeriodInfo($targetYear);
+
     return $this->buildKpiResult(
       $kpi_info,
       [],
@@ -2261,7 +2275,9 @@ Process Group PGID: 1032535   *
       'kpi_net_income_program_lines',
       'currency',
       'Google Sheets: Net income from desk rental (workspaces), storage, and media.',
-      '12 Quarters'
+      '12 Quarters',
+      $periodInfo['label'],
+      $periodInfo['fraction']
     );
   }
 
@@ -2311,22 +2327,25 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Member Revenue (Quarterly)" KPI.
    */
   private function getKpiMemberRevenueQuarterlyData(array $kpi_info): array {
-    // Note: The ID says quarterly but the user asked for "Annual Member Revenue" context before.
-    // For the stoplight table, we will show the current year-to-date total.
-    $current = $this->financialDataService->getAnnualMemberRevenue();
+    [$prevYear, $prevQ] = $this->financialDataService->getPreviousQuarterLabel();
+    $current = $this->financialDataService->getPreviousQuarterMemberRevenue();
+    $trend = $this->financialDataService->getMetricTrend('income_membership');
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_member_revenue_quarterly',
       'currency',
-      'Google Sheets: Total Membership income for the current year.'
+      "Google Sheets: Membership income for $prevYear Q$prevQ (most recently completed quarter).",
+      '12 Quarters',
+      "Prior quarter ($prevYear Q$prevQ)",
+      1.0
     );
   }
 
@@ -2414,6 +2433,9 @@ Process Group PGID: 1032535   *
     $trend = $this->financialDataService->getNetIncomeEducationTrend();
     $lastUpdated = date('Y-m-d');
 
+    $targetYear = ((int) date('n') <= 3) ? (int) date('Y') - 1 : (int) date('Y');
+    $periodInfo = $this->getYtdPeriodInfo($targetYear);
+
     return $this->buildKpiResult(
       $kpi_info,
       [],
@@ -2424,7 +2446,10 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_net_income_education',
       'currency',
-      'Google Sheets: (Education Income) - (Education Expense) from finance spreadsheet.'
+      'Google Sheets: (Education Income) - (Education Expense) from finance spreadsheet.',
+      '12 Quarters',
+      $periodInfo['label'],
+      $periodInfo['fraction']
     );
   }
 
@@ -2522,17 +2547,21 @@ Process Group PGID: 1032535   *
    */
   private function getKpiEntrepreneurshipEventParticipationData(array $kpi_info): array {
     $currentYear = (int) date('Y');
-    // If early in the year, 2026 might be zero. Check 2025 if in Q1.
-    $targetYear = (date('n') <= 3) ? 2025 : $currentYear;
+    // If early in the year, fall back to the previous year to avoid a near-zero
+    // current value being flagged as "poor" before 2026 data accumulates.
+    $targetYear = ((int) date('n') <= 3) ? $currentYear - 1 : $currentYear;
 
     $current = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants($targetYear);
     $lastUpdated = date('Y-m-d');
 
-    // We can also pull 2025 baseline explicitly if needed for the annual_values array.
     $annualOverrides = [];
-    if ($targetYear === 2025 || $currentYear > 2025) {
-        $annualOverrides['2025'] = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants(2025);
+    // Always populate prior year for the annual table.
+    if ($targetYear !== $currentYear - 1) {
+      $annualOverrides[(string) ($currentYear - 1)] = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants($currentYear - 1);
     }
+    $annualOverrides[(string) $targetYear] = $current;
+
+    $periodInfo = $this->getYtdPeriodInfo($targetYear);
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2544,7 +2573,10 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_entrepreneurship_event_participation',
       'number',
-      'CiviCRM: Unique participants in events with interest "Prototyping & Invention" or "Entrepreneurship, Startups & Business".'
+      'CiviCRM: Unique participants in events with interest "Prototyping & Invention" or "Entrepreneurship, Startups & Business".',
+      NULL,
+      $periodInfo['label'],
+      $periodInfo['fraction']
     );
   }
 
@@ -3244,6 +3276,57 @@ Process Group PGID: 1032535   *
     }
 
     return array_sum($slice);
+  }
+
+  /**
+   * Returns period metadata for a calendar-year YTD KPI.
+   *
+   * When the supplied $targetYear is the current year, the period is
+   * accumulating and the fraction of the year elapsed is returned so the
+   * goal can be scaled proportionally when evaluating performance.
+   *
+   * When $targetYear is a prior year (common in Q1 when services fall back
+   * to the previous year to avoid sparse data), the period is complete and
+   * fraction = 1.0.
+   *
+   * @param int $targetYear
+   *   The year the KPI's current value represents.
+   *
+   * @return array{label: string, fraction: float}
+   *   'label'    – human-readable period description.
+   *   'fraction' – 0 < fraction ≤ 1.0; use 1.0 for completed periods.
+   */
+  private function getYtdPeriodInfo(int $targetYear): array {
+    $currentYear = (int) date('Y');
+    if ($targetYear < $currentYear) {
+      return [
+        'label' => (string) $targetYear . ' (full year)',
+        'fraction' => 1.0,
+      ];
+    }
+
+    // Fraction based on completed months (January = 1/12 etc.).
+    $completedMonths = max(1, (int) date('n') - 1);
+    $fraction = $completedMonths / 12;
+
+    // Quarter label for the period elapsed.
+    if ($completedMonths <= 3) {
+      $periodLabel = 'Q1 YTD';
+    }
+    elseif ($completedMonths <= 6) {
+      $periodLabel = 'Q1–Q2 YTD';
+    }
+    elseif ($completedMonths <= 9) {
+      $periodLabel = 'Q1–Q3 YTD';
+    }
+    else {
+      $periodLabel = 'YTD';
+    }
+
+    return [
+      'label' => $periodLabel,
+      'fraction' => $fraction,
+    ];
   }
 
   /**
