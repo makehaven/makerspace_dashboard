@@ -2206,13 +2206,11 @@ Process Group PGID: 1032535   *
    * Uses non-member donor monthly amounts as an automated sponsorship proxy.
    */
   private function getKpiAnnualCorporateSponsorshipsData(array $kpi_info): array {
-    $current = $this->financialDataService->getAnnualCorporateSponsorships();
+    // Use trailing 12 months (last 4 quarters) so the figure is always a full
+    // year of data regardless of where we are in the calendar year.
+    $current = $this->financialDataService->getMetricTtmSum('income_corporate_donations');
     $trend = $this->financialDataService->getMetricTrend('income_corporate_donations');
     $lastUpdated = date('Y-m-d');
-
-    // Determine whether we are showing a full prior year or the current YTD.
-    $targetYear = ((int) date('n') <= 3) ? (int) date('Y') - 1 : (int) date('Y');
-    $periodInfo = $this->getYtdPeriodInfo($targetYear);
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2224,10 +2222,10 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_annual_corporate_sponsorships',
       'currency',
-      'Google Sheets: Annual total of Corporate Donations from the finance spreadsheet.',
+      'Google Sheets: Trailing 12-month (last 4 quarters) total of Corporate Donations.',
       '12 Quarters',
-      $periodInfo['label'],
-      $periodInfo['fraction']
+      'Trailing 12 months',
+      1.0
     );
   }
 
@@ -2257,12 +2255,9 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Net Income (Program Lines)" KPI.
    */
   private function getKpiNetIncomeProgramLinesData(array $kpi_info): array {
-    $current = $this->financialDataService->getAnnualNetIncomeProgramLines();
+    $current = $this->financialDataService->getNetIncomeProgramLinesTtm();
     $trend = $this->financialDataService->getNetIncomeProgramLinesTrend();
     $lastUpdated = date('Y-m-d');
-
-    $targetYear = ((int) date('n') <= 3) ? (int) date('Y') - 1 : (int) date('Y');
-    $periodInfo = $this->getYtdPeriodInfo($targetYear);
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2274,10 +2269,10 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_net_income_program_lines',
       'currency',
-      'Google Sheets: Net income from desk rental (workspaces), storage, and media.',
+      'Google Sheets: Trailing 12-month (last 4 quarters) net income from workspaces, storage, and media.',
       '12 Quarters',
-      $periodInfo['label'],
-      $periodInfo['fraction']
+      'Trailing 12 months',
+      1.0
     );
   }
 
@@ -2429,12 +2424,10 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Net Income (Education Program)" KPI.
    */
   private function getKpiNetIncomeEducationData(array $kpi_info): array {
-    $current = $this->financialDataService->getNetIncomeEducationProgram();
+    // Use trailing 12 months so the figure never depends on calendar year.
+    $current = $this->financialDataService->getNetIncomeEducationTtm();
     $trend = $this->financialDataService->getNetIncomeEducationTrend();
     $lastUpdated = date('Y-m-d');
-
-    $targetYear = ((int) date('n') <= 3) ? (int) date('Y') - 1 : (int) date('Y');
-    $periodInfo = $this->getYtdPeriodInfo($targetYear);
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2446,10 +2439,10 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_net_income_education',
       'currency',
-      'Google Sheets: (Education Income) - (Education Expense) from finance spreadsheet.',
+      'Google Sheets: Trailing 12-month (last 4 quarters) net income from Education program.',
       '12 Quarters',
-      $periodInfo['label'],
-      $periodInfo['fraction']
+      'Trailing 12 months',
+      1.0
     );
   }
 
@@ -2547,21 +2540,18 @@ Process Group PGID: 1032535   *
    */
   private function getKpiEntrepreneurshipEventParticipationData(array $kpi_info): array {
     $currentYear = (int) date('Y');
-    // If early in the year, fall back to the previous year to avoid a near-zero
-    // current value being flagged as "poor" before 2026 data accumulates.
-    $targetYear = ((int) date('n') <= 3) ? $currentYear - 1 : $currentYear;
 
-    $current = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants($targetYear);
+    // "Current" = trailing 12 months — always a full year of data regardless
+    // of calendar position, consistent with the other outreach/education KPIs.
+    $current = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipantsTrailing();
     $lastUpdated = date('Y-m-d');
 
+    // Populate the annual table with prior complete years.
     $annualOverrides = [];
-    // Always populate prior year for the annual table.
-    if ($targetYear !== $currentYear - 1) {
-      $annualOverrides[(string) ($currentYear - 1)] = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants($currentYear - 1);
+    $annualOverrides[(string) ($currentYear - 1)] = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants($currentYear - 1);
+    if ($currentYear > 2025) {
+      $annualOverrides['2025'] = (float) $this->eventsMembershipDataService->getEntrepreneurshipEventParticipants(2025);
     }
-    $annualOverrides[(string) $targetYear] = $current;
-
-    $periodInfo = $this->getYtdPeriodInfo($targetYear);
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2575,8 +2565,8 @@ Process Group PGID: 1032535   *
       'number',
       'CiviCRM: Unique participants in events with interest "Prototyping & Invention" or "Entrepreneurship, Startups & Business".',
       NULL,
-      $periodInfo['label'],
-      $periodInfo['fraction']
+      'Trailing 12 months',
+      1.0
     );
   }
 

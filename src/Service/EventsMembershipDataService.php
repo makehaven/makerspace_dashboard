@@ -1742,6 +1742,26 @@ class EventsMembershipDataService {
   /**
    * Gets the total unique participants in entrepreneurial events for a year.
    */
+  /**
+   * Gets unique entrepreneurship event participants in the trailing 12 months.
+   */
+  public function getEntrepreneurshipEventParticipantsTrailing(): int {
+    $end = (new \DateTimeImmutable('now'))->format('Y-m-d H:i:s');
+    $start = (new \DateTimeImmutable('-12 months'))->format('Y-m-d H:i:s');
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+    $query->innerJoin('civicrm_event__field_civi_event_area_interest', 'ai', 'ai.entity_id = e.id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->addExpression('COUNT(DISTINCT p.contact_id)', 'unique_participants');
+    $query->condition('ai.field_civi_event_area_interest_target_id', [3249, 3335], 'IN');
+    $query->condition('e.start_date', [$start, $end], 'BETWEEN');
+    $query->condition('pst.is_counted', 1);
+    $query->condition('p.contact_id', 0, '>');
+
+    return (int) $query->execute()->fetchField();
+  }
+
   public function getEntrepreneurshipEventParticipants(int $year): int {
     $start = $year . '-01-01 00:00:00';
     $end = $year . '-12-31 23:59:59';

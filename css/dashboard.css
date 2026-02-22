@@ -425,12 +425,12 @@
   cursor: help;
 }
 
-/* Wrapper for current value + badge + period label */
+/* Wrapper for current value + period label (block so label sits below badge) */
 .kpi-value-cell {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0;
+  gap: 0.15rem;
 }
 
 .kpi-sparkline-wrapper {

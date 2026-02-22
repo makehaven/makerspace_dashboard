@@ -1082,6 +1082,61 @@ class FinancialDataService {
   }
 
   /**
+   * Sums the last N quarters of a metric to produce a trailing total.
+   *
+   * This avoids the "2025 full year" problem: at any point in time you get a
+   * full trailing-twelve-months figure regardless of calendar year boundary.
+   *
+   * @param string $metricKey
+   *   The metric row key in the Income-Statement sheet.
+   * @param int $quarters
+   *   Number of trailing quarters to include (default 4 = TTM).
+   *
+   * @return float
+   *   The sum (absolute value) of the last $quarters data points.
+   */
+  public function getMetricTtmSum(string $metricKey, int $quarters = 4): float {
+    $trend = $this->getMetricTrend($metricKey, $quarters);
+    if (empty($trend)) {
+      return 0.0;
+    }
+    return abs((float) array_sum(array_slice($trend, -$quarters)));
+  }
+
+  /**
+   * Returns trailing-12-month net income for the education program.
+   */
+  public function getNetIncomeEducationTtm(): float {
+    $income = $this->getMetricTrend('income_education', 4);
+    $expense = $this->getMetricTrend('expense_education', 4);
+    $net = 0.0;
+    $count = max(count($income), count($expense));
+    for ($i = 0; $i < $count; $i++) {
+      $net += ($income[$i] ?? 0.0) + ($expense[$i] ?? 0.0);
+    }
+    return (float) $net;
+  }
+
+  /**
+   * Returns trailing-12-month net income for program lines (storage/workspaces/media).
+   */
+  public function getNetIncomeProgramLinesTtm(): float {
+    $storageInc = $this->getMetricTrend('income_storage', 4);
+    $storageExp = $this->getMetricTrend('expense_storage', 4);
+    $workInc    = $this->getMetricTrend('income_workspaces', 4);
+    $workExp    = $this->getMetricTrend('expense_workspaces', 4);
+    $mediaInc   = $this->getMetricTrend('income_media', 4);
+    $net = 0.0;
+    $count = max(count($storageInc), count($workInc), count($mediaInc));
+    for ($i = 0; $i < $count; $i++) {
+      $net += ($storageInc[$i] ?? 0) + ($storageExp[$i] ?? 0)
+            + ($workInc[$i] ?? 0)    + ($workExp[$i] ?? 0)
+            + ($mediaInc[$i] ?? 0);
+    }
+    return (float) $net;
+  }
+
+  /**
    * Returns the [year, quarter] of the most recently completed quarter.
    *
    * @return array{int, int}  [$year, $quarter]

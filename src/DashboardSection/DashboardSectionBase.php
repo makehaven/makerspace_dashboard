@@ -481,27 +481,29 @@ SVG;
       $periodFraction
     );
 
-    $inner = '<span class="kpi-value-big">' . Html::escape($formatted) . '</span>';
+    // The colored badge contains only the number.
+    $valueHtml = Html::escape($formatted);
+    if ($class) {
+      $badge = sprintf('<span class="kpi-progress %s kpi-value-big">%s</span>', $class, $valueHtml);
+    }
+    else {
+      $badge = '<span class="kpi-value-big">' . $valueHtml . '</span>';
+    }
 
-    // Show YTD badge when accumulating (year in progress).
+    // Period label and YTD indicator sit below the badge, outside the color.
+    $below = '';
+    $label = $kpi['current_period_label'] ?? NULL;
+    if ($label) {
+      $below .= '<div class="kpi-period-label">' . Html::escape($label) . '</div>';
+    }
     if ($periodFraction < 1.0 && $periodFraction > 0.0) {
       $pct = (int) round($periodFraction * 100);
       $title = Html::escape("Year in progress ($pct% elapsed) — goal comparison scaled proportionally");
-      $inner .= '<span class="kpi-period-badge kpi-period-badge--ytd" title="' . $title . '">↑ YTD</span>';
-    }
-
-    // Show period label (e.g. "Trailing 12 months", "Prior quarter").
-    $label = $kpi['current_period_label'] ?? NULL;
-    if ($label) {
-      $inner .= '<div class="kpi-period-label">' . Html::escape($label) . '</div>';
-    }
-
-    if (!$class) {
-      return ['#markup' => Markup::create('<span class="kpi-value-cell">' . $inner . '</span>')];
+      $below .= '<span class="kpi-period-badge kpi-period-badge--ytd" title="' . $title . '">↑ YTD</span>';
     }
 
     return [
-      '#markup' => Markup::create(sprintf('<span class="kpi-value-cell kpi-progress %s">%s</span>', $class, $inner)),
+      '#markup' => Markup::create('<div class="kpi-value-cell">' . $badge . $below . '</div>'),
     ];
   }
 
