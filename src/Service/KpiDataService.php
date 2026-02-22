@@ -2235,7 +2235,7 @@ Process Group PGID: 1032535   *
    */
   private function getKpiGrantPipelineCountData(array $kpi_info): array {
     $summary = $this->developmentDataService->getGrantsSummary();
-    $current = (float) ($summary['pipeline_count'] ?? 0);
+    $current = (int) ($summary['pipeline_count'] ?? 0);
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
@@ -2247,7 +2247,7 @@ Process Group PGID: 1032535   *
       $lastUpdated,
       $current,
       'kpi_grant_pipeline_count',
-      'number',
+      'integer',
       'CiviCRM: Total grants with status "Researching", "Inquiry", "Writing", or "Waiting".'
     );
   }
