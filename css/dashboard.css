@@ -897,3 +897,85 @@
   cursor: pointer;
   font-size: 0.85rem;
 }
+
+/* --- Mobile UI Enhancements --- */
+
+@media (max-width: 600px) {
+  .makerspace-dashboard-wrapper {
+    padding: 1rem 0.5rem;
+  }
+
+  /* Improve KPI Table readability on very small screens */
+  .kpi-table th, .kpi-table td,
+  .kpi-stoplight-table--sectioned th, .kpi-stoplight-table--sectioned td {
+    padding: 0.5rem 0.25rem !important;
+    font-size: 0.85rem !important;
+  }
+
+  .kpi-value-big {
+    font-size: 1.3rem !important;
+  }
+
+  .kpi-overview-label-cell .kpi-title {
+    font-size: 0.85rem;
+  }
+
+  .kpi-overview-label-cell .kpi-description {
+    display: none; /* Hide descriptions on mobile list to save space */
+  }
+
+  .kpi-table th:nth-child(1), .kpi-table td:nth-child(1),
+  .kpi-stoplight-table--sectioned th:nth-child(1), .kpi-stoplight-table--sectioned td:nth-child(1) { 
+    width: 50% !important; 
+  }
+
+  /* Hide Sparklines on mobile table to keep focus on numbers */
+  .kpi-table th:nth-child(5), .kpi-table td:nth-child(5),
+  .kpi-stoplight-table--sectioned th:nth-child(5), .kpi-stoplight-table--sectioned td:nth-child(5) { 
+    display: none !important;
+  }
+
+  /* Expand other columns slightly since sparkline is gone */
+  .kpi-table th:nth-child(2), .kpi-table td:nth-child(2),
+  .kpi-table th:nth-child(3), .kpi-table td:nth-child(3),
+  .kpi-table th:nth-child(4), .kpi-table td:nth-child(4) {
+    width: 16% !important;
+  }
+
+  /* Adjust KPI Grid for 2 columns on mobile if space allows, or 1 if very tight */
+  .overview-kpi-grid {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.5rem;
+  }
+
+  .overview-kpi-card {
+    padding: 0.5rem;
+  }
+
+  .overview-kpi-card__title {
+    font-size: 0.8rem;
+  }
+
+  .overview-kpi-card__current {
+    font-size: 1.1rem;
+  }
+
+  /* Pie charts stack on mobile */
+  .pie-chart-pair-container {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Ensure horizontal scrolling for tables when they exceed viewport */
+.overview-kpi-table-wrap {
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tabs scrolling improvements */
+.makerspace-dashboard-tabs {
+  -webkit-overflow-scrolling: touch;
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+  margin-left: -0.5rem;
+  margin-right: -0.5rem;
+}

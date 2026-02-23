@@ -143,9 +143,6 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
             'description' => !empty($kpi['description'])
               ? ['#markup' => '<div class="kpi-description">' . Html::escape($kpi['description']) . '</div>']
               : [],
-            'shared' => !empty($kpi['shared_sections'])
-              ? ['#markup' => '<div class="kpi-shared-tag">' . $this->t('Shared with @sections', ['@sections' => implode(', ', $kpi['shared_sections'])]) . '</div>']
-              : [],
           ],
         ],
         [

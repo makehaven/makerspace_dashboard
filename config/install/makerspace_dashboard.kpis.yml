@@ -46,10 +46,12 @@ finance:
     base_2025: 0
     goal_2030: 0
     goal_direction: lower
+    status: draft
   kpi_payment_resolution_rate:
     label: 'Payment Resolution Rate %'
     base_2025: 0.50
     goal_2030: 0.85
+    status: draft
 
 infrastructure:
   kpi_member_satisfaction_equipment:
@@ -60,11 +62,26 @@ infrastructure:
     label: 'Equipment Uptime Rate %'
     base_2025: 0.90
     goal_2030: 0.98
+  kpi_active_maintenance_load:
+    label: 'Active Maintenance Load'
+    base_2025: 50
+    goal_2030: 20
+    status: draft
+  kpi_storage_occupancy:
+    label: 'Storage Occupancy %'
+    base_2025: 0.85
+    goal_2030: 0.95
+    status: draft
+  kpi_equipment_investment:
+    label: 'Value of Equipment Added ($)'
+    base_2025: 20000
+    goal_2030: 50000
   kpi_adherence_to_shop_budget:
     label: 'Adherence to Shop Budget'
     base_2025: 0.92
     goal_2030: 1.0
     goal_direction: lower
+    status: draft
 
 outreach:
   kpi_total_new_member_signups:
@@ -76,9 +93,9 @@ outreach:
     base_2025: 400
     goal_2030: 600
   kpi_total_new_recurring_revenue:
-    label: 'Total $ of New Recurring Revenue'
-    base_2025: 50000
-    goal_2030: 80000
+    label: 'New Recurring Membership Revenue (Monthly)'
+    base_2025: 25000
+    goal_2030: 35000
   kpi_tours:
     label: 'Total Tours (12 month)'
     base_2025: 400
@@ -122,6 +139,7 @@ retention:
     base_2025: 0.40
     goal_2030: 0.15
     goal_direction: lower
+    status: draft
   kpi_membership_diversity_bipoc:
     label: 'Membership Diversity (% BIPOC)'
     base_2025: 0.15
@@ -200,6 +218,7 @@ development:
     label: '# of Donor Upgrades'
     base_2025: 33
     goal_2030: 100
+    status: draft
 
 dei:
   kpi_retention_poc:

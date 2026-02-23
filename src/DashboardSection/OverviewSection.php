@@ -116,9 +116,6 @@ class OverviewSection extends DashboardSectionBase {
               'description' => !empty($kpi['description']) 
                 ? ['#markup' => '<div class="kpi-description">' . Html::escape($kpi['description']) . '</div>'] 
                 : [],
-              'shared' => !empty($kpi['shared_sections'])
-                ? ['#markup' => '<div class="kpi-shared-tag">' . $this->t('Shared with @sections', ['@sections' => implode(', ', $kpi['shared_sections'])]) . '</div>']
-                : [],
               'state' => $isInDevelopment
                 ? ['#markup' => '<span class="kpi-overview-state kpi-overview-state--dev">' . $this->t('In development') . '</span>']
                 : [],
@@ -182,7 +179,7 @@ class OverviewSection extends DashboardSectionBase {
           <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--good"></span> ' . $this->t('On track') . '</span>
           <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--warning"></span> ' . $this->t('Watch') . '</span>
           <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--poor"></span> ' . $this->t('Off track') . '</span>
-          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--na"></span> ' . $this->t('No goal / In dev') . '</span>
+          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--na"></span> ' . $this->t('No goal / In development') . '</span>
         </div>',
       ],
     ];
@@ -303,25 +300,42 @@ class OverviewSection extends DashboardSectionBase {
         'kpi_member_nps' => 'appointment_feedback_outcomes',
         'kpi_active_participation' => 'badge_tenure_correlation',
         'kpi_membership_diversity_bipoc' => 'annual_retention_ethnicity',
+        'kpi_members_at_risk_share' => 'snapshot_membership_type_share',
+      ],
+      'dei' => [
+        'kpi_retention_poc' => 'annual_retention_ethnicity',
+        'kpi_active_participation_bipoc' => 'workshop_utilization',
+        'kpi_active_participation_female_nb' => 'gender_mix',
       ],
       'education' => [
         'kpi_workshop_attendees' => 'registrations_by_type',
         'kpi_education_nps' => 'event_net_promoter',
         'kpi_workshop_participants_bipoc' => 'participant_ethnicity',
         'kpi_active_instructors_bipoc' => 'active_instructor_demographics',
+        'kpi_net_income_education' => 'registrations_by_type',
       ],
       'finance' => [
         'kpi_member_revenue_quarterly' => 'mrr_trend',
         'kpi_reserve_funds_months' => 'average_monthly_payment',
+        'kpi_net_income_program_lines' => 'mrr_trend',
       ],
       'governance' => [
         'kpi_board_ethnic_diversity' => 'board_ethnicity',
         'kpi_board_gender_diversity' => 'board_gender_identity',
+        'kpi_board_governance' => 'board_ethnicity',
+        'kpi_committee_effectiveness' => 'board_ethnicity',
       ],
       'infrastructure' => [
         'kpi_equipment_uptime_rate' => 'monthly_entries',
         'kpi_active_participation' => 'monthly_entries',
         'kpi_adherence_to_shop_budget' => 'storage_vacancy_trend',
+        'kpi_member_satisfaction_equipment' => 'tool_status',
+      ],
+      'entrepreneurship' => [
+        'kpi_active_incubator_ventures' => 'entrepreneur_goal_trend',
+        'kpi_entrepreneurship_event_participation' => 'entrepreneur_goal_trend',
+        'kpi_entrepreneurship_joins_rate' => 'entrepreneur_goal_trend',
+        'kpi_entrepreneurship_retention' => 'entrepreneur_goal_trend',
       ],
       'overview' => [
         'kpi_total_active_members' => 'active_members',
@@ -396,7 +410,9 @@ class OverviewSection extends DashboardSectionBase {
       'kpi-progress--good' => (string) $this->t('On track'),
       'kpi-progress--warning' => (string) $this->t('Watch'),
       'kpi-progress--poor' => (string) $this->t('Off track'),
-      default => $isMissingCurrent ? (string) $this->t('No data') : (string) $this->t('No goal'),
+      default => $this->isKpiInDevelopment($kpi)
+        ? (string) $this->t('In development')
+        : ($isMissingCurrent ? (string) $this->t('No data') : (string) $this->t('No goal')),
     };
 
     $indicatorClasses = ['kpi-stoplight-indicator'];

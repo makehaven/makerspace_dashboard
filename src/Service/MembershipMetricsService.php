@@ -566,10 +566,59 @@ class MembershipMetricsService {
     $dimension = strtolower($dimension);
     switch ($dimension) {
       case 'ethnicity':
-        return $this->getTopProfileFieldOptions('ethnicity', 'profile__field_member_ethnicity', 'field_member_ethnicity_value', $limit);
+        $cacheId = sprintf('makerspace_dashboard:membership:cohort_filter:ethnicity:%d', $limit);
+        if ($cache = $this->cache->get($cacheId)) {
+          return $cache->data;
+        }
+        $query = $this->database->select('civicrm_value_demographics_15', 'd');
+        $query->innerJoin('civicrm_uf_match', 'u', 'u.contact_id = d.entity_id');
+        $query->addExpression('COUNT(DISTINCT u.uf_id)', 'member_count');
+        $query->addField('d', 'ethnicity_46', 'filter_value');
+        $query->condition('d.ethnicity_46', '', '<>');
+        $query->groupBy('filter_value');
+        $query->orderBy('member_count', 'DESC');
+        $query->range(0, $limit);
+        $options = [];
+        foreach ($query->execute() as $record) {
+          $val = trim((string) $record->filter_value, "\x01");
+          $parts = explode("\x01", $val);
+          $value = $parts[0] ?? '';
+          if ($value === '') continue;
+          $options[] = [
+            'value' => $value,
+            'label' => $value,
+            'count' => (int) $record->member_count,
+          ];
+        }
+        $this->cache->set($cacheId, $options, time() + 3600);
+        return $options;
 
       case 'gender':
-        return $this->getTopProfileFieldOptions('gender', 'profile__field_member_gender', 'field_member_gender_value', $limit);
+        $cacheId = sprintf('makerspace_dashboard:membership:cohort_filter:gender:%d', $limit);
+        if ($cache = $this->cache->get($cacheId)) {
+          return $cache->data;
+        }
+        $query = $this->database->select('civicrm_contact', 'c');
+        $query->innerJoin('civicrm_uf_match', 'u', 'u.contact_id = c.id');
+        $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = c.gender_id');
+        $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id AND og.name = :gn', [':gn' => 'gender']);
+        $query->addExpression('COUNT(DISTINCT u.uf_id)', 'member_count');
+        $query->addField('c', 'gender_id', 'filter_value');
+        $query->addField('ov', 'label', 'filter_label');
+        $query->groupBy('c.gender_id');
+        $query->groupBy('ov.label');
+        $query->orderBy('member_count', 'DESC');
+        $query->range(0, $limit);
+        $options = [];
+        foreach ($query->execute() as $record) {
+          $options[] = [
+            'value' => (int) $record->filter_value,
+            'label' => (string) $record->filter_label,
+            'count' => (int) $record->member_count,
+          ];
+        }
+        $this->cache->set($cacheId, $options, time() + 3600);
+        return $options;
 
       case 'membership_type':
         return $this->getTopMembershipTypeOptions($limit);
@@ -1075,18 +1124,41 @@ class MembershipMetricsService {
 
     switch ($type) {
       case 'ethnicity':
-        $query->innerJoin('profile__field_member_ethnicity', 'cohort_ethnicity', 'cohort_ethnicity.entity_id = p.profile_id AND cohort_ethnicity.deleted = 0');
-        $query->condition('cohort_ethnicity.field_member_ethnicity_value', $value);
+        $query->innerJoin('civicrm_uf_match', 'ufm_eth', 'ufm_eth.uf_id = p.uid');
+        $query->innerJoin('civicrm_value_demographics_15', 'cohort_ethnicity', 'cohort_ethnicity.entity_id = ufm_eth.contact_id');
+        $query->condition('cohort_ethnicity.ethnicity_46', '%' . $this->database->escapeLike((string) $value) . '%', 'LIKE');
         break;
 
       case 'gender':
-        $query->innerJoin('profile__field_member_gender', 'cohort_gender', 'cohort_gender.entity_id = p.profile_id AND cohort_gender.deleted = 0');
-        $query->condition('cohort_gender.field_member_gender_value', $value);
+        $query->innerJoin('civicrm_uf_match', 'ufm_gen', 'ufm_gen.uf_id = p.uid');
+        $query->innerJoin('civicrm_contact', 'cohort_gender', 'cohort_gender.id = ufm_gen.contact_id');
+        $query->condition('cohort_gender.gender_id', (int) $value);
         break;
 
       case 'membership_type':
         $query->innerJoin('profile__field_membership_type', 'cohort_membership_type', 'cohort_membership_type.entity_id = p.profile_id AND cohort_membership_type.deleted = 0');
         $query->condition('cohort_membership_type.field_membership_type_target_id', (int) $value);
+        break;
+
+      case 'entrepreneur':
+        $goalKeys = ['entrepreneur', 'seller', 'inventor'];
+        $expKeys = ['serial_entrepreneur', 'patent'];
+        
+        $or = $query->orConditionGroup();
+        
+        $goalSub = $this->database->select('profile__field_member_goal', 'g');
+        $goalSub->fields('g', ['entity_id']);
+        $goalSub->condition('g.field_member_goal_value', $goalKeys, 'IN');
+        $goalSub->condition('g.deleted', 0);
+        $or->condition('p.profile_id', $goalSub, 'IN');
+
+        $expSub = $this->database->select('profile__field_member_entrepreneurship', 'e');
+        $expSub->fields('e', ['entity_id']);
+        $expSub->condition('e.field_member_entrepreneurship_value', $expKeys, 'IN');
+        $expSub->condition('e.deleted', 0);
+        $or->condition('p.profile_id', $expSub, 'IN');
+
+        $query->condition($or);
         break;
     }
   }

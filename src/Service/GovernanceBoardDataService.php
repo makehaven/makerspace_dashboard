@@ -277,4 +277,68 @@ class GovernanceBoardDataService {
     return $goalLookup[$generalKey] ?? 0;
   }
 
+  /**
+   * Calculates the Board Governance KPI from survey data.
+   */
+  public function getBoardGovernanceKpi(): array {
+    return $this->fetchSurveyKpi(
+      'board_governance_effectiveness_s',
+      ['strategic_focus', 'information_preparation', 'culture_of_challenge', 'board_composition', 'fiduciary_oversight', 'meeting_effectiveness', 'governance_impact']
+    );
+  }
+
+  /**
+   * Calculates the Committee Effectiveness KPI from survey data.
+   */
+  public function getCommitteeEffectivenessKpi(): array {
+    return $this->fetchSurveyKpi(
+      'committee_effectiveness_survey',
+      ['role_clarity', 'alignment', 'time_use', 'communication', 'contribution']
+    );
+  }
+
+  /**
+   * Generic helper to fetch survey KPI data.
+   */
+  protected function fetchSurveyKpi(string $webform_id, array $elements): array {
+    $yearStart = (new DateTimeImmutable('first day of January this year'))->getTimestamp();
+    
+    $query = $this->database->select('webform_submission_data', 'd');
+    $query->innerJoin('webform_submission', 's', 's.sid = d.sid');
+    $query->fields('d', ['value']);
+    $query->condition('s.webform_id', $webform_id);
+    $query->condition('d.name', $elements, 'IN');
+    $query->condition('s.created', $yearStart, '>=');
+    $query->condition('s.in_draft', 0);
+
+    $results = $query->execute()->fetchAll();
+    
+    $total = count($results);
+    $high = 0;
+    $lastUpdated = NULL;
+
+    foreach ($results as $row) {
+      $val = (int) $row->value;
+      if ($val >= 4) {
+        $high++;
+      }
+    }
+
+    // Get last updated time.
+    $lastUpdatedQuery = $this->database->select('webform_submission', 's');
+    $lastUpdatedQuery->addExpression('MAX(created)', 'max_created');
+    $lastUpdatedQuery->condition('webform_id', $webform_id);
+    $lastUpdatedQuery->condition('in_draft', 0);
+    $maxCreated = $lastUpdatedQuery->execute()->fetchField();
+    if ($maxCreated) {
+      $lastUpdated = date('Y-m-d', (int) $maxCreated);
+    }
+
+    return [
+      'value' => $total > 0 ? ($high / $total) : NULL,
+      'last_updated' => $lastUpdated,
+      'response_count' => $total,
+    ];
+  }
+
 }

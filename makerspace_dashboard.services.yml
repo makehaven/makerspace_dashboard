@@ -863,6 +863,7 @@ services:
       - '@database'
       - '@cache.default'
       - '@datetime.time'
+      - '@makerspace_dashboard.membership_metrics'
 
   makerspace_dashboard.membership_metrics:
     class: Drupal\makerspace_dashboard\Service\MembershipMetricsService
@@ -954,6 +955,7 @@ services:
     arguments:
       - '@database'
       - '@cache.default'
+      - '@?storage_manager.statistics_service'
 
   makerspace_dashboard.utilization_window:
     class: Drupal\makerspace_dashboard\Service\UtilizationWindowService
@@ -1008,6 +1010,7 @@ services:
       - '@makerspace_dashboard.entrepreneurship_data'
       - '@makerspace_dashboard.funnel_data'
       - '@makerspace_dashboard.member_success_data'
+      - '@makerspace_dashboard.infrastructure_data'
 
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager

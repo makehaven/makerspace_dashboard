@@ -3,6 +3,8 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
+use DateTimeImmutable;
+use DateTimeZone;
 
 /**
  * Service for fetching and calculating Key Performance Indicator (KPI) data.
@@ -132,6 +134,13 @@ class KpiDataService {
   protected ?array $incomeStatementTable = NULL;
 
   /**
+   * Infrastructure data service.
+   *
+   * @var \Drupal\makerspace_dashboard\Service\InfrastructureDataService
+   */
+  protected $infrastructureDataService;
+
+  /**
    * Constructs a new KpiDataService object.
    *
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
@@ -162,8 +171,10 @@ class KpiDataService {
    *   Funnel metrics service.
    * @param \Drupal\makerspace_dashboard\Service\MemberSuccessDataService $member_success_data_service
    *   Member success lifecycle and risk metrics service.
+   * @param \Drupal\makerspace_dashboard\Service\InfrastructureDataService $infrastructure_data_service
+   *   Infrastructure data service.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service) {
+  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service, InfrastructureDataService $infrastructure_data_service) {
     $this->configFactory = $config_factory;
     $this->financialDataService = $financial_data_service;
     $this->googleSheetClientService = $google_sheet_client_service;
@@ -178,6 +189,7 @@ class KpiDataService {
     $this->entrepreneurshipDataService = $entrepreneurship_data_service;
     $this->funnelDataService = $funnel_data_service;
     $this->memberSuccessDataService = $member_success_data_service;
+    $this->infrastructureDataService = $infrastructure_data_service;
   }
 
   /**
@@ -209,15 +221,8 @@ class KpiDataService {
         $result = $this->getPlaceholderData($kpi_info, $kpi_id);
       }
 
-      // Add shared section information.
-      $sharedWith = [];
-      foreach ($allPriorities as $otherSection => $ids) {
-        if ($otherSection !== $section_id && in_array($kpi_id, $ids)) {
-          $sharedWith[] = ucwords(str_replace('_', ' ', $otherSection));
-        }
-      }
-      if (!empty($sharedWith)) {
-        $result['shared_sections'] = $sharedWith;
+      if (!empty($result['status']) && $result['status'] === 'draft') {
+        continue;
       }
 
       $kpi_data[$kpi_id] = $result;
@@ -293,6 +298,10 @@ class KpiDataService {
         }
       }
 
+      if (!empty($definition['status']) && $definition['status'] === 'draft') {
+        continue;
+      }
+
       $definitions[$kpi_id] = $definition;
     }
 
@@ -343,17 +352,16 @@ class KpiDataService {
       'retention' => [
         'kpi_total_active_members',
         'kpi_first_year_member_retention',
+        'kpi_retention_poc',
         'kpi_member_nps',
         'kpi_active_participation',
+        'kpi_active_participation_bipoc',
+        'kpi_active_participation_female_nb',
         'kpi_new_member_first_badge_28_days',
         'kpi_members_at_risk_share',
         'kpi_membership_diversity_bipoc',
       ],
-      'dei' => [
-        'kpi_retention_poc',
-        'kpi_active_participation_bipoc',
-        'kpi_active_participation_female_nb',
-      ],
+      'dei' => [],
       'finance' => [
         'kpi_reserve_funds_months',
         'kpi_earned_income_sustaining_core',
@@ -365,6 +373,9 @@ class KpiDataService {
       ],
       'infrastructure' => [
         'kpi_equipment_uptime_rate',
+        'kpi_active_maintenance_load',
+        'kpi_storage_occupancy',
+        'kpi_equipment_investment',
         'kpi_adherence_to_shop_budget',
       ],
       'education' => [
@@ -386,10 +397,23 @@ class KpiDataService {
         'kpi_incubator_workspace_occupancy',
         'kpi_active_incubator_ventures',
         'kpi_entrepreneurship_event_participation',
+        'kpi_entrepreneurship_joins_rate',
+        'kpi_entrepreneurship_retention',
       ],
       'governance' => [
         'kpi_board_ethnic_diversity',
         'kpi_board_gender_diversity',
+        'kpi_board_governance',
+        'kpi_committee_effectiveness',
+      ],
+      'overview' => [
+        'kpi_total_active_members',
+        'kpi_workshop_attendees',
+        'reserve_funds_months',
+        'kpi_board_governance',
+        'kpi_committee_effectiveness',
+        'kpi_entrepreneurship_joins_rate',
+        'kpi_entrepreneurship_retention',
       ],
     ];
   }
@@ -905,93 +929,40 @@ class KpiDataService {
     $ttm12 = NULL;
     $ttm3 = NULL;
     $current = NULL;
-    $lastUpdated = NULL;
+    $lastUpdated = date('Y-m-d');
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_total_new_member_signups');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
-
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
-        }
-      }
-
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
-      }
-
-      if ($lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
-      }
-    }
-
-    $membershipSeries = $this->snapshotDataService->getMembershipCountSeries('month');
-    if (!empty($membershipSeries)) {
-      $monthlyJoins = [];
+    $recruitmentHistory = $this->membershipMetricsService->getMonthlyRecruitmentHistory();
+    
+    if (!empty($recruitmentHistory)) {
+      // Flatten the year/month nested array into a sequential series.
+      $sequentialJoins = [];
       $annualJoins = [];
-      $latestDate = NULL;
-
-      foreach ($membershipSeries as $row) {
-        $joins = isset($row['joins']) ? (float) $row['joins'] : NULL;
-        if ($joins === NULL) {
-          continue;
-        }
-
-        $monthlyJoins[] = $joins;
-        $snapshotDate = $row['snapshot_date'] ?? NULL;
-        if ($snapshotDate instanceof \DateTimeImmutable) {
-          $year = $snapshotDate->format('Y');
-          $annualJoins[$year] = ($annualJoins[$year] ?? 0.0) + $joins;
-          $latestDate = $snapshotDate->format('Y-m-d');
-        }
+      
+      $endMonth = new DateTimeImmutable('first day of this month');
+      $startMonth = $endMonth->modify('-36 months');
+      $period = new \DatePeriod($startMonth, new \DateInterval('P1M'), $endMonth);
+      
+      foreach ($period as $dt) {
+        $year = (int) $dt->format('Y');
+        $month = (int) $dt->format('n');
+        $count = $recruitmentHistory[$year][$month] ?? 0;
+        
+        $sequentialJoins[] = (float) $count;
+        $annualJoins[$year] = ($annualJoins[$year] ?? 0.0) + $count;
       }
 
-      if ($monthlyJoins) {
-        $trend = array_slice($monthlyJoins, -12);
-        $ttm12 = $this->calculateTrailingAverage($monthlyJoins, 12);
-        $ttm3 = $this->calculateTrailingAverage($monthlyJoins, 3);
-        $currentSum = $this->calculateTrailingSum($monthlyJoins, 12);
+      if ($sequentialJoins) {
+        $trend = array_slice($sequentialJoins, -12);
+        $ttm12 = $this->calculateTrailingAverage($sequentialJoins, 12);
+        $ttm3 = $this->calculateTrailingAverage($sequentialJoins, 3);
+        $currentSum = $this->calculateTrailingSum($sequentialJoins, 12);
         if ($currentSum !== NULL) {
           $current = (int) round($currentSum);
         }
       }
 
-      if ($latestDate !== NULL) {
-        $lastUpdated = $latestDate;
-      }
-
       foreach ($annualJoins as $year => $value) {
-        if (!isset($annualOverrides[$year])) {
-          $annualOverrides[$year] = round($value);
-        }
+        $annualOverrides[(string) $year] = round($value);
       }
     }
 
@@ -999,7 +970,21 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_new_member_signups', 'integer', 'System: Count of new users with the "member" role created in the period.', 'Last 12 months', 'Trailing 12 months', 1.0);
+    return $this->buildKpiResult(
+      $kpi_info, 
+      $annualOverrides, 
+      $trend, 
+      $ttm12, 
+      $ttm3, 
+      $lastUpdated, 
+      $current, 
+      'kpi_total_new_member_signups', 
+      'integer', 
+      'System: Count of new users with the "member" role created in the period.', 
+      'Last 12 months', 
+      'Trailing 12 months', 
+      1.0
+    );
   }
 
   /**
@@ -1109,10 +1094,8 @@ class KpiDataService {
    * Gets the data for the "Active Participation % (BIPOC)" KPI.
    */
   private function getKpiActiveParticipationBipocData(array $kpi_info): array {
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation_bipoc');
-    $trend = !empty($snapshotSeries) ? array_column($snapshotSeries, 'value') : [];
-    
-    $current = $this->getDemographicParticipationRate('bipoc');
+    $trend = $this->getDemographicParticipationTrend('bipoc');
+    $current = end($trend) ?: 0.0;
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
@@ -1126,7 +1109,7 @@ class KpiDataService {
       'kpi_active_participation_bipoc',
       'percent',
       'System: % of BIPOC members who visited the space in the last 90 days.',
-      'Last 12 months'
+      '8 Quarters'
     );
   }
 
@@ -1134,10 +1117,8 @@ class KpiDataService {
    * Gets the data for the "Active Participation % (Female/Non-binary)" KPI.
    */
   private function getKpiActiveParticipationFemaleNbData(array $kpi_info): array {
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation_female_nb');
-    $trend = !empty($snapshotSeries) ? array_column($snapshotSeries, 'value') : [];
-
-    $current = $this->getDemographicParticipationRate('female_nb');
+    $trend = $this->getDemographicParticipationTrend('female_nb');
+    $current = end($trend) ?: 0.0;
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
@@ -1151,16 +1132,56 @@ class KpiDataService {
       'kpi_active_participation_female_nb',
       'percent',
       'System: % of Female/Non-binary members who visited the space in the last 90 days.',
-      'Last 12 months'
+      '8 Quarters'
     );
+  }
+
+  /**
+   * Helper to calculate participation rate trend for a demographic segment.
+   */
+  private function getDemographicParticipationTrend(string $segment, int $quarters = 8): array {
+    $now = new \DateTimeImmutable('now');
+    $month = (int) $now->format('n');
+    $year = (int) date('Y');
+
+    // Start from the most recently completed quarter.
+    $prevQ = (int) ceil($month / 3) - 1;
+    if ($prevQ <= 0) {
+      $prevQ = 4;
+      $year--;
+    }
+
+    $trend = [];
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $targetQ = $prevQ - $i;
+      $targetYear = $year;
+      while ($targetQ <= 0) {
+        $targetQ += 4;
+        $targetYear--;
+      }
+
+      $startMonth = ($targetQ - 1) * 3 + 1;
+      $endMonth = $targetQ * 3;
+      $lastDay = (int) (new \DateTimeImmutable(sprintf('%d-%02d-01', $targetYear, $endMonth)))->format('t');
+      $start = new \DateTimeImmutable(sprintf('%d-%02d-01 00:00:00', $targetYear, $startMonth));
+      $end = new \DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $targetYear, $endMonth, $lastDay));
+
+      $trend[] = $this->getDemographicParticipationRate($segment, $start, $end);
+    }
+
+    return $trend;
   }
 
   /**
    * Helper to calculate participation rate for a demographic segment.
    */
-  private function getDemographicParticipationRate(string $segment): float {
-    $end = (new \DateTimeImmutable('now'))->setTime(23, 59, 59);
-    $start = $end->modify('-89 days')->setTime(0, 0, 0);
+  private function getDemographicParticipationRate(string $segment, ?\DateTimeImmutable $start = NULL, ?\DateTimeImmutable $end = NULL): float {
+    if (!$end) {
+      $end = (new \DateTimeImmutable('now'))->setTime(23, 59, 59);
+    }
+    if (!$start) {
+      $start = $end->modify('-89 days')->setTime(0, 0, 0);
+    }
     
     $db = \Drupal::database();
     
@@ -1191,7 +1212,7 @@ class KpiDataService {
       return 0.0;
     }
 
-    // 2. Identify how many of them visited in the last 90 days.
+    // 2. Identify how many of them visited in the period.
     $uids = array_keys($activeInDemo);
     $visitQuery = $db->select('access_control_log_field_data', 'a');
     $visitQuery->innerJoin('access_control_log__field_access_request_user', 'u', 'u.entity_id = a.id');
@@ -1230,8 +1251,7 @@ class KpiDataService {
    * Gets the data for the "Equipment Uptime Rate %" KPI.
    */
   private function getKpiEquipmentUptimeRateData(array $kpi_info): array {
-    // @todo: Implement live wiring to the new maintenance system.
-    $current = NULL;
+    $current = $this->infrastructureDataService->getEquipmentUptimeRate();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
@@ -1244,7 +1264,49 @@ class KpiDataService {
       $current,
       'kpi_equipment_uptime_rate',
       'percent',
-      'In development: Logic to pull from the new equipment tracking system.'
+      'Live: Calculated from the status taxonomy of active shop tools.'
+    );
+  }
+
+  /**
+   * Gets the data for the "Active Maintenance Load" KPI.
+   */
+  private function getKpiActiveMaintenanceLoadData(array $kpi_info): array {
+    $current = $this->infrastructureDataService->getActiveMaintenanceLoad();
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'kpi_active_maintenance_load',
+      'number',
+      'Live: Count of open maintenance tasks.'
+    );
+  }
+
+  /**
+   * Gets the data for the "Storage Occupancy %" KPI.
+   */
+  private function getKpiStorageOccupancyData(array $kpi_info): array {
+    $current = $this->infrastructureDataService->getStorageOccupancy();
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'kpi_storage_occupancy',
+      'percent',
+      'Live: Occupancy rate from storage_manager service.'
     );
   }
 
@@ -1494,10 +1556,40 @@ class KpiDataService {
       $current,
       'kpi_total_new_recurring_revenue',
       'currency',
-      'CiviCRM: Sum of starting monthly dues for members who joined in the trailing 12 months.',
+      'CiviCRM: Sum of monthly dues for members who joined during the period. Represents the monthly "clip" added to the recurring budget.',
       '8 Quarters',
       'Trailing 12 months',
       1.0
+    );
+  }
+
+  /**
+   * Gets the data for the "Value of Equipment Added" KPI.
+   */
+  private function getKpiEquipmentInvestmentData(array $kpi_info): array {
+    $currentYear = (int) date('Y');
+    $annualOverrides = [];
+    for ($y = $currentYear - 2; $y <= $currentYear; $y++) {
+      $annualOverrides[(string) $y] = $this->infrastructureDataService->getEquipmentInvestment($y);
+    }
+
+    $current = $this->infrastructureDataService->getEquipmentInvestment();
+    $trend = $this->infrastructureDataService->getEquipmentInvestmentTrend();
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      $trend,
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'kpi_equipment_investment',
+      'currency',
+      'Live: Sum of replacement values for new assets and library items.',
+      '4 Years',
+      'Trailing 12 months'
     );
   }
 
@@ -2449,6 +2541,52 @@ Process Group PGID: 1032535   *
   }
 
   /**
+   * Gets the data for the "Entrepreneurship Joins Rate" KPI.
+   */
+  private function getKpiEntrepreneurshipJoinsRateData(array $kpi_info): array {
+    $end = new DateTimeImmutable('now');
+    $start = $end->modify('-12 months');
+    $stats = $this->entrepreneurshipDataService->getJoinRate($start, $end);
+    $trend = $this->entrepreneurshipDataService->getJoinRateTrend();
+    
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      $trend,
+      NULL,
+      NULL,
+      date('Y-m-d'),
+      $stats['value'],
+      'kpi_entrepreneurship_joins_rate',
+      'percent',
+      'Profile: % of new members in trailing 12mo who identified as inventors, entrepreneurs, or sellers during signup.',
+      '8 Quarters'
+    );
+  }
+
+  /**
+   * Gets the data for the "Entrepreneurship Retention" KPI.
+   */
+  private function getKpiEntrepreneurshipRetentionData(array $kpi_info): array {
+    $stats = $this->entrepreneurshipDataService->getRetentionRate();
+    $trend = $this->entrepreneurshipDataService->getRetentionRateTrend();
+    
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      $trend,
+      NULL,
+      NULL,
+      date('Y-m-d'),
+      $stats['value'],
+      'kpi_entrepreneurship_retention',
+      'percent',
+      'Profile: 12-month retention rate for members who joined with entrepreneurial goals or experience.',
+      '4 Years'
+    );
+  }
+
+  /**
    * Gets the data for the "Grant Win Ratio %" KPI.
    */
   private function getKpiGrantWinRatioData(array $kpi_info): array {
@@ -2843,6 +2981,44 @@ Process Group PGID: 1032535   *
       'kpi_shop_utilization',
       'percent',
       'Automated: Door-access participation ratio over rolling windows.'
+    );
+  }
+
+  /**
+   * Gets the data for the "Board Governance" KPI.
+   */
+  private function getKpiBoardGovernanceData(array $kpi_info): array {
+    $stats = $this->governanceBoardDataService->getBoardGovernanceKpi();
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $stats['last_updated'],
+      $stats['value'],
+      'kpi_board_governance',
+      'percent',
+      'Survey: Annual self-assessment of Board effectiveness. Value is % of responses scored 4 or 5.'
+    );
+  }
+
+  /**
+   * Gets the data for the "Committee Effectiveness" KPI.
+   */
+  private function getKpiCommitteeEffectivenessData(array $kpi_info): array {
+    $stats = $this->governanceBoardDataService->getCommitteeEffectivenessKpi();
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $stats['last_updated'],
+      $stats['value'],
+      'kpi_committee_effectiveness',
+      'percent',
+      'Survey: Annual self-assessment of Committee effectiveness. Value is % of responses scored 4 or 5.'
     );
   }
 
@@ -4277,19 +4453,50 @@ Process Group PGID: 1032535   *
           'label' => 'Total # Active Members',
           'base_2025' => 1000,
           'goal_2030' => 1500,
-          'description' => 'Calculation: "The count of all members from all categories (not paused)". Implementation Note: This is `members_active` from `ms_fact_org_snapshot`, which `SnapshotService` already calculates. The annual snapshot will use the value from the December monthly snapshot.',
+          'description' => 'The count of all members currently in active status across all membership categories.',
+          'source_note' => 'System: active members from ms_fact_org_snapshot (December monthly snapshot used for annual totals).',
         ],
         'kpi_workshop_attendees' => [
           'label' => '# of Workshop Attendees',
           'base_2025' => 1200,
           'goal_2030' => 2000,
-          'description' => 'Calculation: "From Civicrm \'Event Registration Report\' Event end date. Is \'Ticketed Workshop\'". Implementation Note: The annual `SnapshotService` will `SUM()` the 12 monthly values provided by `EventsMembershipDataService::getMonthlyRegistrationsByType()`.',
+          'description' => 'The total number of registrations for ticketed workshops held during the period.',
+          'source_note' => 'CiviCRM: Sum of monthly registrations for event type "Ticketed Workshop".',
         ],
         'reserve_funds_months' => [
           'label' => 'Reserve Funds (as Months of Operating Expense)',
           'base_2025' => 3,
           'goal_2030' => 6,
-          'description' => 'Calculation: "(Cash and Cash Equivalents) / (Average Monthly Operating Expense (12 month trailing))". Implementation Note: This is a two-part calculation for the annual snapshot: 1. Cash and Cash Equivalents: Call `GoogleSheetClientService` to read the financial export sheet and use the `Account` row keyed to `Cash and Cash Equivalents` at year-end. 2. Average Monthly Operating Expense: Use the Income-Statement `expense_total` metric (or a financial service equivalent) to derive trailing monthly expense.',
+          'description' => 'Organization cash reserves measured by how many months of average operating expenses they could cover.',
+          'source_note' => 'Finance: (Cash Equivalents from Balance Sheet) / (Trailing 12-month average monthly expense).',
+        ],
+        'kpi_board_governance' => [
+          'label' => 'Board Governance KPI',
+          'base_2025' => 0.80,
+          'goal_2030' => 0.90,
+          'description' => 'Composite score of Board performance across 7 key governance categories.',
+          'source_note' => 'Survey: Annual Board self-assessment (% of responses scoring 4 or 5).',
+        ],
+        'kpi_committee_effectiveness' => [
+          'label' => 'Committee Effectiveness KPI',
+          'base_2025' => 0.80,
+          'goal_2030' => 0.90,
+          'description' => 'Composite score of effectiveness across 5 key categories for all active committees.',
+          'source_note' => 'Survey: Annual Committee member self-assessment (% of responses scoring 4 or 5).',
+        ],
+        'kpi_entrepreneurship_joins_rate' => [
+          'label' => 'Entrepreneurship Joins Focus (%)',
+          'base_2025' => 0.25,
+          'goal_2030' => 0.35,
+          'description' => 'Percentage of new members joining with existing entrepreneurial experience or specific goals to create/sell products.',
+          'source_note' => 'Profile: % of new members selecting inventor, entrepreneur, or seller goals.',
+        ],
+        'kpi_entrepreneurship_retention' => [
+          'label' => 'Entrepreneurship Retention %',
+          'base_2025' => 0.60,
+          'goal_2030' => 0.75,
+          'description' => 'The 12-month survival rate for members who joined with entrepreneurial goals or experience.',
+          'source_note' => 'Profile: 12-month retention tracked for the entrepreneurial member segment.',
         ],
       ],
       'governance' => [
@@ -4297,13 +4504,29 @@ Process Group PGID: 1032535   *
           'label' => 'Board Ethnic Diversity (% BIPOC)',
           'base_2025' => 0.20,
           'goal_2030' => 0.50,
-          'description' => 'Calculation: Percentage of board members identifying as BIPOC. Implementation Note: Pulls live from CiviCRM "Current Board Members" group demographics.',
+          'description' => 'Percentage of the Board of Directors identifying as Black, Indigenous, or People of Color.',
+          'source_note' => 'CiviCRM: Live demographics from the Current Board Members group.',
         ],
         'kpi_board_gender_diversity' => [
           'label' => 'Board Gender Diversity (% Female/Non-binary)',
           'base_2025' => 0.40,
           'goal_2030' => 0.50,
-          'description' => 'Calculation: Percentage of board members identifying as Female or Non-binary. Implementation Note: Pulls live from CiviCRM "Current Board Members" group demographics.',
+          'description' => 'Percentage of the Board of Directors identifying as Female or Non-binary.',
+          'source_note' => 'CiviCRM: Live demographics from the Current Board Members group.',
+        ],
+        'kpi_board_governance' => [
+          'label' => 'Board Governance KPI',
+          'base_2025' => 0.80,
+          'goal_2030' => 0.90,
+          'description' => 'Composite score of Board performance across 7 key governance categories.',
+          'source_note' => 'Survey: Annual Board self-assessment (% of responses scoring 4 or 5).',
+        ],
+        'kpi_committee_effectiveness' => [
+          'label' => 'Committee Effectiveness KPI',
+          'base_2025' => 0.80,
+          'goal_2030' => 0.90,
+          'description' => 'Composite score of effectiveness across 5 key categories for all active committees.',
+          'source_note' => 'Survey: Annual Committee member self-assessment (% of responses scoring 4 or 5).',
         ],
       ],
       'finance' => [
@@ -4311,44 +4534,53 @@ Process Group PGID: 1032535   *
           'label' => 'Reserve Funds (as Months of Operating Expense)',
           'base_2025' => 3,
           'goal_2030' => 6,
-          'description' => 'Calculation: "(Cash and Cash Equivalents) / (Average Monthly Operating Expense (12 month trailing))". Implementation Note: (See Overview section for Account/metric-key based extraction).',
+          'description' => 'Organization cash reserves measured by how many months of average operating expenses they could cover.',
+          'source_note' => 'Finance: (Cash Equivalents from Balance Sheet) / (Trailing 12-month average monthly expense).',
         ],
         'kpi_earned_income_sustaining_core' => [
           'label' => 'Earned Income Sustaining Core %',
           'base_2025' => 0.80,
           'goal_2030' => 1.00,
-          'description' => 'Calculation: "(Income - (grants+donations)) / (expenses- (grant program expense +capital investment))". Implementation Note: This is not on the balance sheet export. The annual `SnapshotService` will call a new method in `FinancialDataService` to calculate this from Xero.',
+          'description' => 'Measure of how much our core recurring revenue (dues, etc.) covers our core operating expenses.',
+          'source_note' => 'Finance: (Earned Income - Grants/Donations) / (Total Expense - Program/Capital Investment).',
         ],
         'kpi_member_revenue_quarterly' => [
           'label' => 'Member Revenue (Quarterly)',
           'base_2025' => 100000,
           'goal_2030' => 150000,
-          'description' => 'Calculation: "From Xero \'Membership - Individual Recuring\'". Implementation Note: Not on the balance sheet. The annual `SnapshotService` will call `FinancialDataService` to get the sum of the four quarters for the year.',
+          'description' => 'Total revenue received from individual recurring membership dues.',
+          'source_note' => 'Xero: Quarterly sum of Membership - Individual Recurring account.',
         ],
         'kpi_member_lifetime_value_projected' => [
           'label' => 'Member Lifetime Value (Projected)',
           'base_2025' => 1752,
           'goal_2030' => 3000,
-          'description' => 'Calculation: (Average Monthly Dues) * (Projected Life Expectancy in Months) for new members (Year 0). Implementation Note: Combines active payment averages with current retention curve (churn by tenure year). We use the "New Member" (Year 0) projection as the lead indicator.',
+          'description' => 'Projected total revenue a new member will contribute over their entire tenure, based on current retention rates.',
+          'source_note' => 'Model: (Avg Monthly Dues) * (Projected Tenure in Months) for new joiners.',
         ],
         'kpi_revenue_per_member_index' => [
           'label' => 'Revenue vs Expense Index (per member)',
           'base_2025' => 0.62,
           'goal_2030' => 1.0,
-          'description' => 'Calculation: (Average Monthly Dues Revenue per Head) / (Average Monthly Operating Expense per Head). Implementation Note: A value of 1.0 means member dues cover 100% of operations (excluding programs/grants).',
+          'description' => 'Ratio showing how close individual member dues are to covering the total cost per member of operating the space.',
+          'source_note' => 'Finance: (Avg Monthly Dues per Head) / (Avg Monthly Operating Expense per Head).',
         ],
         'kpi_monthly_revenue_at_risk' => [
           'label' => 'Monthly Revenue at Risk ($)',
           'base_2025' => 0,
           'goal_2030' => 0,
           'goal_direction' => 'lower',
-          'description' => 'Calculation: Sum of monthly dues for active members with failed payments. Implementation Note: Pulls from latest member success snapshot and profile payment fields.',
+          'status' => 'draft',
+          'description' => 'Sum of monthly dues for active members currently experiencing failed payments.',
+          'source_note' => 'System: Active members with failed payment flags on their profile.',
         ],
         'kpi_payment_resolution_rate' => [
           'label' => 'Payment Resolution Rate %',
           'base_2025' => 0.50,
           'goal_2030' => 0.85,
-          'description' => 'Calculation: Percentage of members with payment issues who successfully update their payment. Implementation Note: Pulls from CiviCRM outreach logs and member success recovery service.',
+          'status' => 'draft',
+          'description' => 'Percentage of members with payment issues who successfully update their payment and remain active.',
+          'source_note' => 'CRM: Count of payment outreach logs with successful recovery outcomes.',
         ],
       ],
       'infrastructure' => [
@@ -4356,14 +4588,41 @@ Process Group PGID: 1032535   *
           'label' => 'Equipment Uptime Rate %',
           'base_2025' => 0.90,
           'goal_2030' => 0.98,
-          'description' => 'Calculation: Percentage of primary equipment available for use (1 - Downtime / Total Capacity). Implementation Note: This will be live-wired to the new equipment maintenance/tracking system.',
+          'description' => 'Percentage of primary workshop equipment available for use during operating hours.',
+          'source_note' => 'Shop: (Operational Tools) / (Operational + Down Tools) from live inventory status.',
+        ],
+        'kpi_active_maintenance_load' => [
+          'label' => 'Active Maintenance Load',
+          'base_2025' => 50,
+          'goal_2030' => 20,
+          'goal_direction' => 'lower',
+          'status' => 'draft',
+          'description' => 'The current number of open, uncompleted maintenance tasks and tool repair requests.',
+          'source_note' => 'System: Count of published "task" nodes that are not flagged as completed.',
+        ],
+        'kpi_storage_occupancy' => [
+          'label' => 'Storage Occupancy %',
+          'base_2025' => 0.85,
+          'goal_2030' => 0.95,
+          'status' => 'draft',
+          'description' => 'Percentage of member storage units (lockers, shelves, etc.) currently occupied.',
+          'source_note' => 'System: Occupancy rate calculated by the storage manager service.',
+        ],
+        'kpi_equipment_investment' => [
+          'label' => 'Value of Equipment Added ($)',
+          'base_2025' => 20000,
+          'goal_2030' => 50000,
+          'description' => 'Total replacement value of new tools, assets, and library items added to the space.',
+          'source_note' => 'System: Sum of replacement values for new "item" and "library_item" nodes.',
         ],
         'kpi_adherence_to_shop_budget' => [
           'label' => 'Adherence to Shop Budget',
           'base_2025' => 0.92,
           'goal_2030' => 1.0,
           'goal_direction' => 'lower',
-          'description' => 'Calculation: (Actual Shop Operations Expense) / (Budgeted Shop Operations). Implementation Note: This is calculated by comparing actuals from "Income-Statement" tab to budget from "budgets" tab in the finance spreadsheet.',
+          'status' => 'draft',
+          'description' => 'Comparison of actual shop operating expenses against the approved organizational budget.',
+          'source_note' => 'Finance: (Actual Shop Operations Expense) / (Budgeted Shop Operations).',
         ],
       ],
       'outreach' => [
@@ -4371,61 +4630,71 @@ Process Group PGID: 1032535   *
           'label' => 'Total New Member Signups',
           'base_2025' => 300,
           'goal_2030' => 500,
-          'description' => 'Calculation: "The count of all members from all categories.". Implementation Note: This is the `joins_count` already tracked by `SnapshotService`. The annual snapshot will be the `SUM()` of the 12 monthly `joins` values.',
+          'description' => 'The total number of unique individuals who created a new membership profile during the period.',
+          'source_note' => 'System: Count of new profiles with the "member" role.',
         ],
         'kpi_total_first_time_workshop_participants' => [
           'label' => 'Total # First Time Workshop Participants',
           'base_2025' => 400,
           'goal_2030' => 600,
-          'description' => 'Calculation: "The count of all members from all categories." Implementation Note: The annual `SnapshotService` will call a new method in `EventsMembershipDataService` to get a *unique count* of participants who attended their first-ever event in that year.',
+          'description' => 'The count of individuals whose first-ever interaction with MakeHaven was attending a workshop this year.',
+          'source_note' => 'CiviCRM: Count of event participants with no prior registration history.',
         ],
         'kpi_total_new_recurring_revenue' => [
-          'label' => 'Total $ of New Recurring Revenue',
-          'base_2025' => 50000,
-          'goal_2030' => 80000,
-          'description' => 'Calculation: (Inferred) The total dollar value of new membership plans. Implementation Note: The `SnapshotService`\'s `sql_joins` query (in `takeSnapshot()`) must be modified to `SUM(plan_amount)` for all new joins in the period.',
+          'label' => 'New Recurring Membership Revenue (Monthly)',
+          'base_2025' => 25000,
+          'goal_2030' => 35000,
+          'description' => 'The total monthly recurring dues added by new members joining during the period. (Note: $2,000/mo added equals $24,000 in annual budget impact).',
+          'source_note' => 'Model: Sum of starting monthly dues for all new member joins.',
         ],
         'kpi_tours' => [
           'label' => 'Total Tours (12 month)',
           'base_2025' => 400,
           'goal_2030' => 1000,
-          'description' => 'Calculation: Count of unique contacts who participated in a tour in the trailing 12 months. Implementation Note: Uses `FunnelDataService::getTourFunnelData()` and counts unique participants.',
+          'description' => 'Count of unique individuals who participated in a facility tour.',
+          'source_note' => 'CiviCRM: Unique contacts with a Tour registration in the last 12 months.',
         ],
         'kpi_tours_to_member_conversion' => [
           'label' => 'Tours to Member Conversion %',
           'base_2025' => 0.20,
           'goal_2030' => 0.35,
-          'description' => 'Calculation: (Tour participants who become members) / (eligible unique tour participants) over a rolling 12 month window, excluding contacts who were already members before their first touch. Implementation Note: Uses `FunnelDataService::getTourFunnelData()` from CiviCRM event participants + Drupal main profile `created` date via civicrm_uf_match.',
+          'description' => 'Percentage of tour participants who subsequently signed up for a membership.',
+          'source_note' => 'CRM: (Tour participants who became members) / (Total unique tour participants).',
         ],
         'kpi_event_participant_to_member_conversion' => [
           'label' => 'Event Participant to Member Conversion %',
           'base_2025' => 0.10,
           'goal_2030' => 0.20,
-          'description' => 'Calculation: (Event participants who become members) / (total unique event participants) over a rolling 12 month window. Implementation Note: Uses `FunnelDataService::getEventParticipantFunnelData()` over all event types.',
+          'description' => 'Percentage of workshop or event participants who subsequently signed up for a membership.',
+          'source_note' => 'CRM: (Event participants who became members) / (Total unique event participants).',
         ],
         'guest_waivers_signed' => [
           'label' => 'Guest Waivers Signed (12 month)',
           'base_2025' => 200,
           'goal_2030' => 450,
-          'description' => 'Calculation: Count of unique contacts with CiviCRM activity type matching "Guest Waiver" over the trailing 12 months. Implementation Note: Uses `FunnelDataService::getActivityFunnelData()` and counts activities by unique contact.',
+          'description' => 'Total number of non-members who signed a guest waiver to visit the space.',
+          'source_note' => 'CRM: Count of unique contacts with Guest Waiver activity.',
         ],
         'kpi_guest_waiver_to_member_conversion' => [
           'label' => 'Guest Waiver to Member Conversion %',
           'base_2025' => 0.20,
           'goal_2030' => 0.35,
-          'description' => 'Calculation: (Guest waiver contacts who become members) / (eligible guest waiver contacts) over a rolling 12 month window, excluding contacts who were already members before first waiver. Implementation Note: Uses CiviCRM Guest Waiver activities mapped through civicrm_uf_match to Drupal main profile `created` date.',
+          'description' => 'Percentage of guests who subsequently signed up for a membership.',
+          'source_note' => 'CRM: (Guests who became members) / (Total unique guests).',
         ],
         'discovery_meetings_logged' => [
           'label' => 'Discovery Meetings Logged (12 month)',
           'base_2025' => 50,
           'goal_2030' => 180,
-          'description' => 'Calculation: Count of unique contacts with CiviCRM activity type matching "Meeting" over the trailing 12 months. Implementation Note: Captures Calendly and other meeting activity once logged to CiviCRM.',
+          'description' => 'Count of introductory discovery or recruitment meetings held with potential members/partners.',
+          'source_note' => 'CRM: Count of unique contacts with Meeting activity.',
         ],
         'meeting_to_member_conversion' => [
           'label' => 'Meeting to Member Conversion %',
           'base_2025' => 0.20,
           'goal_2030' => 0.40,
-          'description' => 'Calculation: (Meeting contacts who become members) / (eligible meeting contacts) over a rolling 12 month window, excluding contacts who were already members before first meeting. Implementation Note: Uses CiviCRM Meeting activities mapped via civicrm_uf_match to Drupal main profile `created` date.',
+          'description' => 'Percentage of discovery meeting participants who subsequently signed up for a membership.',
+          'source_note' => 'CRM: (Meeting participants who became members) / (Total unique meeting participants).',
         ],
       ],
       'retention' => [
@@ -4433,44 +4702,73 @@ Process Group PGID: 1032535   *
           'label' => 'Total # Active Members',
           'base_2025' => 1000,
           'goal_2030' => 1500,
-          'description' => 'Calculation: "The count of all members from all categories (not paused)". Implementation Note: This is `members_active` from `ms_fact_org_snapshot`. The annual snapshot will use the value from the December monthly snapshot.',
+          'description' => 'The count of all members currently in active status across all membership categories.',
+          'source_note' => 'System: active members from ms_fact_org_snapshot (December monthly snapshot used for annual totals).',
         ],
         'kpi_first_year_member_retention' => [
           'label' => 'First Year Member Retention %',
           'base_2025' => 0.70,
           'goal_2030' => 0.85,
-          'description' => 'Calculation: "Percent of individual new members retained after 12 months... Excluding Unpreventable end reasons". Implementation Note: The annual `SnapshotService` will call `MembershipMetricsService::getAnnualCohorts()` to get the 12-month retention for the *previous* year\'s join cohort.',
+          'description' => 'Percentage of new members who remain active for at least 12 months after joining.',
+          'source_note' => 'System: 12-month survival rate for the previous year\'s join cohort (excludes unpreventable ends).',
+        ],
+        'kpi_retention_poc' => [
+          'label' => 'Retention POC %',
+          'base_2025' => 0.45,
+          'goal_2030' => 0.80,
+          'description' => 'The 12-month survival rate specifically for members identifying as Black, Indigenous, or People of Color.',
+          'source_note' => 'System: 12-month survival rate filtered by BIPOC ethnicity.',
         ],
         'kpi_member_nps' => [
           'label' => 'Member Net Promoter Score (NPS)',
           'base_2025' => 50,
           'goal_2030' => 75,
-          'description' => 'Calculation: "Member survey... ((Promoters − Detractors) / Total Responses) × 100". Implementation Note: Pulled from the annual member survey and saved in the annual snapshot.',
+          'description' => 'Overall member satisfaction and likelihood to recommend MakeHaven to others.',
+          'source_note' => 'Survey: Annual member survey (Promoters % - Detractors %).',
         ],
         'kpi_active_participation' => [
           'label' => 'Active Participation %',
           'base_2025' => 0.60,
           'goal_2030' => 0.80,
-          'description' => 'Calculation: "Percent of all currently active members who have at least one card read/entry in the previous quarter.". Implementation Note: The annual `SnapshotService` will call a new method (likely in `UtilizationDataService`) to count unique UIDs with door access logs in Q4 and divide by `members_active` in the December snapshot.',
+          'description' => 'Percentage of active members who have utilized the space (recorded a card read) in the last quarter.',
+          'source_note' => 'System: Unique member UIDs with door access logs divided by total active members.',
+        ],
+        'kpi_active_participation_bipoc' => [
+          'label' => 'Active Participation % (BIPOC)',
+          'base_2025' => 0.60,
+          'goal_2030' => 0.80,
+          'description' => 'Percentage of active BIPOC members who have utilized the space in the last quarter.',
+          'source_note' => 'System: Unique BIPOC UIDs with door access logs divided by total active BIPOC members.',
+        ],
+        'kpi_active_participation_female_nb' => [
+          'label' => 'Active Participation % (Female/Non-binary)',
+          'base_2025' => 0.60,
+          'goal_2030' => 0.80,
+          'description' => 'Percentage of active Female and Non-binary members who have utilized the space in the last quarter.',
+          'source_note' => 'System: Unique Female/NB UIDs with door access logs divided by total active members in that segment.',
         ],
         'kpi_new_member_first_badge_28_days' => [
           'label' => 'New Member First Badge (28 days) %',
           'base_2025' => 0.55,
           'goal_2030' => 0.80,
-          'description' => 'Calculation: Share of recent join cohort members who have at least one badge activity once they reach roughly day 28. Implementation Note: Derived from `ms_member_success_snapshot` daily rows using month-end snapshots and badge_count_total.',
+          'description' => 'Share of new members who successfully complete their first badge/orientation within 28 days of joining.',
+          'source_note' => 'System: New members with badge_count >= 1 within their first month.',
         ],
         'kpi_members_at_risk_share' => [
           'label' => 'Members At-Risk %',
           'base_2025' => 0.40,
           'goal_2030' => 0.15,
           'goal_direction' => 'lower',
-          'description' => 'Calculation: Share of members with member success risk_score >= 20 at month-end. Implementation Note: Derived from `ms_member_success_snapshot` and intended as an early-warning indicator.',
+          'status' => 'draft',
+          'description' => 'Share of members whose recent inactivity indicates they are at higher risk of cancelling.',
+          'source_note' => 'Model: Share of members with risk_score >= 20 based on visit frequency.',
         ],
         'kpi_membership_diversity_bipoc' => [
           'label' => 'Membership Diversity (% BIPOC)',
           'base_2025' => 0.15,
           'goal_2030' => 0.30,
-          'description' => 'Calculation: "Percent of membership whose self identities include black, indigenous, and other people of color... Counting only those who have an identity submitted". Implementation Note: The annual `SnapshotService` will call `DemographicsDataService::getEthnicityDistribution()`, sum the counts for all non-white identities, and divide by the total responses.',
+          'description' => 'Percentage of the overall membership identifying as Black, Indigenous, or People of Color.',
+          'source_note' => 'Profile: % of members with non-white self-identity submitted.',
         ],
       ],
       'education' => [
@@ -4478,31 +4776,36 @@ Process Group PGID: 1032535   *
           'label' => '# of Workshop Attendees',
           'base_2025' => 1200,
           'goal_2030' => 2000,
-          'description' => 'Calculation: "From Civicrm \'Event Registration Report\' Event end date. Is \'Ticketed Workshop\'". Implementation Note: The annual `SnapshotService` will `SUM()` the monthly values provided by `EventsMembershipDataService::getMonthlyRegistrationsByType()`.',
+          'description' => 'The total number of registrations for ticketed workshops held during the period.',
+          'source_note' => 'CiviCRM: Sum of monthly registrations for event type "Ticketed Workshop".',
         ],
         'kpi_education_nps' => [
           'label' => 'Education Net Promoter Score (NPS)',
           'base_2025' => 60,
           'goal_2030' => 80,
-          'description' => 'Calculation: "Calculate NPS using the standard formula... Promoters: 5, Passives: 4, Detractors: 1-3". Implementation Note: The annual `SnapshotService` will call a new method in `EventsMembershipDataService` to query CiviCRM evaluations for the year.',
+          'description' => 'Student satisfaction score for educational programs and workshops.',
+          'source_note' => 'Survey: Post-workshop evaluations (Promoters % - Detractors %).',
         ],
         'kpi_workshop_participants_bipoc' => [
           'label' => '% Workshop Participants (BIPOC)',
           'base_2025' => 0.17,
           'goal_2030' => 0.30,
-          'description' => 'Calculation: Percentage of unique workshop participants identifying as BIPOC. Implementation Note: The annual `SnapshotService` will call `EventsMembershipDataService::getParticipantDemographics()` and perform the % calculation.',
+          'description' => 'Percentage of unique workshop attendees identifying as Black, Indigenous, or People of Color.',
+          'source_note' => 'CRM: % of unique participants with non-white self-identity.',
         ],
         'kpi_active_instructors_bipoc' => [
           'label' => '% Active Instructors (BIPOC)',
           'base_2025' => 0.37,
           'goal_2030' => 0.50,
-          'description' => 'Calculation: Percentage of active instructors identifying as BIPOC. Implementation Note: The annual `SnapshotService` will call `EventsMembershipDataService::getActiveInstructorDemographics()` and sum non-white identities.',
+          'description' => 'Percentage of active workshop instructors identifying as Black, Indigenous, or People of Color.',
+          'source_note' => 'CRM: % of instructors with non-white self-identity who taught in the period.',
         ],
         'kpi_net_income_education' => [
           'label' => 'Net Income (Education Program)',
           'base_2025' => 38922,
           'goal_2030' => 60000,
-          'description' => 'Calculation: (Education Income) - (Education Expense). Implementation Note: Pulls from "budgets" and "Income-Statement" tabs in the finance spreadsheet.',
+          'description' => 'Direct financial contribution of the education program (Revenue - Instructor Pay - Materials).',
+          'source_note' => 'Finance: Education Income - Education Expense from Income Statement.',
         ],
       ],
       'entrepreneurship' => [
@@ -4510,19 +4813,36 @@ Process Group PGID: 1032535   *
           'label' => 'Incubator Workspace Occupancy %',
           'base_2025' => 0.75,
           'goal_2030' => 0.95,
-          'description' => 'Calculation: (Occupied SqFt) / (Total Rentable SqFt). Implementation Note: This will hook into the Workspace Rental Tracking System (Custom Drupal Entity) currently in development.',
+          'description' => 'Percentage of rentable incubator desk and shop floor space currently under contract.',
+          'source_note' => 'System: (Occupied SqFt) / (Total Rentable SqFt) for professional workspaces.',
         ],
         'kpi_active_incubator_ventures' => [
           'label' => '# of Active Incubator Ventures',
           'base_2025' => 10,
           'goal_2030' => 20,
-          'description' => 'Calculation: TBD. Implementation Note: Data sources for this section are TBD. For now, the annual snapshot can pull from manual entries in the `kpis.yml` file.',
+          'description' => 'Total count of distinct startup or product ventures utilizing the incubator infrastructure.',
+          'source_note' => 'Manual: Tracking of distinct ventures utilizing professional workspace/mentorship.',
         ],
         'kpi_entrepreneurship_event_participation' => [
           'label' => '# of Entrepreneurship Events Participants',
           'base_2025' => 49,
           'goal_2030' => 150,
-          'description' => 'Calculation: Annual unique participants in events with area of interest "Prototyping & Invention" or "Entrepreneurship, Startups & Business". Implementation Note: Pulls live from CiviCRM participant and event interest tables.',
+          'description' => 'Annual unique participants in events focused on prototyping, invention, or business startup skills.',
+          'source_note' => 'CRM: Participants in events tagged with Entrepreneurship or Prototyping interests.',
+        ],
+        'kpi_entrepreneurship_joins_rate' => [
+          'label' => 'Entrepreneurship Joins Focus (%)',
+          'base_2025' => 0.25,
+          'goal_2030' => 0.35,
+          'description' => 'Percentage of new members joining with existing entrepreneurial experience or specific goals to create/sell products.',
+          'source_note' => 'Profile: % of new members selecting inventor, entrepreneur, or seller goals.',
+        ],
+        'kpi_entrepreneurship_retention' => [
+          'label' => 'Entrepreneurship Retention %',
+          'base_2025' => 0.60,
+          'goal_2030' => 0.75,
+          'description' => 'The 12-month survival rate for members who joined with entrepreneurial goals or experience.',
+          'source_note' => 'Profile: 12-month retention tracked for the entrepreneurial member segment.',
         ],
       ],
       'development' => [
@@ -4530,58 +4850,49 @@ Process Group PGID: 1032535   *
           'label' => '# of Recurring Donors',
           'base_2025' => 18,
           'goal_2030' => 50,
-          'description' => 'Calculation: Count of unique individual donors with active (In Progress) recurring contributions in CiviCRM. Implementation Note: Pulls live from CiviCRM.',
+          'description' => 'Count of unique individuals with active monthly or annual recurring contribution plans.',
+          'source_note' => 'CiviCRM: Donors with "In Progress" recurring contribution records.',
         ],
         'kpi_annual_corporate_sponsorships' => [
           'label' => '$ Annual Corporate Sponsorships',
           'base_2025' => 7916,
           'goal_2030' => 75000,
-          'description' => 'Calculation: Annual total of Corporate Donations from the finance spreadsheet. Implementation Note: Pulls from "Budgets" and "Income-Statement" tabs.',
+          'description' => 'Total annual revenue received from corporate donations and organizational sponsorships.',
+          'source_note' => 'Finance: Sum of corporate donation accounts from Income Statement.',
         ],
         'kpi_grant_pipeline_count' => [
           'label' => '# of Active Grants in Pipeline',
           'base_2025' => 9,
           'goal_2030' => 15,
-          'description' => 'Calculation: Count of grants in the researching, inquiry, writing, or waiting stages. Implementation Note: Pulls live from CiviCRM "Funding" custom group.',
+          'description' => 'Total count of grant applications currently in researching, writing, or pending stages.',
+          'source_note' => 'CiviCRM: Count of Funding records not yet marked Won or Lost.',
         ],
         'kpi_grant_win_ratio' => [
           'label' => 'Grant Win Ratio %',
           'base_2025' => 0.32,
           'goal_2030' => 0.50,
-          'description' => 'Calculation: (Grants Won) / (Grants Won + Lost + Abandoned). Implementation Note: Pulls live from CiviCRM "Funding" custom group.',
+          'description' => 'The percentage of submitted grant applications that resulted in an award.',
+          'source_note' => 'CRM: (Won Grants) / (Won + Lost + Abandoned Grants).',
         ],
         'kpi_donor_retention_rate' => [
           'label' => 'Donor Retention Rate %',
           'base_2025' => 0.737,
           'goal_2030' => 0.85,
-          'description' => 'Calculation: Percentage of donors in current 12mo who also gave in previous 12mo (excludes organization donors and event participants). Implementation Note: Live-wired to CiviCRM.',
+          'description' => 'Percentage of individual donors from the previous year who contributed again this year.',
+          'source_note' => 'CRM: % of donors in current 12mo who also gave in the previous 12mo.',
         ],
         'kpi_donor_upgrades_count' => [
           'label' => '# of Donor Upgrades',
           'base_2025' => 33,
           'goal_2030' => 100,
-          'description' => 'Calculation: Count of donors who increased their total giving in the last 12 months compared to the previous 12 months. Implementation Note: Live-wired to CiviCRM.',
+          'status' => 'draft',
+          'description' => 'Count of individual donors who increased their total giving compared to the prior year.',
+          'source_note' => 'CRM: Donors whose total 12mo giving > prior 12mo giving.',
         ],
       ],
       'dei' => [
-        'kpi_retention_poc' => [
-          'label' => 'Retention POC %',
-          'base_2025' => 0.45,
-          'goal_2030' => 0.80,
-          'description' => 'Calculation: 12-month survival rate of members identifying as BIPOC. Implementation Note: The annual `SnapshotService` will call `MembershipMetricsService` with a BIPOC ethnicity filter.',
-        ],
-        'kpi_active_participation_bipoc' => [
-          'label' => 'Active Participation % (BIPOC)',
-          'base_2025' => 0.60,
-          'goal_2030' => 0.80,
-          'description' => 'Calculation: Percentage of BIPOC members who visited at least once in the last 90 days. Implementation Note: Cross-references `UtilizationDataService` visit logs with BIPOC demographic profiles.',
-        ],
-        'kpi_active_participation_female_nb' => [
-          'label' => 'Active Participation % (Female/Non-binary)',
-          'base_2025' => 0.60,
-          'goal_2030' => 0.80,
-          'description' => 'Calculation: Percentage of Female and Non-binary members who visited at least once in the last 90 days. Implementation Note: Cross-references `UtilizationDataService` visit logs with Gender demographic profiles.',
-        ],
+        // Note: Specific DEI retention and participation KPIs have been 
+        // moved to the 'retention' section for better side-by-side comparison.
       ],
     ];
 

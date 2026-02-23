@@ -33,6 +33,11 @@ class EntrepreneurshipDataService {
   protected array $memberRoles;
 
   /**
+   * Membership metrics service.
+   */
+  protected MembershipMetricsService $membershipMetrics;
+
+  /**
    * Cache lifetime in seconds.
    */
   protected int $ttl;
@@ -40,12 +45,50 @@ class EntrepreneurshipDataService {
   /**
    * Constructs the service.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, TimeInterface $time, array $member_roles = NULL, int $ttl = 1800) {
+  public function __construct(Connection $database, CacheBackendInterface $cache, TimeInterface $time, MembershipMetricsService $membership_metrics, array $member_roles = NULL, int $ttl = 1800) {
     $this->database = $database;
     $this->cache = $cache;
     $this->time = $time;
+    $this->membershipMetrics = $membership_metrics;
     $this->memberRoles = $member_roles ?: ['current_member', 'member'];
     $this->ttl = $ttl;
+  }
+
+  /**
+   * Calculates the retention rate for entrepreneurial members.
+   */
+  public function getRetentionRate(): array {
+    $currentYear = (int) date('Y');
+    $lastYear = $currentYear - 1;
+    
+    $filter = [
+      'type' => 'entrepreneur',
+      'value' => 'any',
+    ];
+
+    $cohorts = $this->membershipMetrics->getAnnualCohorts($lastYear, $lastYear, $filter);
+    
+    // Find the entry for the target year in the list.
+    $cohort = NULL;
+    foreach ($cohorts as $entry) {
+      if ((int) $entry['year'] === $lastYear) {
+        $cohort = $entry;
+        break;
+      }
+    }
+
+    if (!$cohort || empty($cohort['joined'])) {
+      return ['value' => NULL, 'count' => 0, 'joins' => 0];
+    }
+
+    $joins = (int) $cohort['joined'];
+    $active = (int) $cohort['active'];
+
+    return [
+      'value' => $active / $joins,
+      'count' => $active,
+      'joins' => $joins,
+    ];
   }
 
   /**
@@ -409,5 +452,131 @@ class EntrepreneurshipDataService {
     return sprintf('%d-Q%d', $year, $quarter);
   }
 
+  /**
+   * Calculates the rate of new joins who have entrepreneurship goals/experience.
+   */
+  public function getJoinRate(DateTimeImmutable $start, DateTimeImmutable $end): array {
+    $totalQuery = $this->database->select('profile', 'p');
+    $totalQuery->condition('p.type', 'main');
+    $totalQuery->condition('p.status', 1);
+    $totalQuery->condition('p.is_default', 1);
+    $totalQuery->condition('p.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
+    $totalQuery->addExpression('COUNT(DISTINCT p.uid)', 'total');
+    $total = (int) $totalQuery->execute()->fetchField();
+
+    if ($total === 0) {
+      return ['value' => NULL, 'total' => 0, 'count' => 0];
+    }
+
+    $entQuery = $this->getEntrepreneurialUidsQuery();
+    $entQuery->condition('p.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
+    $entQuery->addExpression('COUNT(DISTINCT p.uid)', 'count');
+    $count = (int) $entQuery->execute()->fetchField();
+
+    return [
+      'value' => $count / $total,
+      'total' => $total,
+      'count' => $count,
+    ];
+  }
+
+  /**
+   * Provides a trend of the join rate over time.
+   */
+  public function getJoinRateTrend(): array {
+    $end = new DateTimeImmutable('now');
+    $start = $end->modify('-24 months');
+    $trendData = $this->getEntrepreneurGoalTrend($start, $end);
+    
+    $rates = [];
+    $labels = $trendData['labels'] ?? [];
+    $series = $trendData['series'] ?? [];
+    
+    if (empty($labels)) {
+      return [];
+    }
+
+    $entKeys = ['entrepreneur', 'seller', 'inventor'];
+    foreach ($labels as $index => $label) {
+      $entCount = 0;
+      foreach ($entKeys as $key) {
+        $entCount += $series[$key][$index] ?? 0;
+      }
+      $otherCount = $series['other'][$index] ?? 0;
+      $total = $entCount + $otherCount;
+      $rates[] = $total > 0 ? ($entCount / $total) : 0;
+    }
+
+    return $rates;
+  }
+
+  /**
+   * Provides a trend of the retention rate over time.
+   */
+  public function getRetentionRateTrend(): array {
+    $currentYear = (int) date('Y');
+    $years = [];
+    for ($i = 4; $i >= 1; $i--) {
+      $years[] = $currentYear - $i;
+    }
+
+    $filter = [
+      'type' => 'entrepreneur',
+      'value' => 'any',
+    ];
+
+    $cohortsData = $this->membershipMetrics->getAnnualCohorts(min($years), max($years), $filter);
+    
+    $indexed = [];
+    foreach ($cohortsData as $entry) {
+      $indexed[(int) $entry['year']] = $entry;
+    }
+
+    $rates = [];
+    foreach ($years as $year) {
+      $cohort = $indexed[$year] ?? NULL;
+      if ($cohort && !empty($cohort['joined'])) {
+        $rates[] = (float) ($cohort['active'] / $cohort['joined']);
+      } else {
+        $rates[] = 0.0;
+      }
+    }
+
+    return $rates;
+  }
+
+  /**
+   * Returns a base query for identifying entrepreneurial members via profiles.
+   */
+  public function getEntrepreneurialUidsQuery(): \Drupal\Core\Database\Query\SelectInterface {
+    $goalKeys = ['entrepreneur', 'seller', 'inventor'];
+    $expKeys = ['serial_entrepreneur', 'patent'];
+
+    $query = $this->database->select('profile', 'p');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+
+    $or = $query->orConditionGroup();
+    
+    // Check goals.
+    $goalSub = $this->database->select('profile__field_member_goal', 'g');
+    $goalSub->fields('g', ['entity_id']);
+    $goalSub->condition('g.field_member_goal_value', $goalKeys, 'IN');
+    $goalSub->condition('g.deleted', 0);
+    $or->condition('p.profile_id', $goalSub, 'IN');
+
+    // Check experience.
+    $expSub = $this->database->select('profile__field_member_entrepreneurship', 'e');
+    $expSub->fields('e', ['entity_id']);
+    $expSub->condition('e.field_member_entrepreneurship_value', $expKeys, 'IN');
+    $expSub->condition('e.deleted', 0);
+    $or->condition('p.profile_id', $expSub, 'IN');
+
+    $query->condition($or);
+    $query->distinct();
+
+    return $query;
+  }
 
 }
