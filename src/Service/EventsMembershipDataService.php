@@ -322,7 +322,9 @@ class EventsMembershipDataService {
     $labels = [];
     $counts = [];
     $index = 0;
-    $now = new \DateTimeImmutable('first day of this month');
+    // Normalize to midnight so the >= comparison works correctly regardless
+    // of what time of day the page is loaded.
+    $now = (new \DateTimeImmutable('first day of this month'))->setTime(0, 0, 0);
     foreach ($months as $monthKey => $label) {
       $monthDate = new \DateTimeImmutable($monthKey);
       if ($monthDate >= $now) {
@@ -443,7 +445,9 @@ class EventsMembershipDataService {
     $items = [];
     $labels = [];
     $counts = [];
-    $now = new \DateTimeImmutable('first day of this month');
+    // Normalize to midnight so the >= comparison works correctly regardless
+    // of what time of day the page is loaded.
+    $now = (new \DateTimeImmutable('first day of this month'))->setTime(0, 0, 0);
     foreach ($months as $monthKey => $label) {
       $monthDate = new \DateTimeImmutable($monthKey);
       if ($monthDate >= $now) {
