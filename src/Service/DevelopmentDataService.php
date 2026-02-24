@@ -421,10 +421,20 @@ class DevelopmentDataService {
    * Returns the count of active recurring donors.
    */
   public function getRecurringDonorsCount(): int {
-    $query = $this->database->select('civicrm_contribution_recur', 'cr');
-    $query->condition('contribution_status_id', 5); // In Progress
-    $query->addExpression('COUNT(DISTINCT contact_id)', 'count');
-    return (int) $query->execute()->fetchField();
+    $recurringContactIds = [];
+    $recurringQuery = $this->database->select('civicrm_contribution_recur', 'cr');
+    $recurringQuery->addField('cr', 'contact_id');
+    $recurringQuery->condition('cr.contribution_status_id', 5); // In Progress.
+    $recurringQuery->condition('cr.contact_id', 0, '>');
+    foreach ($recurringQuery->execute()->fetchCol() as $contactId) {
+      $recurringContactIds[(int) $contactId] = TRUE;
+    }
+
+    foreach ($this->getRecurringDonorTaggedContactIds() as $contactId => $_) {
+      $recurringContactIds[(int) $contactId] = TRUE;
+    }
+
+    return count($recurringContactIds);
   }
 
   /**
@@ -545,12 +555,14 @@ class DevelopmentDataService {
 
     $now = $this->now();
     $trend = [];
+    $taggedContactIds = $this->getRecurringDonorTaggedContactIds();
 
     for ($i = $quarters - 1; $i >= 0; $i--) {
       $qEnd   = $this->completedQuarterEnd($now, $i);
       $qStart = $this->quarterStartForEnd($qEnd);
 
       $query = $this->database->select('civicrm_contribution', 'c');
+      $query->fields('c', ['contact_id']);
       $query->condition('c.contribution_recur_id', NULL, 'IS NOT NULL');
       $query->condition('c.contribution_recur_id', 0, '>');
       $query->condition('c.contribution_status_id', 1);
@@ -559,13 +571,88 @@ class DevelopmentDataService {
         $qStart->format('Y-m-d H:i:s'),
         $qEnd->format('Y-m-d H:i:s'),
       ], 'BETWEEN');
-      $query->addExpression('COUNT(DISTINCT c.contact_id)', 'donors');
+      $recurringOnly = [];
+      foreach ($query->execute()->fetchCol() as $contactId) {
+        $recurringOnly[(int) $contactId] = TRUE;
+      }
 
-      $trend[] = (float) ($query->execute()->fetchField() ?: 0);
+      // Tagged recurring donors are counted if they contributed in the quarter.
+      if (!empty($taggedContactIds)) {
+        $taggedQuarterQuery = $this->database->select('civicrm_contribution', 'c');
+        $taggedQuarterQuery->fields('c', ['contact_id']);
+        $taggedQuarterQuery->condition('c.contact_id', array_keys($taggedContactIds), 'IN');
+        $taggedQuarterQuery->condition('c.contribution_status_id', 1);
+        $taggedQuarterQuery->condition('c.is_test', 0);
+        $taggedQuarterQuery->condition('c.receive_date', [
+          $qStart->format('Y-m-d H:i:s'),
+          $qEnd->format('Y-m-d H:i:s'),
+        ], 'BETWEEN');
+        foreach ($taggedQuarterQuery->execute()->fetchCol() as $contactId) {
+          $recurringOnly[(int) $contactId] = TRUE;
+        }
+      }
+
+      $trend[] = (float) count($recurringOnly);
     }
 
     $this->cache->set($cid, $trend, $this->time->getRequestTime() + $this->ttl);
     return $trend;
+  }
+
+  /**
+   * Returns contact IDs tagged as recurring donors.
+   *
+   * @return array<int, bool>
+   *   Contact IDs keyed to TRUE.
+   */
+  protected function getRecurringDonorTaggedContactIds(): array {
+    $tagIds = $this->getRecurringDonorTagIds();
+    if (empty($tagIds)) {
+      return [];
+    }
+
+    $query = $this->database->select('civicrm_entity_tag', 'et');
+    $query->fields('et', ['entity_id']);
+    $query->condition('et.tag_id', $tagIds, 'IN');
+    $query->condition('et.entity_id', 0, '>');
+    $entityTableGroup = $query->orConditionGroup()
+      ->condition('et.entity_table', 'civicrm_contact')
+      ->condition('et.entity_table', NULL, 'IS NULL')
+      ->condition('et.entity_table', '');
+    $query->condition($entityTableGroup);
+
+    $contactIds = [];
+    foreach ($query->execute()->fetchCol() as $contactId) {
+      $contactIds[(int) $contactId] = TRUE;
+    }
+
+    return $contactIds;
+  }
+
+  /**
+   * Resolves recurring donor tag IDs by label/name.
+   *
+   * @return int[]
+   *   Matching tag IDs.
+   */
+  protected function getRecurringDonorTagIds(): array {
+    static $cache = NULL;
+    if (is_array($cache)) {
+      return $cache;
+    }
+
+    $query = $this->database->select('civicrm_tag', 't');
+    $query->fields('t', ['id']);
+    $match = $query->orConditionGroup()
+      ->condition('t.label', 'Recurring Donor')
+      ->condition('t.name', 'Recurring_Donor')
+      ->condition('t.name', 'recurring_donor')
+      ->condition('t.name', 'Recurring Donor');
+    $query->condition($match);
+
+    $ids = array_map('intval', $query->execute()->fetchCol());
+    $cache = array_values(array_unique(array_filter($ids, static fn($id) => $id > 0)));
+    return $cache;
   }
 
   /**

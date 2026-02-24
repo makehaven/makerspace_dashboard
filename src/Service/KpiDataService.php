@@ -3369,7 +3369,7 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_recurring_donors_count',
       'integer',
-      'CiviCRM: Count of active (In Progress) recurring contributions.',
+      'CiviCRM: Count of contacts with active recurring setup OR tagged "Recurring Donor" (tagged contacts included in trend when they donated that quarter).',
       '8 Quarters'
     );
   }
