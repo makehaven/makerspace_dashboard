@@ -433,6 +433,31 @@
   gap: 0.15rem;
 }
 
+.kpi-segment-list {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem;
+  margin-top: 0.2rem;
+}
+
+.kpi-segment-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.2rem;
+  font-size: 0.7rem;
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  padding: 0.08rem 0.45rem;
+  white-space: nowrap;
+}
+
+.kpi-segment-chip__label {
+  font-weight: 600;
+}
+
 .kpi-sparkline-wrapper {
   display: flex;
   flex-direction: column;

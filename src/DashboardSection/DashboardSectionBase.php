@@ -498,6 +498,31 @@ SVG;
       $title = Html::escape("Year in progress ($pct% elapsed) — goal comparison scaled proportionally");
       $below .= '<span class="kpi-period-badge kpi-period-badge--ytd" title="' . $title . '">↑ YTD</span>';
     }
+    if (!empty($kpi['segments']) && is_array($kpi['segments'])) {
+      $segmentBadges = [];
+      foreach ($kpi['segments'] as $segment) {
+        if (!is_array($segment)) {
+          continue;
+        }
+        $segmentLabel = isset($segment['label']) ? trim((string) $segment['label']) : '';
+        $segmentFormat = $segment['format'] ?? $format;
+        $segmentValue = $this->formatKpiValue($segment['value'] ?? NULL, $segmentFormat);
+        if ($segmentFormat === 'percent' && is_numeric($segment['value'] ?? NULL)) {
+          $segmentNumeric = (float) $segment['value'];
+          if (abs($segmentNumeric) > 1.5 && abs($segmentNumeric) <= 100) {
+            $segmentNumeric = $segmentNumeric / 100;
+          }
+          $segmentValue = number_format($segmentNumeric * 100, 1) . '%';
+        }
+        if ($segmentLabel === '' || $segmentValue === '' || $segmentValue === (string) $this->t('n/a')) {
+          continue;
+        }
+        $segmentBadges[] = '<span class="kpi-segment-chip"><span class="kpi-segment-chip__label">' . Html::escape($segmentLabel) . ':</span> <span class="kpi-segment-chip__value">' . Html::escape($segmentValue) . '</span></span>';
+      }
+      if (!empty($segmentBadges)) {
+        $below .= '<div class="kpi-segment-list">' . implode('', $segmentBadges) . '</div>';
+      }
+    }
 
     return [
       '#markup' => Markup::create('<div class="kpi-value-cell">' . $badge . $below . '</div>'),

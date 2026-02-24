@@ -27,8 +27,24 @@ class EducationParticipantGenderChartBuilder extends EducationEventsChartBuilder
       return NULL;
     }
 
-    $workshopTotal = array_sum($gender['workshop']);
-    $otherTotal = array_sum($gender['other']);
+    $labels = [];
+    $workshopValues = [];
+    $otherValues = [];
+    foreach ($gender['labels'] as $index => $label) {
+      $labelText = (string) $label;
+      if ($this->isUnspecifiedGenderLabel($labelText)) {
+        continue;
+      }
+      $labels[] = $labelText;
+      $workshopValues[] = (int) ($gender['workshop'][$index] ?? 0);
+      $otherValues[] = (int) ($gender['other'][$index] ?? 0);
+    }
+    if (empty($labels)) {
+      return NULL;
+    }
+
+    $workshopTotal = array_sum($workshopValues);
+    $otherTotal = array_sum($otherValues);
     if (($workshopTotal + $otherTotal) === 0) {
       return NULL;
     }
@@ -38,16 +54,16 @@ class EducationParticipantGenderChartBuilder extends EducationEventsChartBuilder
       'library' => 'chartjs',
       'chartType' => 'bar',
       'data' => [
-        'labels' => array_map('strval', $gender['labels']),
+        'labels' => array_map('strval', $labels),
         'datasets' => [
           [
             'label' => (string) $this->t('Workshops'),
-            'data' => array_map('intval', $gender['workshop']),
+            'data' => $workshopValues,
             'backgroundColor' => '#8b5cf6',
           ],
           [
             'label' => (string) $this->t('Other events'),
-            'data' => array_map('intval', $gender['other']),
+            'data' => $otherValues,
             'backgroundColor' => '#f97316',
           ],
         ],
@@ -68,10 +84,36 @@ class EducationParticipantGenderChartBuilder extends EducationEventsChartBuilder
       $visualization,
       [
         (string) $this->t('Source: Participant gender from CiviCRM contacts linked to workshop and other event registrations.'),
-        (string) $this->t('Processing: Includes counted participant statuses only; unspecified genders are shown explicitly.'),
+        (string) $this->t('Processing: Includes counted participant statuses only and excludes unspecified/non-response gender values from the displayed mix.'),
       ],
       $this->buildRangeMetadata($activeRange, self::RANGE_OPTIONS),
     );
+  }
+
+  /**
+   * Determines whether a gender label should be treated as non-response.
+   */
+  protected function isUnspecifiedGenderLabel(string $label): bool {
+    $normalized = strtolower(trim($label));
+    if ($normalized === '') {
+      return TRUE;
+    }
+
+    $tokens = [
+      'unspecified',
+      'unknown',
+      'not provided',
+      'prefer not',
+      'decline',
+      'did not respond',
+    ];
+    foreach ($tokens as $token) {
+      if (str_contains($normalized, $token)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }

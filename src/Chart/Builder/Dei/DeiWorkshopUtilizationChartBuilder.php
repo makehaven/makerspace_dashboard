@@ -42,12 +42,27 @@ class DeiWorkshopUtilizationChartBuilder extends ChartBuilderBase {
 
     $charts = [];
     if (!empty($demographics['gender']['labels'])) {
+      $genderLabels = [];
+      $genderWorkshop = [];
+      $genderOther = [];
+      foreach ($demographics['gender']['labels'] as $index => $label) {
+        $labelText = (string) $label;
+        if ($this->isUnspecifiedGenderLabel($labelText)) {
+          continue;
+        }
+        $genderLabels[] = $labelText;
+        $genderWorkshop[] = (int) ($demographics['gender']['workshop'][$index] ?? 0);
+        $genderOther[] = (int) ($demographics['gender']['other'][$index] ?? 0);
+      }
+
+      if (!empty($genderLabels)) {
       $charts['gender'] = $this->buildUtilizationChart(
-        $demographics['gender']['labels'],
-        $demographics['gender']['workshop'],
-        $demographics['gender']['other'],
+        $genderLabels,
+        $genderWorkshop,
+        $genderOther,
         (string) $this->t('Workshop utilization by gender')
       );
+      }
     }
     if (!empty($demographics['ethnicity']['labels'])) {
       $charts['ethnicity'] = $this->buildUtilizationChart(
@@ -84,6 +99,7 @@ class DeiWorkshopUtilizationChartBuilder extends ChartBuilderBase {
       ]),
       (string) $this->t('Source: CiviCRM participants with counted statuses; “Workshop” bars include event types whose label contains “workshop”, all others are grouped under “Other events”.'),
       (string) $this->t('Demographics are derived from CiviCRM contact gender, demographic custom fields, and birth dates when available.'),
+      (string) $this->t('Gender chart excludes unspecified/non-response values from the displayed mix.'),
     ];
 
     return $this->newDefinition(
@@ -164,6 +180,32 @@ class DeiWorkshopUtilizationChartBuilder extends ChartBuilderBase {
       'active' => $activeRange,
       'options' => $this->getRangePresets($allowedRanges),
     ];
+  }
+
+  /**
+   * Determines whether a gender label should be treated as non-response.
+   */
+  protected function isUnspecifiedGenderLabel(string $label): bool {
+    $normalized = strtolower(trim($label));
+    if ($normalized === '') {
+      return TRUE;
+    }
+
+    $tokens = [
+      'unspecified',
+      'unknown',
+      'not provided',
+      'prefer not',
+      'decline',
+      'did not respond',
+    ];
+    foreach ($tokens as $token) {
+      if (str_contains($normalized, $token)) {
+        return TRUE;
+      }
+    }
+
+    return FALSE;
   }
 
 }

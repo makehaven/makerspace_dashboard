@@ -649,7 +649,10 @@ class KpiDataService {
           }
         }
 
-        $kpiResult = $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members');
+        $kpiResult = $this->withDemographicSegments(
+          $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members'),
+          'kpi_total_active_members'
+        );
       }
     }
 
@@ -684,7 +687,10 @@ class KpiDataService {
         $ttm12 = $this->calculateTrailingAverage($values, 12);
         $ttm3 = $this->calculateTrailingAverage($values, 3);
         $lastUpdated = $lastSnapshotDate ? $lastSnapshotDate->format('Y-m-d') : NULL;
-        $membershipResult = $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members');
+        $membershipResult = $this->withDemographicSegments(
+          $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members'),
+          'kpi_total_active_members'
+        );
 
         // Prefer membership_totals snapshots when they are newer than KPI facts.
         if (!$kpiResult || !$kpiLastDate || ($lastSnapshotDate && $lastSnapshotDate > $kpiLastDate)) {
@@ -699,7 +705,10 @@ class KpiDataService {
 
     $membershipSeries = $this->membershipMetricsService->getMonthlyActiveMemberCounts(36);
     if (empty($membershipSeries)) {
-      return $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'kpi_total_active_members');
+      return $this->withDemographicSegments(
+        $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'kpi_total_active_members'),
+        'kpi_total_active_members'
+      );
     }
 
     $values = [];
@@ -716,14 +725,20 @@ class KpiDataService {
     }
 
     if (!$values) {
-      return $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'kpi_total_active_members');
+      return $this->withDemographicSegments(
+        $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'kpi_total_active_members'),
+        'kpi_total_active_members'
+      );
     }
 
     $trend = array_slice($values, -12);
     $ttm12 = $this->calculateTrailingAverage($values, 12);
     $ttm3 = $this->calculateTrailingAverage($values, 3);
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members', NULL, NULL, 'Last 12 months');
+    return $this->withDemographicSegments(
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members', NULL, NULL, 'Last 12 months'),
+      'kpi_total_active_members'
+    );
   }
 
   /**
@@ -824,7 +839,10 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0);
+    return $this->withDemographicSegments(
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0),
+      'kpi_workshop_attendees'
+    );
   }
 
   /**
@@ -918,7 +936,10 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_first_time_workshop_participants', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0);
+    return $this->withDemographicSegments(
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_first_time_workshop_participants', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0),
+      'kpi_total_first_time_workshop_participants'
+    );
   }
 
   /**
@@ -971,7 +992,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult(
+    return $this->withDemographicSegments($this->buildKpiResult(
       $kpi_info, 
       $annualOverrides, 
       $trend, 
@@ -985,7 +1006,7 @@ class KpiDataService {
       'Last 12 months', 
       'Trailing 12 months', 
       1.0
-    );
+    ), 'kpi_total_new_member_signups');
   }
 
   /**
@@ -1088,7 +1109,10 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', NULL, 'Last 12 months', 'Last 90 days', 1.0);
+    return $this->withDemographicSegments(
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', NULL, 'Last 12 months', 'Last 90 days', 1.0),
+      'kpi_active_participation'
+    );
   }
 
   /**
@@ -2199,7 +2223,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult(
+    return $this->withDemographicSegments($this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $trend,
@@ -2209,7 +2233,7 @@ class KpiDataService {
       $current,
       'kpi_first_year_member_retention',
       'percent'
-    );
+    ), 'kpi_first_year_member_retention');
   }
 
   /**
@@ -2318,7 +2342,7 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult(
+    return $this->withDemographicSegments($this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $trend,
@@ -2328,7 +2352,7 @@ class KpiDataService {
       $current,
       'kpi_member_post_12_month_retention',
       'percent'
-    );
+    ), 'kpi_member_post_12_month_retention');
   }
 
   /**
@@ -2401,7 +2425,10 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_member_nps');
+    return $this->withDemographicSegments(
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_member_nps'),
+      'kpi_member_nps'
+    );
   }
 
   /**
@@ -2690,8 +2717,8 @@ Process Group PGID: 1032535   *
   private function getKpiEntrepreneurshipRetentionData(array $kpi_info): array {
     $stats = $this->entrepreneurshipDataService->getRetentionRate();
     $trend = $this->entrepreneurshipDataService->getRetentionRateTrend();
-    
-    return $this->buildKpiResult(
+
+    return $this->withDemographicSegments($this->buildKpiResult(
       $kpi_info,
       [],
       $trend,
@@ -2703,7 +2730,377 @@ Process Group PGID: 1032535   *
       'percent',
       'Profile: 12-month retention rate for members who joined with entrepreneurial goals or experience.',
       '4 Years'
-    );
+    ), 'kpi_entrepreneurship_retention');
+  }
+
+  /**
+   * Adds BIPOC/Female-NB segment chips when demographic data is available.
+   */
+  private function withDemographicSegments(array $result, string $kpiId): array {
+    $segments = [];
+    $baseFormat = isset($result['format']) ? (string) $result['format'] : NULL;
+    $normalizedId = trim($kpiId);
+
+    foreach (['bipoc' => 'BIPOC', 'female_nb' => 'Female/NB'] as $segmentKey => $segmentLabel) {
+      $segmentFormat = $baseFormat;
+      $segmentValue = $this->resolveDemographicSegmentValue($normalizedId, $segmentKey, $segmentFormat);
+      if (!is_numeric($segmentValue)) {
+        continue;
+      }
+      $segments[] = [
+        'label' => $segmentLabel,
+        'value' => (float) $segmentValue,
+        'format' => $segmentFormat,
+      ];
+    }
+
+    if (!empty($segments)) {
+      $result['segments'] = $segments;
+    }
+
+    return $result;
+  }
+
+  /**
+   * Resolves a demographic segment value for a KPI from KPI-specific sources.
+   */
+  private function resolveDemographicSegmentValue(string $kpiId, string $segment, ?string &$resolvedFormat = NULL): ?float {
+    $segment = strtolower(trim($segment));
+    if (!in_array($segment, ['bipoc', 'female_nb'], TRUE)) {
+      return NULL;
+    }
+
+    // First preference: exact segmented snapshot metric for this KPI.
+    $snapshotValue = $this->getLatestSnapshotMetricValue($kpiId . '_' . $segment);
+    if (is_numeric($snapshotValue)) {
+      $resolvedFormat = 'percent';
+      return (float) $snapshotValue;
+    }
+
+    // A legacy alias exists for this KPI ID in some datasets.
+    if ($kpiId === 'kpi_total_first_time_workshop_participants') {
+      $legacyValue = $this->getLatestSnapshotMetricValue('total_first_time_workshop_participants_' . $segment);
+      if (is_numeric($legacyValue)) {
+        $resolvedFormat = 'percent';
+        return (float) $legacyValue;
+      }
+    }
+
+    switch ($kpiId) {
+      case 'kpi_active_participation':
+        $end = (new \DateTimeImmutable('now'))->setTime(23, 59, 59);
+        $start = $end->modify('-89 days')->setTime(0, 0, 0);
+        $resolvedFormat = 'percent';
+        return $this->getDemographicParticipationRate($segment, $start, $end);
+
+      case 'kpi_first_year_member_retention':
+        $retention = $this->getSegmentedRetentionMetrics($segment);
+        if (isset($retention['first_year']) && is_numeric($retention['first_year'])) {
+          $resolvedFormat = 'percent';
+          return (float) $retention['first_year'];
+        }
+        return NULL;
+
+      case 'kpi_member_post_12_month_retention':
+        $retention = $this->getSegmentedRetentionMetrics($segment);
+        if (isset($retention['post_12_month']) && is_numeric($retention['post_12_month'])) {
+          $resolvedFormat = 'percent';
+          return (float) $retention['post_12_month'];
+        }
+        return NULL;
+
+      case 'kpi_total_active_members':
+        // Do not infer segments from global demographic shares here; they may
+        // use a different population/timeslice than this KPI's active count.
+        // Segments are shown only when explicit KPI-specific metrics exist.
+        return NULL;
+    }
+
+    return NULL;
+  }
+
+  /**
+   * Returns the workshop female/non-binary participation rate.
+   */
+  private function getWorkshopFemaleNbParticipationRate(): ?float {
+    $end = (new \DateTimeImmutable('last day of this month'))->setTime(23, 59, 59);
+    $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+    $demographics = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
+    if (empty($demographics['gender']['labels']) || empty($demographics['gender']['workshop'])) {
+      return NULL;
+    }
+
+    $labels = $demographics['gender']['labels'];
+    $workshop = $demographics['gender']['workshop'];
+    $knownCount = 0.0;
+    $femaleNbCount = 0.0;
+
+    foreach ($labels as $index => $label) {
+      $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
+      if ($count <= 0) {
+        continue;
+      }
+      if ($this->isUnspecifiedGenderLabel((string) $label)) {
+        continue;
+      }
+      $knownCount += $count;
+      if ($this->isFemaleNbGenderLabel((string) $label)) {
+        $femaleNbCount += $count;
+      }
+    }
+
+    return $knownCount > 0 ? ($femaleNbCount / $knownCount) : NULL;
+  }
+
+  /**
+   * Determines whether a gender label should be excluded from known totals.
+   */
+  private function isUnspecifiedGenderLabel(string $label): bool {
+    $normalized = strtolower(trim($label));
+    return $normalized === ''
+      || str_contains($normalized, 'unspecified')
+      || str_contains($normalized, 'unknown')
+      || str_contains($normalized, 'prefer not');
+  }
+
+  /**
+   * Determines whether a gender label counts toward the Female/NB segment.
+   */
+  private function isFemaleNbGenderLabel(string $label): bool {
+    $normalized = strtolower(trim($label));
+    if ($normalized === '') {
+      return FALSE;
+    }
+
+    if (str_contains($normalized, 'female') || str_contains($normalized, 'woman')) {
+      return TRUE;
+    }
+
+    return str_contains($normalized, 'non')
+      || str_contains($normalized, 'nb')
+      || str_contains($normalized, 'gender');
+  }
+
+  /**
+   * Returns segmented retention values for first-year and post-12mo KPIs.
+   */
+  private function getSegmentedRetentionMetrics(string $segment): array {
+    static $cache = [];
+    $segment = strtolower(trim($segment));
+    if (!in_array($segment, ['bipoc', 'female_nb'], TRUE)) {
+      return [];
+    }
+
+    if (isset($cache[$segment])) {
+      return $cache[$segment];
+    }
+
+    $matrix = $this->buildSegmentedMonthlyCohortRetentionMatrix($segment, 48);
+    if (empty($matrix)) {
+      $cache[$segment] = [];
+      return $cache[$segment];
+    }
+
+    $firstYearSeries = [];
+    $post12Series = [];
+    foreach ($matrix as $row) {
+      $ret12 = $row['retention'][12] ?? NULL;
+      if (is_numeric($ret12)) {
+        $ret12Decimal = (float) $ret12 / 100;
+        $firstYearSeries[] = $ret12Decimal;
+
+        $ret24 = $row['retention'][24] ?? NULL;
+        if (is_numeric($ret24) && $ret12Decimal > 0) {
+          $ret24Decimal = (float) $ret24 / 100;
+          $ratio = $ret24Decimal / $ret12Decimal;
+          $post12Series[] = max(0.0, min(1.0, $ratio));
+        }
+      }
+    }
+
+    $cache[$segment] = [
+      'first_year' => $firstYearSeries ? (float) end($firstYearSeries) : NULL,
+      'post_12_month' => $post12Series ? (float) end($post12Series) : NULL,
+    ];
+    return $cache[$segment];
+  }
+
+  /**
+   * Builds a monthly cohort retention matrix filtered by demographic segment.
+   */
+  private function buildSegmentedMonthlyCohortRetentionMatrix(string $segment, int $monthsBack = 48): array {
+    $segment = strtolower(trim($segment));
+    if (!in_array($segment, ['bipoc', 'female_nb'], TRUE)) {
+      return [];
+    }
+
+    $db = \Drupal::database();
+    $schema = $db->schema();
+    if (
+      !$schema->tableExists('profile') ||
+      !$schema->tableExists('user__roles') ||
+      !$schema->tableExists('profile__field_member_end_date') ||
+      !$schema->tableExists('civicrm_uf_match') ||
+      !$schema->tableExists('civicrm_contact')
+    ) {
+      return [];
+    }
+
+    $monthsBack = max(24, $monthsBack);
+    $tz = new \DateTimeZone(date_default_timezone_get());
+    $nowDate = (new \DateTimeImmutable('now', $tz))->setTime(0, 0, 0);
+    $cutoffDate = $nowDate
+      ->modify('first day of this month')
+      ->modify(sprintf('-%d months', $monthsBack))
+      ->setTime(0, 0, 0);
+    $cutoffTs = $cutoffDate->getTimestamp();
+
+    $query = $db->select('profile', 'p');
+    $query->fields('p', ['uid', 'created']);
+    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
+    $query->addField('end_date', 'field_member_end_date_value', 'end_value');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->innerJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = p.uid');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
+    $query->condition('c.is_deleted', 0);
+
+    if ($segment === 'female_nb') {
+      $query->condition('c.gender_id', [1, 4, 5, 6], 'IN');
+    }
+    else {
+      if (!$schema->tableExists('civicrm_value_demographics_15')) {
+        return [];
+      }
+      $query->innerJoin('civicrm_value_demographics_15', 'demo', 'demo.entity_id = c.id');
+      $bipocValues = ['asian', 'black', 'middleeast', 'mena', 'hispanic', 'native', 'aian', 'islander', 'nhpi', 'multi', 'other'];
+      $or = $query->orConditionGroup();
+      foreach ($bipocValues as $value) {
+        $or->condition('demo.ethnicity_46', '%' . $db->escapeLike($value) . '%', 'LIKE');
+      }
+      $query->condition($or);
+    }
+
+    $records = [];
+    foreach ($query->execute() as $row) {
+      $uid = (int) ($row->uid ?? 0);
+      $joinTs = (int) ($row->created ?? 0);
+      if ($uid <= 0 || $joinTs <= 0) {
+        continue;
+      }
+      $endTs = NULL;
+      $endValue = trim((string) ($row->end_value ?? ''));
+      if ($endValue !== '') {
+        $parsed = strtotime($endValue . ' 23:59:59');
+        if ($parsed !== FALSE) {
+          $endTs = $parsed;
+        }
+      }
+      $records[$uid] = [
+        'join' => $joinTs,
+        'end' => $endTs,
+        'uid' => $uid,
+        'has_member_role' => FALSE,
+      ];
+    }
+
+    if (empty($records)) {
+      return [];
+    }
+
+    $roleQuery = $db->select('user__roles', 'ur');
+    $roleQuery->fields('ur', ['entity_id']);
+    $roleQuery->condition('ur.entity_id', array_keys($records), 'IN');
+    $roleQuery->condition('ur.roles_target_id', ['current_member', 'member'], 'IN');
+    $roleQuery->distinct();
+    $activeRoleUids = array_flip(array_map('intval', $roleQuery->execute()->fetchCol()));
+    foreach ($records as $uid => &$record) {
+      $record['has_member_role'] = isset($activeRoleUids[$uid]);
+    }
+    unset($record);
+
+    $cohorts = [];
+    foreach ($records as $record) {
+      if ($record['end'] === NULL && !$record['has_member_role']) {
+        continue;
+      }
+      $joinTs = (int) $record['join'];
+      if ($joinTs < $cutoffTs) {
+        continue;
+      }
+
+      $joinDate = (new \DateTimeImmutable('@' . $joinTs))->setTimezone($tz);
+      $key = $joinDate->format('Y-m');
+      $cohortStart = $joinDate->modify('first day of this month')->setTime(0, 0, 0);
+      if (!isset($cohorts[$key])) {
+        $cohorts[$key] = [
+          'cohort_start' => $cohortStart,
+          'joined' => 0,
+          'survived_counts' => array_fill(0, $monthsBack + 1, 0),
+        ];
+      }
+
+      $cohorts[$key]['joined']++;
+      $endTs = $record['end'];
+      for ($m = 0; $m <= $monthsBack; $m++) {
+        $milestone = $m === 0
+          ? $cohortStart
+          : $cohortStart->modify(sprintf('+%d months', $m))->modify('last day of this month')->setTime(23, 59, 59);
+        if ($milestone > $nowDate) {
+          continue;
+        }
+        if ($endTs === NULL || $endTs >= $milestone->getTimestamp()) {
+          $cohorts[$key]['survived_counts'][$m]++;
+        }
+      }
+    }
+
+    if (empty($cohorts)) {
+      return [];
+    }
+
+    ksort($cohorts);
+    $matrix = [];
+    foreach ($cohorts as $data) {
+      $row = [
+        'joined' => $data['joined'],
+        'retention' => [],
+      ];
+      foreach ($data['survived_counts'] as $m => $count) {
+        $milestone = $m === 0
+          ? $data['cohort_start']
+          : $data['cohort_start']->modify(sprintf('+%d months', $m))->modify('last day of this month')->setTime(23, 59, 59);
+        if ($milestone > $nowDate) {
+          $row['retention'][$m] = NULL;
+          continue;
+        }
+        $row['retention'][$m] = $data['joined'] > 0 ? round(($count / $data['joined']) * 100, 1) : 0.0;
+      }
+      $matrix[] = $row;
+    }
+
+    return $matrix;
+  }
+
+  /**
+   * Returns the most recent numeric value for a snapshot KPI metric.
+   */
+  private function getLatestSnapshotMetricValue(string $kpiId): ?float {
+    $series = $this->snapshotDataService->getKpiMetricSeries($kpiId);
+    if (empty($series)) {
+      return NULL;
+    }
+
+    for ($index = count($series) - 1; $index >= 0; $index--) {
+      $value = $series[$index]['value'] ?? NULL;
+      if (!is_numeric($value)) {
+        continue;
+      }
+      return (float) $value;
+    }
+
+    return NULL;
   }
 
   /**
