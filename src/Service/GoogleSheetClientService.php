@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\Service;
 
+use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Google\Client as GoogleClient;
 use Google\Service\Sheets as GoogleSheets;
@@ -12,6 +13,11 @@ use Google\Service\Sheets as GoogleSheets;
 class GoogleSheetClientService {
 
   /**
+   * Cache TTL for sheet data: 1 hour.
+   */
+  const SHEET_CACHE_TTL = 3600;
+
+  /**
    * The config factory.
    *
    * @var \Drupal\Core\Config\ConfigFactoryInterface
@@ -19,13 +25,23 @@ class GoogleSheetClientService {
   protected $configFactory;
 
   /**
+   * The cache backend.
+   *
+   * @var \Drupal\Core\Cache\CacheBackendInterface
+   */
+  protected $cache;
+
+  /**
    * Constructs a new GoogleSheetClientService object.
    *
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
    *   The config factory.
+   * @param \Drupal\Core\Cache\CacheBackendInterface $cache
+   *   The cache backend.
    */
-  public function __construct(ConfigFactoryInterface $config_factory) {
+  public function __construct(ConfigFactoryInterface $config_factory, CacheBackendInterface $cache) {
     $this->configFactory = $config_factory;
+    $this->cache = $cache;
   }
 
   /**
@@ -46,29 +62,39 @@ class GoogleSheetClientService {
       return [];
     }
 
-    try {
-      $spreadsheet_id = $this->extractSpreadsheetIdFromUrl($sheet_url);
-      if (!$spreadsheet_id) {
-        return [];
-      }
+    $spreadsheet_id = $this->extractSpreadsheetIdFromUrl($sheet_url);
+    if (!$spreadsheet_id) {
+      return [];
+    }
 
+    // Return cached data when available. Cache key includes the spreadsheet ID
+    // so that a URL change in settings automatically yields a fresh fetch.
+    $cid = 'makerspace_dashboard:sheet:' . md5($spreadsheet_id . ':' . $tab_name);
+    $cached = $this->cache->get($cid);
+    if ($cached !== FALSE) {
+      return $cached->data;
+    }
+
+    try {
       $client = new GoogleClient();
       $client->setApplicationName('Makerspace Dashboard');
       $client->setScopes([GoogleSheets::SPREADSHEETS_READONLY]);
       $client->setDeveloperKey($api_key);
 
       $service = new GoogleSheets($client);
-      $range = $tab_name;
-      $response = $this->suppressDeprecatedGoogleWarnings(function () use ($service, $spreadsheet_id, $range) {
-        return $service->spreadsheets_values->get($spreadsheet_id, $range);
+      $response = $this->suppressDeprecatedGoogleWarnings(function () use ($service, $spreadsheet_id, $tab_name) {
+        return $service->spreadsheets_values->get($spreadsheet_id, $tab_name);
       });
       if (!$response) {
         return [];
       }
-      return $response->getValues();
+      $data = $response->getValues() ?? [];
+      // Cache with a tag on settings so that saving a new sheet URL or key
+      // immediately invalidates all cached tabs.
+      $this->cache->set($cid, $data, time() + self::SHEET_CACHE_TTL, ['config:makerspace_dashboard.settings']);
+      return $data;
     }
     catch (\Exception $e) {
-      // Log the exception.
       \Drupal::logger('makerspace_dashboard')->error('Failed to fetch Google Sheet data: @message', ['@message' => $e->getMessage()]);
       return [];
     }

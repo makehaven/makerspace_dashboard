@@ -68,7 +68,92 @@ Many new KPIs require data that is not currently tracked or is tracked outside t
     - **Recommendation:** This data *must* be in CiviCRM. Use CiviCRM **Financial Types** to separate 'Donation', 'Grant', 'Sponsorship' from 'Membership Dues'.
     - **Action:** The new `DevelopmentDataService` will query `civicrm_contribution` and filter by these Financial Types.
 
-## 3. UI & Structural Refactoring
+## 3. KpiDataService Refactor (Technical Debt)
+
+`KpiDataService` is ~4,900 lines and contains 65+ private KPI calculation methods. This makes it hard to navigate, test, or modify without risk. The goal is to split it into PHP traits by domain — **with no behavior changes and no public API changes**.
+
+### 3.1. Approach: PHP Traits
+
+PHP traits are the right tool here. They:
+- Let `KpiDataService` keep one DI constructor and one public `getKpiData()` entry point
+- Allow each domain's private methods to live in a focused file
+- Require zero changes to callers (section classes, controllers)
+
+The main class retains:
+- Constructor + all injected service properties
+- All `public` methods (`getKpiData`, `getAllKpiDefinitions`, `getSectionKpiDefinitions`)
+- `getMergedKpiDefinitions`, `getSectionPriorities`, `applySectionKpiPriorities`
+- `buildKpiResult`, `buildSnapshotTrendDefaults`, `getSheetGoalOverrides`, `getSheetAnnualTargets`
+- `calculateTrailingAverage`, `calculateTrailingSum`, `isAnnualSnapshotRecord`, `determineGoalYear`
+- `withDemographicSegments`, `getPlaceholderData`
+
+Everything else moves to traits.
+
+### 3.2. Proposed Trait Split
+
+| Trait file | Methods to move | Approx lines |
+|---|---|---|
+| `Kpi/FinanceKpiTrait.php` | `getKpiReserveFundsMonthsData`, `getKpiEarnedIncomeSustainingCoreData`, `getKpiMemberRevenueQuarterlyData`, `getKpiNetIncomeProgramLinesData`, `getKpiMemberLifetimeValueProjectedData`, `getKpiRevenuePerMemberIndexData`, `getKpiMonthlyRevenueAtRiskData`, `getKpiPaymentResolutionRateData`, `computeSheetGoalData`, `getIncomeStatementTable` | ~500 |
+| `Kpi/RetentionKpiTrait.php` | `getKpiTotalActiveMembersData`, `getKpiFirstYearMemberRetentionData`, `getKpiMemberPost12MonthRetentionData`, `getKpiMemberNpsData`, `getKpiNewMemberFirstBadge28DaysData`, `getKpiMembersAtRiskShareData`, `getKpiMembershipDiversityBipocData`, `getKpiFirstYearMemberRetentionRawCohorts` | ~700 |
+| `Kpi/OutreachKpiTrait.php` | `getKpiTotalNewMemberSignupsData`, `getKpiTotalFirstTimeWorkshopParticipantsData`, `getKpiTotalNewRecurringRevenueData`, `getKpiToursData`, `getKpiTourToMemberConversionData`, `getKpiGuestWaiverToMemberConversionData`, `getKpiEventParticipantToMemberConversionData` | ~500 |
+| `Kpi/EducationKpiTrait.php` | `getKpiWorkshopAttendeesData`, `getKpiEducationNpsData`, `getKpiWorkshopParticipantsBipocData`, `getKpiActiveInstructorsBipocData`, `getKpiNetIncomeEducationData`, `calculateWorkshopAttendeesYtd` | ~400 |
+| `Kpi/ParticipationKpiTrait.php` | `getKpiActiveParticipationData`, `getKpiActiveParticipationBipocData`, `getKpiActiveParticipationFemaleNbData`, `getDemographicParticipationTrend`, `getDemographicParticipationRate`, `deriveParticipationRatioFromBuckets`, `getKpiRetentionPocData` | ~450 |
+| `Kpi/DevelopmentKpiTrait.php` | `getKpiRecurringDonorsCountData`, `getKpiAnnualCorporateSponsorshipsData`, `getKpiGrantPipelineCountData`, `getKpiGrantWinRatioData`, `getKpiDonorRetentionRateData`, `getKpiDonorUpgradesCountData` | ~250 |
+| `Kpi/EntrepreneurshipKpiTrait.php` | `getKpiIncubatorWorkspaceOccupancyData`, `getKpiActiveIncubatorVenturesData`, `getKpiEntrepreneurshipEventParticipationData` | ~150 |
+| `Kpi/GovernanceKpiTrait.php` | `getKpiBoardEthnicDiversityData`, `getKpiBoardGenderDiversityData`, `getBoardBipocLabels`, `sumPercentages` | ~100 |
+| `Kpi/InfrastructureKpiTrait.php` | `getKpiEquipmentUptimeRateData`, `getKpiActiveMaintenanceLoadData`, `getKpiStorageOccupancyData`, `getKpiEquipmentInvestmentData`, `getKpiAdherenceToShopBudgetData`, `getKpiMemberSatisfactionEquipmentData` | ~200 |
+
+### 3.3. Step-by-Step Procedure
+
+Do one trait at a time. Each step is independently safe:
+
+1. Create `src/Kpi/` directory.
+2. Create the trait file, e.g. `src/Kpi/FinanceKpiTrait.php`:
+   ```php
+   namespace Drupal\makerspace_dashboard\Kpi;
+   trait FinanceKpiTrait {
+     // paste private methods here — no changes to method bodies
+   }
+   ```
+3. Add `use FinanceKpiTrait;` near the top of `KpiDataService`.
+4. Delete the moved methods from `KpiDataService`.
+5. Run `lando drush cr` and spot-check the Finance KPI tab loads correctly.
+6. Repeat for next trait.
+
+### 3.4. Related: `buildKpiResult` Parameter Refactor
+
+`buildKpiResult` has 13 positional parameters. This is how Bug #1 (wrong `$kpiId` string) happened. After the trait split (when each trait has fewer call sites to update), refactor the signature to use a named-array payload:
+
+```php
+// Before:
+$this->buildKpiResult($kpi_info, $overrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_foo', 'percent', 'note', 'label', 'period', 1.0);
+
+// After:
+$this->buildKpiResult($kpi_info, $overrides, [
+  'trend'    => $trend,
+  'ttm12'    => $ttm12,
+  'ttm3'     => $ttm3,
+  'last_updated' => $lastUpdated,
+  'current'  => $current,
+  'kpi_id'   => 'kpi_foo',
+  'display_format' => 'percent',
+  'source_note'    => 'note',
+  'trend_label'    => 'label',
+  'current_period_label' => 'period',
+  'period_fraction'      => 1.0,
+]);
+```
+
+Do this as a separate commit after all traits are extracted, since it touches all 65 call sites.
+
+### 3.5. What NOT to Do
+
+- Do not change method visibility (private stays private inside the trait)
+- Do not reorganize method logic while moving — move first, improve later
+- Do not split `buildKpiResult` or `withDemographicSegments` into traits; they are shared infrastructure used by all traits
+- Do not add new KPIs during the refactor pass
+
+
 
 - **Group Charts by Objective:**
     - **Action:** In each `DashboardSection::build()` method, add sub-headings (e.g., `<h2>`) or collapsible `<details>` elements for each Objective from the strategic plan. Place the relevant charts under the correct objective.

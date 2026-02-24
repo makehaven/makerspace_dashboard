@@ -88,7 +88,7 @@ makerspace_dashboard.annual_report:
     _controller: '\Drupal\makerspace_dashboard\Controller\AnnualReportController::report'
     _title: 'Year-over-year Data In Review'
   requirements:
-    _permission: 'access content'
+    _permission: 'view makerspace dashboard'
 
 makerspace_dashboard.map_debug:
   path: '/makerspace-dashboard/map-debug'

@@ -229,6 +229,7 @@ dei:
     label: 'Retention POC %'
     base_2025: 0.45
     goal_2030: 0.80
+    description: 'Annual cohort retention for BIPOC members: % of members identifying as BIPOC who joined in a given year and are still active. A lower value than the overall first-year retention rate (70%) signals an equity gap in the member lifecycle.'
   kpi_active_participation_bipoc:
     label: 'Active Participation % (BIPOC)'
     base_2025: 0.60

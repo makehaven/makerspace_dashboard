@@ -218,6 +218,10 @@ class KpiDataService {
       }
       else {
         // Fallback for KPIs that don't have a dedicated method yet.
+        \Drupal::logger('makerspace_dashboard')->notice(
+          'KPI @id has no dedicated calculation method; showing placeholder. Add get@method() to KpiDataService.',
+          ['@id' => $kpi_id, '@method' => str_replace(' ', '', ucwords(str_replace('_', ' ', $kpi_id))) . 'Data']
+        );
         $result = $this->getPlaceholderData($kpi_info, $kpi_id);
       }
 
@@ -410,7 +414,7 @@ class KpiDataService {
       'overview' => [
         'kpi_total_active_members',
         'kpi_workshop_attendees',
-        'reserve_funds_months',
+        'kpi_reserve_funds_months',
         'kpi_board_governance',
         'kpi_committee_effectiveness',
         'kpi_entrepreneurship_joins_rate',
@@ -950,7 +954,7 @@ class KpiDataService {
     }
 
     return $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'total_first_time_workshop_participants', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0),
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_first_time_workshop_participants', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0),
       'kpi_total_first_time_workshop_participants'
     );
   }
@@ -1269,7 +1273,8 @@ class KpiDataService {
   private function getKpiAdherenceToShopBudgetData(array $kpi_info): array {
     $current = $this->financialDataService->getAdherenceToShopBudget();
     $trend = $this->financialDataService->getShopBudgetAdherenceTrend();
-    $lastUpdated = date('Y-m-d');
+    // NULL: data freshness depends on when the Google Sheet was last updated.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2457,7 +2462,8 @@ Process Group PGID: 1032535   *
     // year of data regardless of where we are in the calendar year.
     $current = $this->financialDataService->getMetricTtmSum('income_corporate_donations');
     $trend = $this->financialDataService->getMetricTrend('income_corporate_donations');
-    $lastUpdated = date('Y-m-d');
+    // NULL: data freshness depends on when the Google Sheet was last updated.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2504,7 +2510,8 @@ Process Group PGID: 1032535   *
   private function getKpiNetIncomeProgramLinesData(array $kpi_info): array {
     $current = $this->financialDataService->getNetIncomeProgramLinesTtm();
     $trend = $this->financialDataService->getNetIncomeProgramLinesTrend();
-    $lastUpdated = date('Y-m-d');
+    // NULL: data freshness depends on when the Google Sheet was last updated.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2529,7 +2536,8 @@ Process Group PGID: 1032535   *
   private function getKpiReserveFundsMonthsData(array $kpi_info): array {
     $current = $this->financialDataService->getReserveFundsMonths();
     $trend = $this->financialDataService->getReserveFundsMonthsTrend(18);
-    $lastUpdated = date('Y-m-d');
+    // NULL: data freshness depends on when the Google Sheet was last updated.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2552,7 +2560,19 @@ Process Group PGID: 1032535   *
   private function getKpiEarnedIncomeSustainingCoreData(array $kpi_info): array {
     $current = $this->financialDataService->getEarnedIncomeSustainingCoreRate();
     $trend = $this->financialDataService->getEarnedIncomeSustainingCoreTrend();
-    $lastUpdated = date('Y-m-d');
+    // Derive freshness from the Income-Statement sheet column header so the
+    // display reflects the actual period of the data, not today's date.
+    $lastUpdated = NULL;
+    $headers = $this->getIncomeStatementHeaders();
+    if ($headers) {
+      $expenseRow = $this->getIncomeStatementRowValuesByMetricKey('expense_total', ['Total Expense', 'Total Expenses', 'Total Expenses (All)']);
+      if ($expenseRow !== NULL) {
+        $latest = $this->extractLatestSheetValue($expenseRow, $headers);
+        if (!empty($latest['column_label'])) {
+          $lastUpdated = $latest['column_label'];
+        }
+      }
+    }
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2681,7 +2701,8 @@ Process Group PGID: 1032535   *
     // picking up Q4 of the prior year instead of the most recent Q4.
     $current = $this->financialDataService->getNetIncomeEducationProgram();
     $trend = $this->financialDataService->getNetIncomeEducationTrend();
-    $lastUpdated = date('Y-m-d');
+    // NULL: data freshness depends on when the Google Sheet was last updated.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -3767,180 +3788,6 @@ Process Group PGID: 1032535   *
   }
 
   /**
-   * Gets the data for the "Earned Income Sustaining Core %" KPI.
-   */
-  private function getEarnedIncomeSustainingCoreData(array $kpi_info): array {
-    $buildEmpty = fn() => $this->buildKpiResult(
-      $kpi_info,
-      [],
-      [],
-      NULL,
-      NULL,
-      NULL,
-      NULL,
-      'earned_income_sustaining_core',
-      'percent'
-    );
-
-    if (!$this->getIncomeStatementTable()) {
-      return $buildEmpty();
-    }
-
-    $headers = $this->getIncomeStatementHeaders();
-    $totalExpenseRow = $this->getIncomeStatementRowValuesByMetricKey('expense_total', ['Total Expense', 'Total Expenses', 'Total Expenses (All)']);
-    if ($totalExpenseRow === NULL) {
-      return $buildEmpty();
-    }
-
-    $latestExpense = $this->extractLatestSheetValue($totalExpenseRow, $headers);
-    if ($latestExpense === NULL) {
-      return $buildEmpty();
-    }
-
-    $columnIndex = $latestExpense['column_index'];
-    $lastUpdated = $latestExpense['column_label'] ?? NULL;
-    $totalExpense = abs($latestExpense['value']);
-    if ($totalExpense <= 0) {
-      return $buildEmpty();
-    }
-
-    $incomeSources = [
-      [
-        'metric_key' => 'income_interest_investment',
-        'label' => 'Interest, Investment and Reward Income',
-        'aliases' => ['Interest Income', 'Investment Income', 'Reward Income'],
-        'keywords' => ['interest', 'investment', 'income'],
-      ],
-      [
-        'metric_key' => 'income_store',
-        'label' => 'Store',
-        'aliases' => ['Store Income', 'Store Revenue', 'Retail Income', 'Retail'],
-        'keywords' => ['store'],
-      ],
-      [
-        'metric_key' => 'income_membership',
-        'label' => 'Membership',
-        'aliases' => ['Membership Income', 'Member Income'],
-        'keywords' => ['membership'],
-      ],
-      [
-        'metric_key' => 'income_storage',
-        'label' => 'Storage',
-        'aliases' => ['Storage Income', 'Storage Revenue', 'Storage Rentals'],
-        'keywords' => ['storage'],
-      ],
-      [
-        'metric_key' => 'income_education',
-        'label' => 'Education',
-        'aliases' => ['Education Income', 'Education Revenue'],
-        'keywords' => ['education'],
-      ],
-      [
-        'metric_key' => 'income_workspaces',
-        'label' => 'Workspaces',
-        'aliases' => ['Workspace Income', 'Workspaces Income'],
-        'keywords' => ['workspace'],
-      ],
-      [
-        'metric_key' => 'income_media',
-        'label' => 'Media Income',
-        'aliases' => ['Media Revenue', 'Media'],
-        'keywords' => ['media'],
-      ],
-      [
-        'metric_key' => 'income_other',
-        'label' => 'Other',
-        'aliases' => ['Other Income'],
-        'keywords' => ['other'],
-      ],
-    ];
-
-    $earnedIncome = 0.0;
-    foreach ($incomeSources as $source) {
-      $row = NULL;
-      if (!empty($source['metric_key'])) {
-        $row = $this->getIncomeStatementRowValuesByMetricKey($source['metric_key'], array_merge([$source['label']], $source['aliases'] ?? []));
-      }
-      if (!$row) {
-        $row = $this->getIncomeStatementRowValues($source['label'], $source['aliases'] ?? []);
-      }
-      if (!$row && !empty($source['keywords'])) {
-        $row = $this->findIncomeStatementRowByKeywords($source['keywords'], ['expense']);
-      }
-      if (!$row) {
-        continue;
-      }
-      $value = $this->getSheetValueAtColumn($row, $columnIndex);
-      if ($value === NULL) {
-        continue;
-      }
-      $earnedIncome += abs($value);
-    }
-
-    if ($earnedIncome <= 0) {
-      return $buildEmpty();
-    }
-
-    $fundraisingRow = $this->getIncomeStatementRowValuesByMetricKey('expense_fundraising', ['Fundraising', 'Fundraising Expense']);
-    $fundraisingExpense = 0.0;
-    if ($fundraisingRow) {
-      $fundraisingValue = $this->getSheetValueAtColumn($fundraisingRow, $columnIndex);
-      if ($fundraisingValue !== NULL) {
-        $fundraisingExpense = abs($fundraisingValue);
-      }
-    }
-
-    $adjustedExpenses = $totalExpense - $fundraisingExpense;
-    if ($adjustedExpenses <= 0) {
-      return $buildEmpty();
-    }
-
-    $current = $earnedIncome / $adjustedExpenses;
-
-    return $this->buildKpiResult(
-      $kpi_info,
-      [],
-      [],
-      NULL,
-      NULL,
-      $lastUpdated,
-      $current,
-      'earned_income_sustaining_core',
-      'percent'
-    );
-  }
-
-  /**
-   * Gets the data for the "Member Revenue (Quarterly)" KPI.
-   *
-   * Calculates the current value by multiplying the active member count and the
-   * average `field_member_payment_monthly` value recorded on active profiles.
-   */
-  private function getMemberRevenueQuarterlyData(array $kpi_info): array {
-    $paymentStats = $this->financialDataService->getAverageMonthlyPaymentByType();
-    $activeMembers = isset($paymentStats['total_members']) ? (int) $paymentStats['total_members'] : 0;
-    $averagePayment = isset($paymentStats['overall_average']) ? (float) $paymentStats['overall_average'] : NULL;
-
-    if ($activeMembers <= 0 || $averagePayment === NULL) {
-      return $this->getPlaceholderData($kpi_info, 'member_revenue_quarterly');
-    }
-
-    $current = round($activeMembers * $averagePayment, 2);
-    $lastUpdated = date('Y-m-d');
-
-    return $this->buildKpiResult(
-      $kpi_info,
-      [],
-      [],
-      NULL,
-      NULL,
-      $lastUpdated,
-      $current,
-      'member_revenue_quarterly'
-    );
-  }
-
-  /**
    * Gets the data for the "Membership Diversity (% BIPOC)" KPI.
    *
    * @param array $kpi_info
@@ -3980,7 +3827,8 @@ Process Group PGID: 1032535   *
     $gender = $composition['gender']['actual_pct'] ?? [];
     $maleShare = isset($gender['Male']) ? (float) $gender['Male'] : 0.0;
     $current = max(0.0, 1.0 - $maleShare);
-    $lastUpdated = date('Y-m-d');
+    // NULL: board roster is manually maintained in Google Sheets; freshness unknown.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -4007,7 +3855,8 @@ Process Group PGID: 1032535   *
     }
     $ethnicity = $composition['ethnicity']['actual_pct'] ?? [];
     $current = $this->sumPercentages($ethnicity, $this->getBoardBipocLabels());
-    $lastUpdated = date('Y-m-d');
+    // NULL: board roster is manually maintained in Google Sheets; freshness unknown.
+    $lastUpdated = NULL;
 
     return $this->buildKpiResult(
       $kpi_info,

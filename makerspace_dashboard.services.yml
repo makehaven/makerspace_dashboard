@@ -831,6 +831,7 @@ services:
     class: Drupal\makerspace_dashboard\Service\GoogleSheetClientService
     arguments:
       - '@config.factory'
+      - '@cache.default'
 
   makerspace_dashboard.governance_board_data:
     class: Drupal\makerspace_dashboard\Service\GovernanceBoardDataService
