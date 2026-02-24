@@ -70,7 +70,11 @@ class DashboardDataController extends ControllerBase {
 
     $response = new CacheableJsonResponse($definition);
     $cacheability = (new CacheableMetadata())
-      ->addCacheContexts(['user.permissions', 'url.query_args:range']);
+      ->addCacheContexts(['url.query_args:range'])
+      ->addCacheTags([
+        'makerspace_dashboard:section:' . $section,
+        'makerspace_dashboard:chart:' . $section . ':' . $chart,
+      ]);
 
     if ($builderDefinition) {
       $cache = $builderDefinition->getCacheMetadata();
@@ -83,12 +87,15 @@ class DashboardDataController extends ControllerBase {
         $cacheability->addCacheContexts($cache['contexts']);
       }
       $response->setMaxAge($maxAge);
-      $response->setPrivate();
+      $response->setPublic();
+      $response->setSharedMaxAge($maxAge);
     }
     else {
-      $cacheability->setCacheMaxAge(0);
-      $response->setMaxAge(0);
-      $response->headers->set('Cache-Control', 'private, no-cache, no-store, must-revalidate');
+      // Legacy chart fallback can still be cached briefly.
+      $cacheability->setCacheMaxAge(300);
+      $response->setMaxAge(300);
+      $response->setPublic();
+      $response->setSharedMaxAge(300);
     }
 
     $response->addCacheableDependency($cacheability);

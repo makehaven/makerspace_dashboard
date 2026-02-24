@@ -475,6 +475,138 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Returns first-time workshop demographic rates for the provided window.
+   *
+   * Rates are based only on contacts with a reported value for that demographic.
+   */
+  public function getFirstTimeWorkshopDemographicRates(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Workshop'): array {
+    $normalizedFilter = strtolower(trim($eventTypeLabel));
+    if ($normalizedFilter === '') {
+      $normalizedFilter = 'workshop';
+    }
+
+    $cid = sprintf(
+      'makerspace_dashboard:first_time_workshop_demographics:%s:%s:%s',
+      $start_date->format('Ymd'),
+      $end_date->format('Ymd'),
+      md5($normalizedFilter)
+    );
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    $ethnicityLabels = $this->getOptionValueLabels('ethnicity');
+    $demoTable = $schema->tableExists('civicrm_value_demographics_15') ? 'civicrm_value_demographics_15' : NULL;
+
+    $firstEventSubquery = $this->database->select('civicrm_participant', 'fp');
+    $firstEventSubquery->innerJoin('civicrm_event', 'fe', 'fe.id = fp.event_id');
+    $firstEventSubquery->innerJoin('civicrm_participant_status_type', 'fpst', 'fpst.id = fp.status_id');
+    $firstEventSubquery->addField('fp', 'contact_id');
+    $firstEventSubquery->addExpression('MIN(fe.start_date)', 'first_event_date');
+    $firstEventSubquery->condition('fpst.is_counted', 1);
+    $firstEventSubquery->groupBy('fp.contact_id');
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+    $query = $this->database->select($firstEventSubquery, 'first');
+    $query->addField('first', 'contact_id');
+    $query->innerJoin('civicrm_participant', 'p', 'p.contact_id = first.contact_id');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id AND e.start_date = first.first_event_date');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->condition('pst.is_counted', 1);
+    $query->condition('first.first_event_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = first.contact_id');
+    $query->addField('c', 'gender_id');
+
+    if ($eventTypeGroupId) {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $eventTypeGroupId,
+      ]);
+    }
+    else {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->where('LOWER(ov.label) LIKE :event_type_label', [
+      ':event_type_label' => '%' . $normalizedFilter . '%',
+    ]);
+
+    if ($demoTable) {
+      $query->leftJoin($demoTable, 'demo', 'demo.entity_id = c.id');
+      if ($schema->fieldExists($demoTable, 'ethnicity_46')) {
+        $query->addField('demo', 'ethnicity_46');
+      }
+      else {
+        $query->addExpression('NULL', 'ethnicity_46');
+      }
+    }
+    else {
+      $query->addExpression('NULL', 'ethnicity_46');
+    }
+
+    $query->distinct();
+
+    $genderKnown = 0;
+    $femaleNb = 0;
+    $ethnicityKnown = 0;
+    $bipoc = 0;
+
+    foreach ($query->execute() as $record) {
+      $genderId = isset($record->gender_id) ? (int) $record->gender_id : 0;
+      // 1=female, 4=non-binary, 5=transgender, 6=self-describe.
+      if ($genderId > 0 && $genderId !== 7) {
+        $genderKnown++;
+        if (in_array($genderId, [1, 4, 5, 6], TRUE)) {
+          $femaleNb++;
+        }
+      }
+
+      $raw = isset($record->ethnicity_46) ? (string) $record->ethnicity_46 : '';
+      $values = $this->explodeMultiValue($raw);
+      $reported = FALSE;
+      $isBipoc = FALSE;
+      foreach ($values as $value) {
+        $label = $value;
+        if ($value === '') {
+          continue;
+        }
+        if (ctype_digit($value) && isset($ethnicityLabels[(int) $value])) {
+          $label = (string) $ethnicityLabels[(int) $value];
+        }
+        $normalized = strtolower(trim($label));
+        if ($normalized === '' || str_contains($normalized, 'unknown') || str_contains($normalized, 'prefer not') || str_contains($normalized, 'decline')) {
+          continue;
+        }
+        $reported = TRUE;
+        if (!str_contains($normalized, 'white')) {
+          $isBipoc = TRUE;
+        }
+      }
+
+      if ($reported) {
+        $ethnicityKnown++;
+        if ($isBipoc) {
+          $bipoc++;
+        }
+      }
+    }
+
+    $result = [
+      'female_nb_rate' => $genderKnown > 0 ? ($femaleNb / $genderKnown) : NULL,
+      'bipoc_rate' => $ethnicityKnown > 0 ? ($bipoc / $ethnicityKnown) : NULL,
+      'reported_gender' => $genderKnown,
+      'reported_ethnicity' => $ethnicityKnown,
+    ];
+    $this->cache->set($cid, $result, $this->buildTtl(), ['civicrm_participant_list', 'civicrm_contact_list']);
+
+    return $result;
+  }
+
+  /**
    * Builds aggregated demographics for active instructors in the range.
    *
    * @param \DateTimeImmutable $start

@@ -124,6 +124,16 @@ class MemberDemographicLocationDataService {
     $label = $filterValue;
 
     switch ($filterType) {
+      case 'gender':
+        $normalizedGender = $this->normalizeGenderFilterValue($filterValue);
+        if ($normalizedGender === NULL) {
+          return $this->emptyPayload($filterType, $filterValue);
+        }
+        $label = ucwords(str_replace('_', ' ', $normalizedGender));
+        $this->applyGenderFilter($baseQuery, $normalizedGender);
+        $this->applyGenderFilter($totalQuery, $normalizedGender);
+        break;
+
       case 'ethnicity':
         $label = $filterValue;
         $this->applyEthnicityFilter($baseQuery, $filterValue);
@@ -211,10 +221,8 @@ class MemberDemographicLocationDataService {
       $mappableCount += $group['count'];
     }
 
-    $totalCount = (int) $totalQuery
-      ->addExpression('COUNT(DISTINCT p.profile_id)', 'member_total')
-      ->execute()
-      ->fetchField();
+    $totalQuery->addExpression('COUNT(DISTINCT p.profile_id)', 'member_total');
+    $totalCount = (int) $totalQuery->execute()->fetchField();
 
     $payload = [
       'locations' => array_values($coordinates),
@@ -257,8 +265,8 @@ class MemberDemographicLocationDataService {
 
     $query->innerJoin('civicrm_address', 'addr', 'addr.contact_id = c.id AND addr.is_primary = 1');
     $query->leftJoin('civicrm_state_province', 'state', 'state.id = addr.state_province_id');
-    $query->addExpression('COALESCE(state.abbreviation, state.name)', 'state_code');
     if (!$countOnly) {
+      $query->addExpression('COALESCE(state.abbreviation, state.name)', 'state_code');
       $query->addField('addr', 'city', 'locality');
       $query->addField('addr', 'geo_code_1', 'latitude');
       $query->addField('addr', 'geo_code_2', 'longitude');
@@ -287,6 +295,40 @@ class MemberDemographicLocationDataService {
     if (isset($bucket['max'])) {
       $query->where($expression . ' <= :age_max', [':age_max' => (int) $bucket['max']]);
     }
+  }
+
+  /**
+   * Applies a profile gender filter to a query.
+   */
+  protected function applyGenderFilter($query, string $genderValue): void {
+    $query->innerJoin('profile__field_member_gender', 'gender', 'gender.entity_id = p.profile_id AND gender.deleted = 0');
+    $query->condition('gender.field_member_gender_value', $genderValue);
+  }
+
+  /**
+   * Normalizes an incoming gender filter value.
+   */
+  protected function normalizeGenderFilterValue(string $value): ?string {
+    $normalized = mb_strtolower(trim($value));
+    if ($normalized === '') {
+      return NULL;
+    }
+    $aliases = [
+      'female' => 'female',
+      'male' => 'male',
+      'non-binary' => 'other',
+      'non_binary' => 'other',
+      'nonbinary' => 'other',
+      'other' => 'other',
+      'transgender' => 'transgender',
+      'prefer to self-describe' => 'self_describe',
+      'prefer_to_self_describe' => 'self_describe',
+      'self_describe' => 'self_describe',
+      'prefer not to answer' => 'decline',
+      'decline' => 'decline',
+    ];
+
+    return $aliases[$normalized] ?? $normalized;
   }
 
   /**

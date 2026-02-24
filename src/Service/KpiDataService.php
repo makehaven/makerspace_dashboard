@@ -839,10 +839,23 @@ class KpiDataService {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->withDemographicSegments(
+    $result = $this->withDemographicSegments(
       $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0),
       'kpi_workshop_attendees'
     );
+
+    $ytd = $this->calculateWorkshopAttendeesYtd($monthlyItems);
+    if ($ytd !== NULL) {
+      $segments = $result['segments'] ?? [];
+      $segments[] = [
+        'label' => 'YTD',
+        'value' => (float) $ytd,
+        'format' => 'integer',
+      ];
+      $result['segments'] = $segments;
+    }
+
+    return $result;
   }
 
   /**
@@ -2809,6 +2822,29 @@ Process Group PGID: 1032535   *
         }
         return NULL;
 
+      case 'kpi_workshop_attendees':
+        $resolvedFormat = 'percent';
+        if ($segment === 'bipoc') {
+          return $this->getWorkshopBipocParticipationRate();
+        }
+        return $this->getWorkshopFemaleNbParticipationRate();
+
+      case 'kpi_total_first_time_workshop_participants':
+        $resolvedFormat = 'percent';
+        $rates = $this->getFirstTimeWorkshopDemographicRates();
+        if ($segment === 'bipoc') {
+          return isset($rates['bipoc_rate']) && is_numeric($rates['bipoc_rate']) ? (float) $rates['bipoc_rate'] : NULL;
+        }
+        return isset($rates['female_nb_rate']) && is_numeric($rates['female_nb_rate']) ? (float) $rates['female_nb_rate'] : NULL;
+
+      case 'kpi_total_new_member_signups':
+        $resolvedFormat = 'percent';
+        $rates = $this->getNewMemberSignupDemographicRates();
+        if ($segment === 'bipoc') {
+          return isset($rates['bipoc_rate']) && is_numeric($rates['bipoc_rate']) ? (float) $rates['bipoc_rate'] : NULL;
+        }
+        return isset($rates['female_nb_rate']) && is_numeric($rates['female_nb_rate']) ? (float) $rates['female_nb_rate'] : NULL;
+
       case 'kpi_total_active_members':
         // Do not infer segments from global demographic shares here; they may
         // use a different population/timeslice than this KPI's active count.
@@ -2850,6 +2886,170 @@ Process Group PGID: 1032535   *
     }
 
     return $knownCount > 0 ? ($femaleNbCount / $knownCount) : NULL;
+  }
+
+  /**
+   * Returns the workshop BIPOC participation rate from known ethnicity values.
+   */
+  private function getWorkshopBipocParticipationRate(): ?float {
+    $end = new \DateTimeImmutable('last day of this month 23:59:59');
+    $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+    $demographics = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
+
+    $labels = $demographics['ethnicity']['labels'] ?? [];
+    $workshop = $demographics['ethnicity']['workshop'] ?? [];
+    $bipocCount = 0.0;
+    $knownCount = 0.0;
+
+    foreach ($labels as $index => $label) {
+      $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
+      if ($count <= 0) {
+        continue;
+      }
+      if ($this->isUnspecifiedEthnicity((string) $label)) {
+        continue;
+      }
+      $knownCount += $count;
+      if ($this->isBipocEthnicityLabel((string) $label)) {
+        $bipocCount += $count;
+      }
+    }
+
+    return $knownCount > 0 ? ($bipocCount / $knownCount) : NULL;
+  }
+
+  /**
+   * Returns first-time workshop demographic rates from the trailing 12 months.
+   */
+  private function getFirstTimeWorkshopDemographicRates(): array {
+    static $cache = NULL;
+    if (is_array($cache)) {
+      return $cache;
+    }
+
+    $end = new \DateTimeImmutable('last day of this month 23:59:59');
+    $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+    $rates = $this->eventsMembershipDataService->getFirstTimeWorkshopDemographicRates($start, $end, 'Workshop');
+
+    $cache = is_array($rates) ? $rates : [];
+    return $cache;
+  }
+
+  /**
+   * Returns new-member signup demographic rates from the trailing 12 months.
+   */
+  private function getNewMemberSignupDemographicRates(): array {
+    static $cache = NULL;
+    if (is_array($cache)) {
+      return $cache;
+    }
+
+    $db = \Drupal::database();
+    $end = new \DateTimeImmutable('now');
+    $start = $end->modify('-12 months');
+
+    $startTs = $start->getTimestamp();
+    $endTs = $end->getTimestamp();
+
+    $query = $db->select('profile', 'p');
+    $query->addField('p', 'uid');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->condition('p.created', $startTs, '>=');
+    $query->condition('p.created', $endTs, '<=');
+    $query->leftJoin('profile__field_member_gender', 'gender', 'gender.entity_id = p.profile_id AND gender.deleted = 0');
+    $query->addField('gender', 'field_member_gender_value', 'gender_value');
+    $query->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
+    $query->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
+
+    $byUid = [];
+    foreach ($query->execute() as $record) {
+      $uid = (int) ($record->uid ?? 0);
+      if ($uid <= 0) {
+        continue;
+      }
+      if (!isset($byUid[$uid])) {
+        $byUid[$uid] = [
+          'gender' => '',
+          'ethnicity' => [],
+        ];
+      }
+      $gender = trim((string) ($record->gender_value ?? ''));
+      if ($gender !== '') {
+        $byUid[$uid]['gender'] = strtolower($gender);
+      }
+      $ethnicity = trim((string) ($record->ethnicity_value ?? ''));
+      if ($ethnicity !== '') {
+        $byUid[$uid]['ethnicity'][] = $ethnicity;
+      }
+    }
+
+    $genderKnown = 0;
+    $femaleNb = 0;
+    $ethnicityKnown = 0;
+    $bipoc = 0;
+
+    foreach ($byUid as $entry) {
+      $gender = $entry['gender'] ?? '';
+      if ($gender !== '' && $gender !== 'decline') {
+        $genderKnown++;
+        if (in_array($gender, ['female', 'other', 'transgender', 'self_describe'], TRUE)) {
+          $femaleNb++;
+        }
+      }
+
+      $reported = FALSE;
+      $isBipoc = FALSE;
+      foreach ($entry['ethnicity'] as $ethnicity) {
+        $label = strtolower(trim((string) $ethnicity));
+        if ($this->isUnspecifiedEthnicity($label)) {
+          continue;
+        }
+        $reported = TRUE;
+        if ($this->isBipocEthnicityLabel($label)) {
+          $isBipoc = TRUE;
+        }
+      }
+      if ($reported) {
+        $ethnicityKnown++;
+        if ($isBipoc) {
+          $bipoc++;
+        }
+      }
+    }
+
+    $cache = [
+      'female_nb_rate' => $genderKnown > 0 ? ($femaleNb / $genderKnown) : NULL,
+      'bipoc_rate' => $ethnicityKnown > 0 ? ($bipoc / $ethnicityKnown) : NULL,
+      'reported_gender' => $genderKnown,
+      'reported_ethnicity' => $ethnicityKnown,
+    ];
+    return $cache;
+  }
+
+  /**
+   * Calculates workshop attendee YTD value from monthly items.
+   */
+  private function calculateWorkshopAttendeesYtd(array $monthlyItems): ?int {
+    if (empty($monthlyItems)) {
+      return NULL;
+    }
+    $year = (int) (new \DateTimeImmutable('now'))->format('Y');
+    $sum = 0;
+    $found = FALSE;
+    foreach ($monthlyItems as $item) {
+      if (empty($item['date']) || !$item['date'] instanceof \DateTimeImmutable) {
+        continue;
+      }
+      if ((int) $item['date']->format('Y') !== $year) {
+        continue;
+      }
+      $sum += isset($item['count']) && is_numeric($item['count']) ? (int) $item['count'] : 0;
+      $found = TRUE;
+    }
+
+    return $found ? $sum : NULL;
   }
 
   /**

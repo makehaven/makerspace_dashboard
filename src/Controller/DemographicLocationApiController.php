@@ -2,10 +2,11 @@
 
 namespace Drupal\makerspace_dashboard\Controller;
 
+use Drupal\Core\Cache\CacheableJsonResponse;
+use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\makerspace_dashboard\Service\MemberDemographicLocationDataService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
@@ -37,11 +38,17 @@ class DemographicLocationApiController extends ControllerBase {
   /**
    * Returns filtered location data.
    */
-  public function getLocations(Request $request): JsonResponse {
+  public function getLocations(Request $request): CacheableJsonResponse {
     $type = (string) $request->query->get('type', '');
     $value = (string) $request->query->get('value', '');
+
+    $cacheability = (new CacheableMetadata())
+      ->setCacheMaxAge(900)
+      ->addCacheTags(['makerspace_dashboard:api:demographic_locations'])
+      ->addCacheContexts(['url.query_args:type', 'url.query_args:value']);
+
     if ($type === '' || $value === '') {
-      return new JsonResponse([
+      $response = new CacheableJsonResponse([
         'locations' => [],
         'mappable_count' => 0,
         'total_count' => 0,
@@ -51,10 +58,20 @@ class DemographicLocationApiController extends ControllerBase {
           'label' => $value,
         ],
       ]);
+      $response->addCacheableDependency($cacheability);
+      $response->setPublic();
+      $response->setMaxAge(900);
+      $response->setSharedMaxAge(900);
+      return $response;
     }
 
     $payload = $this->demographicLocationData->getLocations($type, $value);
-    return new JsonResponse($payload);
+    $response = new CacheableJsonResponse($payload);
+    $response->addCacheableDependency($cacheability);
+    $response->setPublic();
+    $response->setMaxAge(900);
+    $response->setSharedMaxAge(900);
+    return $response;
   }
 
 }

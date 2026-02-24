@@ -146,7 +146,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
           ],
         ],
         [
-          'data' => $this->buildCurrentValueCell($kpi, $format),
+          'data' => $this->buildCurrentValueCell($kpi, $format, TRUE),
           'class' => ['kpi-current-cell'],
         ],
         [
@@ -467,7 +467,7 @@ SVG;
   /**
    * Builds the current KPI value cell with conditional styling.
    */
-  protected function buildCurrentValueCell(array $kpi, ?string $format) {
+  protected function buildCurrentValueCell(array $kpi, ?string $format, bool $showProgressBar = FALSE) {
     $formatted = $this->formatKpiValue($kpi['current'] ?? NULL, $format);
     $periodFraction = isset($kpi['period_fraction']) ? (float) $kpi['period_fraction'] : 1.0;
     $class = $this->determinePerformanceClass(
@@ -498,6 +498,9 @@ SVG;
       $title = Html::escape("Year in progress ($pct% elapsed) — goal comparison scaled proportionally");
       $below .= '<span class="kpi-period-badge kpi-period-badge--ytd" title="' . $title . '">↑ YTD</span>';
     }
+    if ($showProgressBar) {
+      $below .= $this->buildGoalProgressBar($kpi, $format, $periodFraction);
+    }
     if (!empty($kpi['segments']) && is_array($kpi['segments'])) {
       $segmentBadges = [];
       foreach ($kpi['segments'] as $segment) {
@@ -527,6 +530,57 @@ SVG;
     return [
       '#markup' => Markup::create('<div class="kpi-value-cell">' . $badge . $below . '</div>'),
     ];
+  }
+
+  /**
+   * Builds an inline progress bar showing progress toward current-year goal.
+   */
+  protected function buildGoalProgressBar(array $kpi, ?string $format, float $periodFraction): string {
+    $currentValue = $this->normalizePercentOrAbsoluteValue($kpi['current'] ?? NULL, $format);
+    $goalValue = $this->normalizePercentOrAbsoluteValue($kpi['goal_current_year'] ?? NULL, $format);
+    if ($currentValue === NULL || $goalValue === NULL || $goalValue <= 0) {
+      return '';
+    }
+
+    if ($periodFraction > 0.0 && $periodFraction < 1.0) {
+      $goalValue = $goalValue * $periodFraction;
+    }
+    if ($goalValue <= 0) {
+      return '';
+    }
+
+    $goalDirection = strtolower(trim((string) ($kpi['goal_direction'] ?? 'higher')));
+    $lowerIsBetter = in_array($goalDirection, ['lower', 'down', 'decrease'], TRUE);
+
+    if ($lowerIsBetter) {
+      if ($currentValue <= 0) {
+        $progressRatio = 1.5;
+      }
+      else {
+        $progressRatio = $goalValue / $currentValue;
+      }
+    }
+    else {
+      $progressRatio = $currentValue / $goalValue;
+    }
+
+    $progressRatio = max(0.0, min(1.5, $progressRatio));
+    $displayPercent = (int) round($progressRatio * 100);
+    $barPercent = min(100, $displayPercent);
+    $class = $this->determinePerformanceClass(
+      $kpi['current'] ?? NULL,
+      $kpi['goal_current_year'] ?? NULL,
+      $format,
+      $goalDirection,
+      $periodFraction
+    ) ?: 'kpi-progress--na';
+
+    return '<div class="kpi-goal-progress" aria-label="' . Html::escape((string) $this->t('Goal progress')) . '">'
+      . '<div class="kpi-goal-progress__track">'
+      . '<span class="kpi-goal-progress__fill ' . Html::escape($class) . '" style="width:' . $barPercent . '%"></span>'
+      . '</div>'
+      . '<div class="kpi-goal-progress__label">' . Html::escape($displayPercent . '% of goal') . '</div>'
+      . '</div>';
   }
 
   /**
@@ -742,7 +796,7 @@ SVG;
     };
     $defaults = [
       'max-age' => $tierMaxAge,
-      'contexts' => ['user.permissions'],
+      'contexts' => [],
       'tags' => [
         'makerspace_dashboard:section:' . $definition->getSectionId(),
         'makerspace_dashboard:chart:' . $definition->getSectionId() . ':' . $definition->getChartId(),

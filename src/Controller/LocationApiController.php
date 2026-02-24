@@ -2,6 +2,8 @@
 
 namespace Drupal\makerspace_dashboard\Controller;
 
+use Drupal\Core\Cache\CacheableJsonResponse;
+use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\makerspace_dashboard\Service\MembershipLocationDataService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -46,7 +48,16 @@ class LocationApiController extends ControllerBase {
    */
   public function getLocations(): JsonResponse {
     $locations = $this->membershipLocationDataService->getMemberLocations();
-    return new JsonResponse($locations);
+    $response = new CacheableJsonResponse($locations);
+    $cacheability = (new CacheableMetadata())
+      ->setCacheMaxAge(900)
+      ->addCacheTags(['makerspace_dashboard:api:locations'])
+      ->addCacheContexts([]);
+    $response->addCacheableDependency($cacheability);
+    $response->setPublic();
+    $response->setMaxAge(900);
+    $response->setSharedMaxAge(900);
+    return $response;
   }
 
 }

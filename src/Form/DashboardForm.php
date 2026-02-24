@@ -101,6 +101,17 @@ class DashboardForm extends FormBase {
       '#suffix' => '</div>',
     ];
 
+    $form['#cache'] = [
+      'max-age' => 900,
+      'tags' => [
+        'config:makerspace_dashboard.settings',
+        'config:makerspace_dashboard.kpis',
+      ],
+      'contexts' => [
+        'url.path',
+      ],
+    ];
+
     return $form;
   }
 

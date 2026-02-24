@@ -2,6 +2,8 @@
 
 namespace Drupal\makerspace_dashboard\Controller;
 
+use Drupal\Core\Cache\CacheableJsonResponse;
+use Drupal\Core\Cache\CacheableMetadata;
 use Drupal\Core\Controller\ControllerBase;
 use Drupal\makerspace_dashboard\Service\MemberJoinLocationDataService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -58,13 +60,25 @@ class JoinLocationApiController extends ControllerBase {
 
     $data = $this->joinLocationData->getJoinLocationsForQuarter($requestedYear, $requestedQuarter);
 
-    return new JsonResponse([
+    $payload = [
       'locations' => $data['locations'],
       'mappable_count' => $data['mappable_count'],
       'total_count' => $data['total_count'],
       'filters' => $data['filters'],
       'quarters' => $options,
-    ]);
+    ];
+
+    $response = new CacheableJsonResponse($payload);
+    $cacheability = (new CacheableMetadata())
+      ->setCacheMaxAge(900)
+      ->addCacheTags(['makerspace_dashboard:api:join_locations'])
+      ->addCacheContexts(['url.query_args:year', 'url.query_args:quarter']);
+    $response->addCacheableDependency($cacheability);
+    $response->setPublic();
+    $response->setMaxAge(900);
+    $response->setSharedMaxAge(900);
+
+    return $response;
   }
 
 }
