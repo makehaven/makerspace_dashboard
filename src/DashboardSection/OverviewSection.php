@@ -297,6 +297,7 @@ class OverviewSection extends DashboardSectionBase {
       'retention' => [
         'kpi_total_active_members' => 'snapshot_monthly',
         'kpi_first_year_member_retention' => 'annual_retention',
+        'kpi_member_post_12_month_retention' => 'annual_retention',
         'kpi_member_nps' => 'appointment_feedback_outcomes',
         'kpi_active_participation' => 'badge_tenure_correlation',
         'kpi_membership_diversity_bipoc' => 'annual_retention_ethnicity',

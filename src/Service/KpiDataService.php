@@ -352,6 +352,7 @@ class KpiDataService {
       'retention' => [
         'kpi_total_active_members',
         'kpi_first_year_member_retention',
+        'kpi_member_post_12_month_retention',
         'kpi_retention_poc',
         'kpi_member_nps',
         'kpi_active_participation',
@@ -2207,6 +2208,125 @@ class KpiDataService {
       $lastUpdated,
       $current,
       'kpi_first_year_member_retention',
+      'percent'
+    );
+  }
+
+  /**
+   * Gets the data for the "Member (Post-12mo) Retention %" KPI.
+   */
+  private function getKpiMemberPost12MonthRetentionData(array $kpi_info): array {
+    $annualOverrides = [];
+    $trend = [];
+    $ttm12 = NULL;
+    $ttm3 = NULL;
+    $current = NULL;
+    $lastUpdated = NULL;
+
+    $cohortMatrix = $this->membershipMetricsService->getMonthlyCohortRetentionMatrix(48);
+    $retentionSeries = [];
+    foreach ($cohortMatrix as $row) {
+      if (
+        !isset($row['retention'][12], $row['retention'][24]) ||
+        !is_numeric($row['retention'][12]) ||
+        !is_numeric($row['retention'][24])
+      ) {
+        continue;
+      }
+      $retentionAt12 = (float) $row['retention'][12] / 100;
+      $retentionAt24 = (float) $row['retention'][24] / 100;
+      if ($retentionAt12 <= 0) {
+        continue;
+      }
+      $retentionRatio = $retentionAt24 / $retentionAt12;
+      $retentionRatio = max(0.0, min(1.0, $retentionRatio));
+      $retentionSeries[] = $retentionRatio;
+    }
+
+    if ($retentionSeries) {
+      $trend = array_slice($retentionSeries, -12);
+      $ttm12 = $this->calculateTrailingAverage($retentionSeries, 12);
+      $ttm3 = $this->calculateTrailingAverage($retentionSeries, 3);
+      $current = $retentionSeries[count($retentionSeries) - 1];
+      $lastUpdated = date('Y-m-d');
+
+      $now = new \DateTimeImmutable('first day of this month');
+      $monthsCount = count($retentionSeries);
+      foreach ($retentionSeries as $index => $value) {
+        $monthsAgo = $monthsCount - $index - 1;
+        $cohortMonth = $now->modify(sprintf('-%d months', $monthsAgo + 12));
+        if ((int) $cohortMonth->format('n') === 12) {
+          $annualOverrides[$cohortMonth->format('Y')] = $value;
+        }
+      }
+    }
+
+    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_member_post_12_month_retention');
+    if (!empty($snapshotSeries)) {
+      $snapshotValues = [];
+      $lastSnapshot = NULL;
+      foreach ($snapshotSeries as $record) {
+        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
+        if ($value === NULL) {
+          continue;
+        }
+        if (abs($value) > 1.5 && abs($value) <= 100) {
+          $value = $value / 100;
+        }
+        $value = max(0.0, min(1.0, $value));
+        $snapshotValues[] = $value;
+        $lastSnapshot = $record;
+
+        if ($this->isAnnualSnapshotRecord($record)) {
+          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+            $year = $record['snapshot_date']->format('Y');
+          }
+          elseif (!empty($record['period_year'])) {
+            $year = (string) $record['period_year'];
+          }
+          else {
+            $year = NULL;
+          }
+          if ($year !== NULL) {
+            $annualOverrides[$year] = $value;
+          }
+        }
+      }
+
+      if (empty($retentionSeries) && $snapshotValues) {
+        $trend = array_slice($snapshotValues, -12);
+        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
+        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
+        $current = (float) end($snapshotValues);
+      }
+
+      if ($lastUpdated === NULL && $lastSnapshot) {
+        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
+          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
+        }
+        elseif (!empty($lastSnapshot['period_year'])) {
+          $month = (int) ($lastSnapshot['period_month'] ?? 1);
+          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
+        }
+      }
+    }
+
+    if ($annualOverrides) {
+      foreach ($annualOverrides as $year => $value) {
+        $annualOverrides[$year] = is_numeric($value) ? (float) $value : $value;
+      }
+      ksort($annualOverrides, SORT_STRING);
+    }
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      $trend,
+      $ttm12,
+      $ttm3,
+      $lastUpdated,
+      $current,
+      'kpi_member_post_12_month_retention',
       'percent'
     );
   }
@@ -4711,6 +4831,13 @@ Process Group PGID: 1032535   *
           'goal_2030' => 0.85,
           'description' => 'Percentage of new members who remain active for at least 12 months after joining.',
           'source_note' => 'System: 12-month survival rate for the previous year\'s join cohort (excludes unpreventable ends).',
+        ],
+        'kpi_member_post_12_month_retention' => [
+          'label' => 'Member (Post-12mo) Retention %',
+          'base_2025' => 0.85,
+          'goal_2030' => 0.92,
+          'description' => 'Retention from month 12 to month 24 among members who made it through their first year.',
+          'source_note' => 'System: Cohort month-24 retention divided by month-12 retention.',
         ],
         'kpi_retention_poc' => [
           'label' => 'Retention POC %',

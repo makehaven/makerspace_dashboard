@@ -122,6 +122,10 @@ retention:
     label: 'First Year Member Retention %'
     base_2025: 0.70
     goal_2030: 0.85
+  kpi_member_post_12_month_retention:
+    label: 'Member (Post-12mo) Retention %'
+    base_2025: 0.85
+    goal_2030: 0.92
   kpi_member_nps:
     label: 'Member Net Promoter Score (NPS)'
     base_2025: 50

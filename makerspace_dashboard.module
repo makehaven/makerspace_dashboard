@@ -64,6 +64,38 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
     ];
   }
 
+  if (\Drupal::hasService('makerspace_dashboard.membership_metrics')) {
+    try {
+      $matrix = \Drupal::service('makerspace_dashboard.membership_metrics')->getMonthlyCohortRetentionMatrix(24);
+      if (!empty($matrix)) {
+        $latestPost12Retention = NULL;
+        foreach ($matrix as $row) {
+          if (
+            isset($row['retention'][12], $row['retention'][24]) &&
+            is_numeric($row['retention'][12]) &&
+            is_numeric($row['retention'][24]) &&
+            (float) $row['retention'][12] > 0
+          ) {
+            $retention12 = (float) $row['retention'][12] / 100;
+            $retention24 = (float) $row['retention'][24] / 100;
+            $latestPost12Retention = max(0.0, min(1.0, $retention24 / $retention12));
+          }
+        }
+        if ($latestPost12Retention !== NULL) {
+          $metrics['kpi_member_post_12_month_retention'] = [
+            'value' => $latestPost12Retention,
+            'period_year' => $periodYear,
+            'period_month' => $periodMonth,
+          ];
+        }
+      }
+      reset($matrix);
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot post-12-month member retention KPI: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
   $periodStart = NULL;
   $periodEnd = NULL;
   if (!empty($context['period_start']) && !empty($context['period_end'])) {
