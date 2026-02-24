@@ -154,6 +154,18 @@ education:
     label: '# of Workshop Attendees'
     base_2025: 1200
     goal_2030: 2000
+  kpi_workshop_capacity_utilization:
+    label: 'Workshop Capacity Utilization %'
+    base_2025: 0.70
+    goal_2030: 0.90
+  kpi_program_capacity_utilization:
+    label: 'Program Capacity Utilization %'
+    base_2025: 0.70
+    goal_2030: 0.90
+  kpi_workshop_program_capacity_utilization:
+    label: 'Workshop + Program Capacity Utilization %'
+    base_2025: 0.70
+    goal_2030: 0.90
   kpi_education_nps:
     label: 'Education Net Promoter Score (NPS)'
     base_2025: 60
@@ -207,7 +219,7 @@ development:
     base_2025: 7916
     goal_2030: 75000
   kpi_grant_pipeline_count:
-    label: '# of Active Grants in Pipeline'
+    label: '# of Grants Submitted (YTD)'
     base_2025: 9
     goal_2030: 15
   kpi_grant_win_ratio:

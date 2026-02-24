@@ -385,6 +385,9 @@ class KpiDataService {
       ],
       'education' => [
         'kpi_workshop_attendees',
+        'kpi_workshop_capacity_utilization',
+        'kpi_program_capacity_utilization',
+        'kpi_workshop_program_capacity_utilization',
         'kpi_education_nps',
         'kpi_workshop_participants_bipoc',
         'kpi_active_instructors_bipoc',
@@ -848,7 +851,9 @@ class KpiDataService {
       'kpi_workshop_attendees'
     );
 
-    $ytd = $this->calculateWorkshopAttendeesYtd($monthlyItems);
+    $ytdStart = (new \DateTimeImmutable('first day of january ' . date('Y')))->setTime(0, 0, 0);
+    $ytdEnd = new \DateTimeImmutable('now');
+    $ytd = $this->eventsMembershipDataService->getWorkshopAttendeeCountInRange($ytdStart, $ytdEnd);
     if ($ytd !== NULL) {
       $segments = $result['segments'] ?? [];
       $segments[] = [
@@ -860,6 +865,213 @@ class KpiDataService {
     }
 
     return $result;
+  }
+
+  /**
+   * Gets the data for the "Workshop Capacity Utilization %" KPI.
+   */
+  private function getKpiWorkshopCapacityUtilizationData(array $kpi_info): array {
+    $series = $this->buildEducationCapacitySeries(['Ticketed Workshop']);
+    return $this->buildCapacityUtilizationResult(
+      $kpi_info,
+      $series,
+      'kpi_workshop_capacity_utilization',
+      'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Ticketed Workshops (capacity > 0). Deactivated/cancelled events are excluded.'
+    );
+  }
+
+  /**
+   * Gets the data for the "Program Capacity Utilization %" KPI.
+   */
+  private function getKpiProgramCapacityUtilizationData(array $kpi_info): array {
+    $series = $this->buildEducationCapacitySeries(['Program']);
+    return $this->buildCapacityUtilizationResult(
+      $kpi_info,
+      $series,
+      'kpi_program_capacity_utilization',
+      'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Program events (capacity > 0). Deactivated/cancelled events are excluded.'
+    );
+  }
+
+  /**
+   * Gets the data for the combined Workshop + Program capacity KPI.
+   */
+  private function getKpiWorkshopProgramCapacityUtilizationData(array $kpi_info): array {
+    $combinedSeries = $this->buildEducationCapacitySeries(['Ticketed Workshop', 'Program']);
+    $workshopSeries = $this->buildEducationCapacitySeries(['Ticketed Workshop']);
+    $programSeries = $this->buildEducationCapacitySeries(['Program']);
+
+    $result = $this->buildCapacityUtilizationResult(
+      $kpi_info,
+      $combinedSeries,
+      'kpi_workshop_program_capacity_utilization',
+      'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Ticketed Workshop + Program events (capacity > 0). Deactivated/cancelled events are excluded.'
+    );
+    $workshopWeighted = $workshopSeries['summary']['weighted_fill_ratio'] ?? NULL;
+    $programWeighted = $programSeries['summary']['weighted_fill_ratio'] ?? NULL;
+    $segments = [];
+    if (is_numeric($workshopWeighted)) {
+      $segments[] = [
+        'label' => 'Workshop',
+        'value' => (float) $workshopWeighted,
+        'format' => 'percent',
+      ];
+    }
+    if (is_numeric($programWeighted)) {
+      $segments[] = [
+        'label' => 'Program',
+        'value' => (float) $programWeighted,
+        'format' => 'percent',
+      ];
+    }
+    if ($segments) {
+      $result['segments'] = $segments;
+    }
+    return $result;
+  }
+
+  /**
+   * Loads monthly capacity series and combines labels when requested.
+   */
+  private function buildEducationCapacitySeries(array $eventTypeLabels): array {
+    $end = new \DateTimeImmutable('now');
+    $start = $end->modify('first day of this month')->setTime(0, 0, 0)->modify('-11 months');
+    $labels = array_values(array_unique(array_filter(array_map('trim', $eventTypeLabels))));
+    if (empty($labels)) {
+      $labels = ['Ticketed Workshop'];
+    }
+
+    $combinedByMonth = [];
+    foreach ($labels as $label) {
+      $series = $this->eventsMembershipDataService->getWorkshopCapacityUtilizationSeries($start, $end, $label);
+      foreach ((array) ($series['items'] ?? []) as $item) {
+        $monthKey = (string) ($item['month_key'] ?? '');
+        if ($monthKey === '') {
+          continue;
+        }
+        if (!isset($combinedByMonth[$monthKey])) {
+          $combinedByMonth[$monthKey] = [
+            'month_key' => $monthKey,
+            'label' => (string) ($item['label'] ?? $monthKey),
+            'date' => $item['date'] ?? NULL,
+            'eligible_events' => 0,
+            'near_capacity_events' => 0,
+            'full_events' => 0,
+            'capacity_total' => 0,
+            'counted_total' => 0,
+          ];
+        }
+        $combinedByMonth[$monthKey]['eligible_events'] += (int) ($item['eligible_events'] ?? 0);
+        $combinedByMonth[$monthKey]['near_capacity_events'] += (int) ($item['near_capacity_events'] ?? 0);
+        $combinedByMonth[$monthKey]['full_events'] += (int) ($item['full_events'] ?? 0);
+        $combinedByMonth[$monthKey]['capacity_total'] += (int) ($item['capacity_total'] ?? 0);
+        $combinedByMonth[$monthKey]['counted_total'] += (int) ($item['counted_total'] ?? 0);
+      }
+    }
+
+    ksort($combinedByMonth, SORT_STRING);
+    $items = [];
+    $labelsOut = [];
+    $fillRates = [];
+    $summary = [
+      'eligible_events' => 0,
+      'near_capacity_events' => 0,
+      'full_events' => 0,
+      'capacity_total' => 0,
+      'counted_total' => 0,
+      'weighted_fill_ratio' => NULL,
+      'near_capacity_rate' => NULL,
+      'full_rate' => NULL,
+    ];
+
+    foreach ($combinedByMonth as $monthKey => $stats) {
+      $capacity = (int) ($stats['capacity_total'] ?? 0);
+      $counted = (int) ($stats['counted_total'] ?? 0);
+      $events = (int) ($stats['eligible_events'] ?? 0);
+      $near = (int) ($stats['near_capacity_events'] ?? 0);
+      $full = (int) ($stats['full_events'] ?? 0);
+      $ratio = $capacity > 0 ? ($counted / $capacity) : 0.0;
+      $nearRate = $events > 0 ? ($near / $events) : 0.0;
+      $fullRate = $events > 0 ? ($full / $events) : 0.0;
+      $label = (string) ($stats['label'] ?? $monthKey);
+
+      $items[] = [
+        'month_key' => $monthKey,
+        'label' => $label,
+        'date' => $stats['date'],
+        'eligible_events' => $events,
+        'near_capacity_events' => $near,
+        'full_events' => $full,
+        'capacity_total' => $capacity,
+        'counted_total' => $counted,
+        'fill_ratio' => $ratio,
+        'near_capacity_rate' => $nearRate,
+        'full_rate' => $fullRate,
+      ];
+      $labelsOut[] = $label;
+      $fillRates[] = $ratio;
+
+      $summary['eligible_events'] += $events;
+      $summary['near_capacity_events'] += $near;
+      $summary['full_events'] += $full;
+      $summary['capacity_total'] += $capacity;
+      $summary['counted_total'] += $counted;
+    }
+
+    if ($summary['capacity_total'] > 0) {
+      $summary['weighted_fill_ratio'] = $summary['counted_total'] / $summary['capacity_total'];
+    }
+    if ($summary['eligible_events'] > 0) {
+      $summary['near_capacity_rate'] = $summary['near_capacity_events'] / $summary['eligible_events'];
+      $summary['full_rate'] = $summary['full_events'] / $summary['eligible_events'];
+    }
+
+    return [
+      'items' => $items,
+      'labels' => $labelsOut,
+      'fill_rates' => $fillRates,
+      'summary' => $summary,
+    ];
+  }
+
+  /**
+   * Builds a normalized KPI payload from a capacity-utilization series.
+   */
+  private function buildCapacityUtilizationResult(array $kpi_info, array $series, string $kpiId, string $sourceNote): array {
+    $items = (array) ($series['items'] ?? []);
+    $summary = (array) ($series['summary'] ?? []);
+
+    $trend = array_map(static function (array $item): float {
+      return isset($item['fill_ratio']) && is_numeric($item['fill_ratio']) ? (float) $item['fill_ratio'] : 0.0;
+    }, $items);
+
+    $ttm12 = $this->calculateTrailingAverage($trend, 12);
+    $ttm3 = $this->calculateTrailingAverage($trend, 3);
+    $current = isset($summary['weighted_fill_ratio']) && is_numeric($summary['weighted_fill_ratio'])
+      ? (float) $summary['weighted_fill_ratio']
+      : NULL;
+    $lastUpdated = NULL;
+    if (!empty($items)) {
+      $last = $items[count($items) - 1];
+      if (!empty($last['date']) && $last['date'] instanceof \DateTimeImmutable) {
+        $lastUpdated = $last['date']->format('Y-m-d');
+      }
+    }
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      $trend,
+      $ttm12,
+      $ttm3,
+      $lastUpdated,
+      $current,
+      $kpiId,
+      'percent',
+      $sourceNote,
+      'Last 12 months',
+      'Average utilization'
+    );
   }
 
   /**
@@ -2487,21 +2699,35 @@ Process Group PGID: 1032535   *
    */
   private function getKpiGrantPipelineCountData(array $kpi_info): array {
     $summary = $this->developmentDataService->getGrantsSummary();
-    $current = (int) ($summary['pipeline_count'] ?? 0);
+    $currentYear = (int) date('Y');
+    $current = (int) $this->developmentDataService->getGrantSubmittedYtdCount($currentYear);
+    $trend = $this->developmentDataService->getGrantSubmittedTrend(12);
     $lastUpdated = date('Y-m-d');
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
-      [],
+      $trend,
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_grant_pipeline_count',
       'integer',
-      'CiviCRM: Total grants with status "Researching", "Inquiry", "Writing", or "Waiting".'
+      'CiviCRM Funding: YTD count of grants with submitted documentation/link populated (period keyed by due date because no submitted timestamp exists).',
+      'Last 12 months',
+      'YTD'
     );
+
+    $activePipeline = (int) ($summary['pipeline_count'] ?? 0);
+    $segments = $result['segments'] ?? [];
+    $segments[] = [
+      'label' => 'Active pipeline now',
+      'value' => (float) $activePipeline,
+      'format' => 'integer',
+    ];
+    $result['segments'] = $segments;
+    return $result;
   }
 
   /**
@@ -5352,6 +5578,27 @@ Process Group PGID: 1032535   *
           'description' => 'The total number of registrations for ticketed workshops held during the period.',
           'source_note' => 'CiviCRM: Sum of monthly registrations for event type "Ticketed Workshop".',
         ],
+        'kpi_workshop_capacity_utilization' => [
+          'label' => 'Workshop Capacity Utilization %',
+          'base_2025' => 0.70,
+          'goal_2030' => 0.90,
+          'description' => 'Weighted ratio of counted registrations to total available seats for active, ticketed workshops.',
+          'source_note' => 'CiviCRM: Counted registrations / max participant capacity for active Ticketed Workshops (capacity > 0).',
+        ],
+        'kpi_program_capacity_utilization' => [
+          'label' => 'Program Capacity Utilization %',
+          'base_2025' => 0.70,
+          'goal_2030' => 0.90,
+          'description' => 'Weighted ratio of counted registrations to total available seats for active program events.',
+          'source_note' => 'CiviCRM: Counted registrations / max participant capacity for active Program events (capacity > 0).',
+        ],
+        'kpi_workshop_program_capacity_utilization' => [
+          'label' => 'Workshop + Program Capacity Utilization %',
+          'base_2025' => 0.70,
+          'goal_2030' => 0.90,
+          'description' => 'Combined weighted fill ratio across active workshop and program events.',
+          'source_note' => 'CiviCRM: Counted registrations / max participant capacity for active Ticketed Workshop + Program events (capacity > 0).',
+        ],
         'kpi_education_nps' => [
           'label' => 'Education Net Promoter Score (NPS)',
           'base_2025' => 60,
@@ -5434,11 +5681,11 @@ Process Group PGID: 1032535   *
           'source_note' => 'Finance: Sum of corporate donation accounts from Income Statement.',
         ],
         'kpi_grant_pipeline_count' => [
-          'label' => '# of Active Grants in Pipeline',
+          'label' => '# of Grants Submitted (YTD)',
           'base_2025' => 9,
           'goal_2030' => 15,
-          'description' => 'Total count of grant applications currently in researching, writing, or pending stages.',
-          'source_note' => 'CiviCRM: Count of Funding records not yet marked Won or Lost.',
+          'description' => 'Count of grant opportunities with submitted documentation recorded during the year-to-date period.',
+          'source_note' => 'CiviCRM Funding: Submitted link present; period assignment currently uses due date (submitted timestamp not available).',
         ],
         'kpi_grant_win_ratio' => [
           'label' => 'Grant Win Ratio %',

@@ -1580,6 +1580,209 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Returns counted workshop attendees for an event-date range.
+   */
+  public function getWorkshopAttendeeCountInRange(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): int {
+    $cacheId = sprintf(
+      'makerspace_dashboard:workshop_attendance_count:%s:%s:%s',
+      $start_date->format('YmdHis'),
+      $end_date->format('YmdHis'),
+      md5($eventTypeLabel)
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return (int) ($cache->data ?? 0);
+    }
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+    if ($eventTypeGroupId) {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $eventTypeGroupId,
+      ]);
+    }
+    else {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->condition('ov.label', $eventTypeLabel);
+    $query->condition('pst.is_counted', 1);
+    $query->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    $query->addExpression('COUNT(DISTINCT p.id)', 'attendees');
+
+    $count = (int) $query->execute()->fetchField();
+    $this->cache->set($cacheId, $count, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+    return $count;
+  }
+
+  /**
+   * Returns monthly workshop capacity utilization for a date range.
+   *
+   * Deactivated events and events without explicit capacity are excluded.
+   */
+  public function getWorkshopCapacityUtilizationSeries(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop', float $nearCapacityThreshold = 0.90): array {
+    $months = $this->buildMonthRange($start_date, $end_date);
+    if (empty($months)) {
+      return [
+        'items' => [],
+        'labels' => [],
+        'fill_rates' => [],
+        'summary' => [
+          'eligible_events' => 0,
+          'near_capacity_events' => 0,
+          'full_events' => 0,
+          'capacity_total' => 0,
+          'counted_total' => 0,
+          'weighted_fill_ratio' => NULL,
+          'near_capacity_rate' => NULL,
+          'full_rate' => NULL,
+        ],
+      ];
+    }
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:workshop_capacity:%s:%s:%s:%s',
+      $start_date->format('YmdHis'),
+      $end_date->format('YmdHis'),
+      md5($eventTypeLabel),
+      number_format($nearCapacityThreshold, 2, '.', '')
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+    $query = $this->database->select('civicrm_event', 'e');
+    $query->addExpression("DATE_FORMAT(e.start_date, '%Y-%m-01')", 'month_key');
+    $query->addField('e', 'id', 'event_id');
+    $query->addField('e', 'max_participants');
+    $query->leftJoin('civicrm_participant', 'p', 'p.event_id = e.id');
+    $query->leftJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    if ($eventTypeGroupId) {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $eventTypeGroupId,
+      ]);
+    }
+    else {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->condition('ov.label', $eventTypeLabel);
+    $query->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    $query->condition('e.is_active', 1);
+    $query->condition('e.max_participants', 0, '>');
+    $query->addExpression('SUM(CASE WHEN pst.is_counted = 1 THEN 1 ELSE 0 END)', 'counted_regs');
+    $query->groupBy('month_key');
+    $query->groupBy('e.id');
+    $query->groupBy('e.max_participants');
+    $query->orderBy('month_key', 'ASC');
+
+    $monthly = [];
+    foreach (array_keys($months) as $monthKey) {
+      $monthly[$monthKey] = [
+        'eligible_events' => 0,
+        'near_capacity_events' => 0,
+        'full_events' => 0,
+        'capacity_total' => 0,
+        'counted_total' => 0,
+      ];
+    }
+
+    foreach ($query->execute() as $record) {
+      $monthKey = (string) $record->month_key;
+      if (!isset($monthly[$monthKey])) {
+        continue;
+      }
+      $capacity = max(0, (int) $record->max_participants);
+      if ($capacity <= 0) {
+        continue;
+      }
+      $counted = max(0, (int) $record->counted_regs);
+      $fillRatio = $counted / $capacity;
+
+      $monthly[$monthKey]['eligible_events']++;
+      $monthly[$monthKey]['capacity_total'] += $capacity;
+      $monthly[$monthKey]['counted_total'] += $counted;
+      if ($fillRatio >= $nearCapacityThreshold) {
+        $monthly[$monthKey]['near_capacity_events']++;
+      }
+      if ($fillRatio >= 1.0) {
+        $monthly[$monthKey]['full_events']++;
+      }
+    }
+
+    $items = [];
+    $labels = [];
+    $fillRates = [];
+    $summary = [
+      'eligible_events' => 0,
+      'near_capacity_events' => 0,
+      'full_events' => 0,
+      'capacity_total' => 0,
+      'counted_total' => 0,
+      'weighted_fill_ratio' => NULL,
+      'near_capacity_rate' => NULL,
+      'full_rate' => NULL,
+    ];
+
+    foreach ($months as $monthKey => $label) {
+      $monthDate = new \DateTimeImmutable($monthKey);
+      $stats = $monthly[$monthKey];
+      $ratio = $stats['capacity_total'] > 0 ? ($stats['counted_total'] / $stats['capacity_total']) : 0.0;
+      $nearRate = $stats['eligible_events'] > 0 ? ($stats['near_capacity_events'] / $stats['eligible_events']) : 0.0;
+      $fullRate = $stats['eligible_events'] > 0 ? ($stats['full_events'] / $stats['eligible_events']) : 0.0;
+
+      $items[] = [
+        'month_key' => $monthKey,
+        'label' => $label,
+        'date' => $monthDate,
+        'eligible_events' => $stats['eligible_events'],
+        'near_capacity_events' => $stats['near_capacity_events'],
+        'full_events' => $stats['full_events'],
+        'capacity_total' => $stats['capacity_total'],
+        'counted_total' => $stats['counted_total'],
+        'fill_ratio' => $ratio,
+        'near_capacity_rate' => $nearRate,
+        'full_rate' => $fullRate,
+      ];
+      $labels[] = $label;
+      $fillRates[] = $ratio;
+
+      $summary['eligible_events'] += $stats['eligible_events'];
+      $summary['near_capacity_events'] += $stats['near_capacity_events'];
+      $summary['full_events'] += $stats['full_events'];
+      $summary['capacity_total'] += $stats['capacity_total'];
+      $summary['counted_total'] += $stats['counted_total'];
+    }
+
+    if ($summary['capacity_total'] > 0) {
+      $summary['weighted_fill_ratio'] = $summary['counted_total'] / $summary['capacity_total'];
+    }
+    if ($summary['eligible_events'] > 0) {
+      $summary['near_capacity_rate'] = $summary['near_capacity_events'] / $summary['eligible_events'];
+      $summary['full_rate'] = $summary['full_events'] / $summary['eligible_events'];
+    }
+
+    $result = [
+      'items' => $items,
+      'labels' => $labels,
+      'fill_rates' => $fillRates,
+      'summary' => $summary,
+    ];
+    $this->cache->set($cacheId, $result, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+    return $result;
+  }
+
+  /**
    * Resolves the option group ID for event types.
    */
   protected function getEventTypeGroupId(): ?int {

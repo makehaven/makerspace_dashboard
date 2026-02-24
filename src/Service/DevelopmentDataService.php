@@ -418,6 +418,82 @@ class DevelopmentDataService {
   }
 
   /**
+   * Returns the count of grant records submitted in a calendar year-to-date.
+   *
+   * Submission is inferred from a populated submitted document/link field.
+   * Period bucketing is based on due date because no submitted timestamp field
+   * currently exists in the funding custom group.
+   */
+  public function getGrantSubmittedYtdCount(?int $year = NULL): int {
+    $targetYear = $year ?? (int) $this->now()->format('Y');
+    $now = $this->now();
+    $end = $targetYear === (int) $now->format('Y')
+      ? $now
+      : new \DateTimeImmutable(sprintf('%d-12-31 23:59:59', $targetYear), $now->getTimezone());
+    $start = new \DateTimeImmutable(sprintf('%d-01-01 00:00:00', $targetYear), $now->getTimezone());
+
+    $cid = $this->cacheId(sprintf('grant_submitted_ytd:%d:%s', $targetYear, $end->format('YmdHis')));
+    if ($cache = $this->cache->get($cid)) {
+      return (int) ($cache->data ?? 0);
+    }
+
+    $query = $this->database->select('civicrm_value_funding_7', 'f');
+    $query->addExpression('COUNT(*)', 'submitted_count');
+    $query->condition('f.date_due_21', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
+    $submitted = $query->orConditionGroup();
+    $submitted->condition('f.grant_status_14', ['waiting', 'won', 'lost', 'abandoned'], 'IN');
+    $submitted->condition('f.submitted_link_22', '', '<>');
+    $query->condition($submitted);
+
+    $count = (int) $query->execute()->fetchField();
+    $this->cache->set($cid, $count, $this->time->getRequestTime() + $this->ttl, ['civicrm_contact_list']);
+    return $count;
+  }
+
+  /**
+   * Returns monthly submitted-grant counts (oldest-first).
+   */
+  public function getGrantSubmittedTrend(int $months = 12): array {
+    $months = max(1, $months);
+    $cid = $this->cacheId('grant_submitted_trend:' . $months);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $end = $this->now();
+    $monthSeries = $this->buildMonthSeries($end, $months);
+    $monthKeys = array_keys($monthSeries);
+    if (!$monthKeys) {
+      return [];
+    }
+
+    $startDate = new \DateTimeImmutable($monthKeys[0] . '-01 00:00:00', $end->getTimezone());
+    $endDate = $end;
+    $counts = array_fill_keys($monthKeys, 0);
+
+    $query = $this->database->select('civicrm_value_funding_7', 'f');
+    $query->addExpression("DATE_FORMAT(f.date_due_21, '%Y-%m')", 'month_key');
+    $query->addExpression('COUNT(*)', 'submitted_count');
+    $query->condition('f.date_due_21', [$startDate->format('Y-m-d H:i:s'), $endDate->format('Y-m-d H:i:s')], 'BETWEEN');
+    $submitted = $query->orConditionGroup();
+    $submitted->condition('f.grant_status_14', ['waiting', 'won', 'lost', 'abandoned'], 'IN');
+    $submitted->condition('f.submitted_link_22', '', '<>');
+    $query->condition($submitted);
+    $query->groupBy('month_key');
+
+    foreach ($query->execute() as $row) {
+      $key = (string) $row->month_key;
+      if (isset($counts[$key])) {
+        $counts[$key] = (int) $row->submitted_count;
+      }
+    }
+
+    $trend = array_values($counts);
+    $this->cache->set($cid, $trend, $this->time->getRequestTime() + $this->ttl, ['civicrm_contact_list']);
+    return $trend;
+  }
+
+  /**
    * Returns the count of active recurring donors.
    */
   public function getRecurringDonorsCount(): int {

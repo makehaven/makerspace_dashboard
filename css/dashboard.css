@@ -274,7 +274,7 @@
 
 .kpi-table th:nth-child(1), .kpi-table td:nth-child(1),
 .kpi-stoplight-table--sectioned th:nth-child(1), .kpi-stoplight-table--sectioned td:nth-child(1) { 
-  width: 40% !important; 
+  width: 36% !important; 
 }
 
 .kpi-table th:nth-child(2), .kpi-table td:nth-child(2),
@@ -289,12 +289,17 @@
 
 .kpi-table th:nth-child(4), .kpi-table td:nth-child(4),
 .kpi-stoplight-table--sectioned th:nth-child(4), .kpi-stoplight-table--sectioned td:nth-child(4) { 
-  width: 12% !important; 
+  width: 10% !important; 
 }
 
 .kpi-table th:nth-child(5), .kpi-table td:nth-child(5),
 .kpi-stoplight-table--sectioned th:nth-child(5), .kpi-stoplight-table--sectioned td:nth-child(5) { 
-  width: 24% !important; 
+  width: 10% !important; 
+}
+
+.kpi-table th:nth-child(6), .kpi-table td:nth-child(6),
+.kpi-stoplight-table--sectioned th:nth-child(6), .kpi-stoplight-table--sectioned td:nth-child(6) { 
+  width: 20% !important; 
 }
 
 .kpi-legend {
@@ -359,7 +364,8 @@
 }
 
 .kpi-current-cell,
-.kpi-goal-cell {
+.kpi-goal-cell,
+.kpi-details-cell {
   text-align: center !important;
   vertical-align: top !important;
   padding-top: 1rem !important;
@@ -1005,16 +1011,17 @@
   }
 
   /* Hide Sparklines on mobile table to keep focus on numbers */
-  .kpi-table th:nth-child(5), .kpi-table td:nth-child(5),
-  .kpi-stoplight-table--sectioned th:nth-child(5), .kpi-stoplight-table--sectioned td:nth-child(5) { 
+  .kpi-table th:nth-child(6), .kpi-table td:nth-child(6),
+  .kpi-stoplight-table--sectioned th:nth-child(6), .kpi-stoplight-table--sectioned td:nth-child(6) { 
     display: none !important;
   }
 
   /* Expand other columns slightly since sparkline is gone */
   .kpi-table th:nth-child(2), .kpi-table td:nth-child(2),
   .kpi-table th:nth-child(3), .kpi-table td:nth-child(3),
-  .kpi-table th:nth-child(4), .kpi-table td:nth-child(4) {
-    width: 16% !important;
+  .kpi-table th:nth-child(4), .kpi-table td:nth-child(4),
+  .kpi-table th:nth-child(5), .kpi-table td:nth-child(5) {
+    width: 12.5% !important;
   }
 
   /* Adjust KPI Grid for 2 columns on mobile if space allows, or 1 if very tight */
