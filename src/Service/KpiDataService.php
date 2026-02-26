@@ -3,6 +3,8 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Component\Datetime\TimeInterface;
 use DateTimeImmutable;
 use DateTimeZone;
 
@@ -134,6 +136,28 @@ class KpiDataService {
   protected ?array $incomeStatementTable = NULL;
 
   /**
+   * Cache backend for computed KPI section payloads.
+   */
+  protected CacheBackendInterface $cache;
+
+  /**
+   * Time service.
+   */
+  protected TimeInterface $time;
+
+  /**
+   * Section KPI payload cache lifetime in seconds.
+   */
+  protected int $sectionCacheTtl;
+
+  /**
+   * In-request memoization for section KPI payloads.
+   *
+   * @var array<string,array>
+   */
+  protected array $sectionKpiDataCache = [];
+
+  /**
    * Infrastructure data service.
    *
    * @var \Drupal\makerspace_dashboard\Service\InfrastructureDataService
@@ -173,8 +197,14 @@ class KpiDataService {
    *   Member success lifecycle and risk metrics service.
    * @param \Drupal\makerspace_dashboard\Service\InfrastructureDataService $infrastructure_data_service
    *   Infrastructure data service.
+   * @param \Drupal\Core\Cache\CacheBackendInterface $cache
+   *   Cache backend.
+   * @param \Drupal\Component\Datetime\TimeInterface $time
+   *   Time service.
+   * @param int $section_cache_ttl
+   *   Section KPI cache TTL in seconds.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service, InfrastructureDataService $infrastructure_data_service) {
+  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service, InfrastructureDataService $infrastructure_data_service, CacheBackendInterface $cache, TimeInterface $time, int $section_cache_ttl = 1800) {
     $this->configFactory = $config_factory;
     $this->financialDataService = $financial_data_service;
     $this->googleSheetClientService = $google_sheet_client_service;
@@ -190,6 +220,9 @@ class KpiDataService {
     $this->funnelDataService = $funnel_data_service;
     $this->memberSuccessDataService = $member_success_data_service;
     $this->infrastructureDataService = $infrastructure_data_service;
+    $this->cache = $cache;
+    $this->time = $time;
+    $this->sectionCacheTtl = max(60, $section_cache_ttl);
   }
 
   /**
@@ -202,9 +235,27 @@ class KpiDataService {
    *   An array of KPI data for the section.
    */
   public function getKpiData(string $section_id): array {
+    $section_id = trim($section_id);
+    if ($section_id === '') {
+      return [];
+    }
+
+    if (isset($this->sectionKpiDataCache[$section_id])) {
+      return $this->sectionKpiDataCache[$section_id];
+    }
+
+    $cacheId = $this->buildSectionKpiCacheId($section_id);
+    if ($cached = $this->cache->get($cacheId)) {
+      if (is_array($cached->data)) {
+        $this->sectionKpiDataCache[$section_id] = $cached->data;
+        return $cached->data;
+      }
+    }
+
     $kpi_config = $this->getMergedKpiDefinitions($section_id);
 
     if (!$kpi_config) {
+      $this->sectionKpiDataCache[$section_id] = [];
       return [];
     }
 
@@ -232,7 +283,38 @@ class KpiDataService {
       $kpi_data[$kpi_id] = $result;
     }
 
+    $this->sectionKpiDataCache[$section_id] = $kpi_data;
+    $this->cache->set(
+      $cacheId,
+      $kpi_data,
+      $this->time->getRequestTime() + $this->sectionCacheTtl,
+      [
+        'config:makerspace_dashboard.kpis',
+        'config:makerspace_dashboard.settings',
+      ]
+    );
+
     return $kpi_data;
+  }
+
+  /**
+   * Precomputes KPI payloads for dashboard sections.
+   *
+   * @param array|null $sectionIds
+   *   Optional section IDs. NULL warms all known sections.
+   */
+  public function warmSectionCache(?array $sectionIds = NULL): void {
+    $targetSections = $sectionIds !== NULL ? $sectionIds : array_keys($this->getAllKpiDefinitions());
+    foreach ($targetSections as $sectionId) {
+      $sectionId = trim((string) $sectionId);
+      if ($sectionId === '') {
+        continue;
+      }
+      // Force a fresh compute to refresh the persisted cache TTL.
+      unset($this->sectionKpiDataCache[$sectionId]);
+      $this->cache->delete($this->buildSectionKpiCacheId($sectionId));
+      $this->getKpiData($sectionId);
+    }
   }
 
   /**
@@ -264,6 +346,13 @@ class KpiDataService {
 
   public function getSectionKpiDefinitions(string $section_id): array {
     return $this->getMergedKpiDefinitions($section_id);
+  }
+
+  /**
+   * Builds the persistent cache key for section KPI payloads.
+   */
+  protected function buildSectionKpiCacheId(string $sectionId): string {
+    return 'makerspace_dashboard:kpi_data:section:v1:' . $sectionId;
   }
 
   private function getMergedKpiDefinitions(string $section_id): array {

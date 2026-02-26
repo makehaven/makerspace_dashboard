@@ -1012,6 +1012,9 @@ services:
       - '@makerspace_dashboard.funnel_data'
       - '@makerspace_dashboard.member_success_data'
       - '@makerspace_dashboard.infrastructure_data'
+      - '@cache.default'
+      - '@datetime.time'
+      - 1800
 
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager

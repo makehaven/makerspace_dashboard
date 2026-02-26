@@ -459,3 +459,24 @@ function makerspace_dashboard_theme($existing, $type, $theme, $path) {
     ],
   ];
 }
+
+/**
+ * Implements hook_cron().
+ */
+function makerspace_dashboard_cron(): void {
+  if (!\Drupal::hasService('makerspace_dashboard.kpi_data')) {
+    return;
+  }
+
+  try {
+    /** @var \Drupal\makerspace_dashboard\Service\KpiDataService $kpiData */
+    $kpiData = \Drupal::service('makerspace_dashboard.kpi_data');
+    $kpiData->warmSectionCache();
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('makerspace_dashboard')->warning(
+      'KPI cache prewarm failed during cron: @message',
+      ['@message' => $e->getMessage()]
+    );
+  }
+}
