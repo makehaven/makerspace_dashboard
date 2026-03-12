@@ -57,8 +57,9 @@ Many new KPIs require data that is not currently tracked or is tracked outside t
     - **Action:** The `GovernanceDataService` and/or `EventsMembershipDataService` must be built to query this new source.
 
 - **For Satisfaction & NPS (Infrastructure/Education):**
-    - **Recommendation:** Use the Drupal **Webform** module. Create satisfaction surveys and post-workshop evaluations.
-    - **Action:** The new `SurveyDataService` should query the `webform_submission` and `webform_submission_data` tables to aggregate responses.
+    - **Recommendation:** Use the Drupal **Webform** module, but standardize on one canonical event feedback form backed by CiviCRM event metadata.
+    - **Action:** The new `SurveyDataService` should query the canonical webform submission tables and join to CiviCRM event metadata for event type and registration context.
+    - **Reference:** See `docs/arch/EVENT_FEEDBACK_STANDARDIZATION_PLAN.md` for the event feedback schema, source-of-truth rules, and migration plan.
 
 - **For Entrepreneurship (Entrepreneurship):**
     - **Recommendation:** Track incubator participants and their milestones. This fits well as a **CiviCRM Custom Entity** or a simple **Drupal Custom Entity**.
@@ -166,7 +167,7 @@ Do this as a separate commit after all traits are extracted, since it touches al
     - CiviCRM Group IDs for volunteers/committees.
     - CiviCRM Event Type IDs (for filtering workshops).
     - CiviCRM Financial Type IDs (for donations, grants).
-    - Webform IDs for surveys.
+    - Canonical Webform IDs for surveys and event feedback.
 
 ## 5. New Chart Roadmap (Summary)
 
