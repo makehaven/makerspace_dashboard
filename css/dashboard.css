@@ -1061,3 +1061,199 @@
   margin-left: -0.5rem;
   margin-right: -0.5rem;
 }
+
+@media print {
+  @page {
+    margin: 0.35in 0.45in;
+  }
+
+  html:has(body[class*="path-makerspace-dashboard"]),
+  body[class*="path-makerspace-dashboard"] {
+    background: #fff !important;
+  }
+
+  html,
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 10px !important;
+    line-height: 1.25 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  #toolbar-administration,
+  #toolbar-bar,
+  .toolbar,
+  .toolbar-tray,
+  .toolbar-oriented,
+  header,
+  footer,
+  [role="banner"],
+  [role="contentinfo"],
+  .gin-secondary-toolbar,
+  .gin-toolbar,
+  .gin-sidebar-toolbar,
+  .gin-sidebar,
+  .layout-sidebar-first,
+  .layout-sidebar,
+  .block-system-breadcrumb-block,
+  .region-header,
+  .region-secondary-menu,
+  .region-breadcrumb,
+  .region-sidebar-first,
+  .region-sidebar-second,
+  .region-footer,
+  .page-title-breadcrumbs,
+  .breadcrumb,
+  .tabs,
+  .local-tasks,
+  .messages,
+  .status-messages,
+  .makerspace-dashboard-tabs,
+  .overview-kpi-section-link,
+  .kpi-overview-more-link,
+  .source_details,
+  .contextual,
+  .contextual-region .trigger,
+  a[href*="edit-notes"],
+  a[href*="/edit"] {
+    display: none !important;
+  }
+
+  .dialog-off-canvas-main-canvas,
+  .layout-main-wrapper,
+  .layout-main,
+  .main-content,
+  main,
+  .makerspace-dashboard-wrapper,
+  .makerspace-dashboard-section {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+  }
+
+  .makerspace-dashboard-summary,
+  .makerspace-dashboard-definition,
+  .makerspace-dashboard-tab-note,
+  .makerspace-dashboard-footer,
+  .overview-stoplight > .heading,
+  .kpi-legend,
+  #overview {
+    display: none !important;
+  }
+
+  h1.page-title,
+  .page-title {
+    margin: 0 0 0.12in !important;
+    font-size: 18px !important;
+    line-height: 1.1 !important;
+  }
+
+  .overview-stoplight {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .overview-stoplight > .heading,
+  .kpi-legend {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .overview-kpi-table-wrap {
+    overflow: visible !important;
+  }
+
+  .overview-kpi-section-table {
+    margin: 0 0 0.08in !important;
+    break-inside: avoid-page;
+    page-break-inside: avoid;
+  }
+
+  .overview-kpi-section-table + .overview-kpi-section-table {
+    break-before: page;
+    page-break-before: always;
+    padding-top: 0.04in;
+  }
+
+  .overview-kpi-section-table h3 {
+    margin: 0 0 0.08in !important;
+    font-size: 13px !important;
+    line-height: 1.1 !important;
+  }
+
+  .kpi-stoplight-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+  }
+
+  .kpi-stoplight-table th,
+  .kpi-stoplight-table td {
+    padding: 0.07in 0.08in !important;
+    vertical-align: top !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .kpi-stoplight-table thead th {
+    font-size: 8px !important;
+    line-height: 1.1 !important;
+  }
+
+  .kpi-overview-label-cell {
+    gap: 0.04in !important;
+    padding: 0 !important;
+  }
+
+  .kpi-overview-label-cell .kpi-title,
+  .kpi-title {
+    font-size: 9px !important;
+    line-height: 1.15 !important;
+  }
+
+  .kpi-overview-label-cell .kpi-description,
+  .kpi-description {
+    font-size: 7.5px !important;
+    line-height: 1.15 !important;
+    color: #444 !important;
+  }
+
+  .kpi-overview-state {
+    font-size: 7px !important;
+    padding: 0.02in 0.05in !important;
+  }
+
+  .kpi-value-cell,
+  .kpi-value-big {
+    font-size: 10px !important;
+    line-height: 1.05 !important;
+  }
+
+  .kpi-period-label,
+  .kpi-sparkline-label,
+  .kpi-goal-progress__label,
+  .kpi-segment-chip,
+  .kpi-goal-label {
+    font-size: 7px !important;
+    line-height: 1.1 !important;
+  }
+
+  .kpi-sparkline-wrapper {
+    gap: 0.03in !important;
+  }
+
+  .kpi-sparkline-wrapper svg {
+    height: 0.45in !important;
+    width: 100% !important;
+  }
+
+  a,
+  a:visited {
+    color: inherit !important;
+    text-decoration: none !important;
+  }
+}

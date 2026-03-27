@@ -109,33 +109,67 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
     }
   }
 
-  // Snapshot point-in-time utilization so membership-denominator math is frozen.
+  // Snapshot participation metrics so the log-based numerator and roster-based
+  // denominator are both frozen at the time the snapshot is taken.
   if (!empty($context['period_start']) && !empty($context['period_end']) && \Drupal::hasService('makerspace_dashboard.utilization_data')) {
     try {
-      $startTs = strtotime((string) $context['period_start']) ?: NULL;
       $endTs = strtotime((string) $context['period_end']) ?: NULL;
-      if ($startTs && $endTs && $endTs >= $startTs) {
-        $buckets = \Drupal::service('makerspace_dashboard.utilization_data')->getVisitFrequencyBuckets($startTs, $endTs);
-        $bucketTotal = 0;
-        foreach ($buckets as $bucketCount) {
-          if (is_numeric($bucketCount)) {
-            $bucketTotal += (int) $bucketCount;
-          }
-        }
-        $noVisits = isset($buckets['no_visits']) && is_numeric($buckets['no_visits']) ? (int) $buckets['no_visits'] : 0;
-        $participants = max(0, $bucketTotal - $noVisits);
-        $participationRatio = $bucketTotal > 0 ? ($participants / $bucketTotal) : 0.0;
+      if ($endTs) {
+        $startTs = max(0, $endTs - (89 * 86400));
+        $utilization = \Drupal::service('makerspace_dashboard.utilization_data');
+
+        $overall = $utilization->getParticipationSummary($startTs, $endTs, NULL);
+        $bipoc = $utilization->getParticipationSummary($startTs, $endTs, 'bipoc');
+        $femaleNb = $utilization->getParticipationSummary($startTs, $endTs, 'female_nb');
 
         $metrics['kpi_shop_utilization'] = [
-          'value' => $participationRatio,
+          'value' => (float) ($overall['rate'] ?? 0.0),
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
+          'meta' => [
+            'visitors' => (int) ($overall['visitors'] ?? 0),
+            'roster' => (int) ($overall['roster'] ?? 0),
+            'window_start' => date('Y-m-d H:i:s', $startTs),
+            'window_end' => date('Y-m-d H:i:s', $endTs),
+            'window_type' => 'trailing_90_days',
+          ],
         ];
         // Keep legacy KPI ID aligned to the same frozen denominator.
         $metrics['kpi_active_participation'] = [
-          'value' => $participationRatio,
+          'value' => (float) ($overall['rate'] ?? 0.0),
           'period_year' => $periodYear,
           'period_month' => $periodMonth,
+          'meta' => [
+            'visitors' => (int) ($overall['visitors'] ?? 0),
+            'roster' => (int) ($overall['roster'] ?? 0),
+            'window_start' => date('Y-m-d H:i:s', $startTs),
+            'window_end' => date('Y-m-d H:i:s', $endTs),
+            'window_type' => 'trailing_90_days',
+          ],
+        ];
+        $metrics['kpi_active_participation_bipoc'] = [
+          'value' => (float) ($bipoc['rate'] ?? 0.0),
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+          'meta' => [
+            'visitors' => (int) ($bipoc['visitors'] ?? 0),
+            'roster' => (int) ($bipoc['roster'] ?? 0),
+            'window_start' => date('Y-m-d H:i:s', $startTs),
+            'window_end' => date('Y-m-d H:i:s', $endTs),
+            'window_type' => 'trailing_90_days',
+          ],
+        ];
+        $metrics['kpi_active_participation_female_nb'] = [
+          'value' => (float) ($femaleNb['rate'] ?? 0.0),
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+          'meta' => [
+            'visitors' => (int) ($femaleNb['visitors'] ?? 0),
+            'roster' => (int) ($femaleNb['roster'] ?? 0),
+            'window_start' => date('Y-m-d H:i:s', $startTs),
+            'window_end' => date('Y-m-d H:i:s', $endTs),
+            'window_type' => 'trailing_90_days',
+          ],
         ];
       }
     }

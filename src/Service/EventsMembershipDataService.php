@@ -1188,6 +1188,92 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Summarizes counted participant gender for a specific event type.
+   */
+  public function getParticipantGenderSummaryByEventType(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel, bool $activeOnly = TRUE): array {
+    $cid = sprintf(
+      'makerspace_dashboard:event_gender_summary:%s:%s:%s:%d',
+      $start_date->format('YmdHis'),
+      $end_date->format('YmdHis'),
+      md5($eventTypeLabel),
+      $activeOnly ? 1 : 0
+    );
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+    $genderLabels = $this->getOptionValueLabels('gender');
+    $schema = $this->database->schema();
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
+    $query->addField('c', 'gender_id');
+    $query->addExpression('COUNT(*)', 'participant_count');
+    $query->condition('pst.is_counted', 1);
+    $query->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    if ($activeOnly) {
+      $query->condition('e.is_active', 1);
+    }
+    if ($schema->fieldExists('civicrm_participant', 'is_test')) {
+      $query->condition('p.is_test', 0);
+    }
+
+    if ($eventTypeGroupId) {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $eventTypeGroupId,
+      ]);
+    }
+    else {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->condition('ov.label', $eventTypeLabel);
+    $query->groupBy('c.gender_id');
+
+    $summary = [
+      'total_count' => 0,
+      'known_gender_count' => 0,
+      'female_nb_count' => 0,
+      'female_nb_rate' => NULL,
+    ];
+
+    foreach ($query->execute() as $record) {
+      $count = max(0, (int) ($record->participant_count ?? 0));
+      if ($count === 0) {
+        continue;
+      }
+
+      $genderKey = (int) ($record->gender_id ?? 0);
+      $genderLabel = $genderLabels[$genderKey] ?? ($genderKey ? (string) $genderKey : 'Unspecified');
+      $summary['total_count'] += $count;
+
+      if ($this->isUnspecifiedGenderLabel($genderLabel)) {
+        continue;
+      }
+
+      $summary['known_gender_count'] += $count;
+      if ($this->isFemaleNbGenderLabel($genderLabel)) {
+        $summary['female_nb_count'] += $count;
+      }
+    }
+
+    if ($summary['known_gender_count'] > 0) {
+      $summary['female_nb_rate'] = $summary['female_nb_count'] / $summary['known_gender_count'];
+    }
+
+    $this->cache->set($cid, $summary, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list', 'civicrm_contact_list']);
+
+    return $summary;
+  }
+
+  /**
    * Builds the distribution of events attended before members joined.
    */
   public function getPreJoinEventAttendance(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
@@ -1983,6 +2069,35 @@ class EventsMembershipDataService {
       return [$value];
     }
     return array_map('trim', $parts);
+  }
+
+  /**
+   * Determines whether a gender label should be excluded from known totals.
+   */
+  protected function isUnspecifiedGenderLabel(string $label): bool {
+    $normalized = strtolower(trim($label));
+    return $normalized === ''
+      || str_contains($normalized, 'unspecified')
+      || str_contains($normalized, 'unknown')
+      || str_contains($normalized, 'prefer not');
+  }
+
+  /**
+   * Determines whether a gender label counts toward the Female/NB segment.
+   */
+  protected function isFemaleNbGenderLabel(string $label): bool {
+    $normalized = strtolower(trim($label));
+    if ($normalized === '') {
+      return FALSE;
+    }
+
+    if (str_contains($normalized, 'female') || str_contains($normalized, 'woman')) {
+      return TRUE;
+    }
+
+    return str_contains($normalized, 'non')
+      || str_contains($normalized, 'nb')
+      || str_contains($normalized, 'gender');
   }
 
   /**

@@ -238,6 +238,9 @@ class OverviewSection extends DashboardSectionBase {
         '#type' => 'details',
         '#title' => $this->t('Data Source Notes'),
         '#open' => FALSE,
+        '#attributes' => [
+          'class' => ['source_details'],
+        ],
         'items' => [
           '#theme' => 'item_list',
           '#items' => $sourceItems,

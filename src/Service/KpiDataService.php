@@ -974,12 +974,27 @@ class KpiDataService {
    */
   private function getKpiProgramCapacityUtilizationData(array $kpi_info): array {
     $series = $this->buildEducationCapacitySeries(['Program']);
-    return $this->buildCapacityUtilizationResult(
+    $result = $this->buildCapacityUtilizationResult(
       $kpi_info,
       $series,
       'kpi_program_capacity_utilization',
       'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Program events (capacity > 0). Deactivated/cancelled events are excluded.'
     );
+
+    $end = new \DateTimeImmutable('now');
+    $start = $end->modify('first day of this month')->setTime(0, 0, 0)->modify('-11 months');
+    $genderSummary = $this->eventsMembershipDataService->getParticipantGenderSummaryByEventType($start, $end, 'Program');
+    if (isset($genderSummary['female_nb_rate']) && is_numeric($genderSummary['female_nb_rate'])) {
+      $segments = $result['segments'] ?? [];
+      $segments[] = [
+        'label' => 'Female/NB',
+        'value' => (float) $genderSummary['female_nb_rate'],
+        'format' => 'percent',
+      ];
+      $result['segments'] = $segments;
+    }
+
+    return $result;
   }
 
   /**
@@ -1339,7 +1354,7 @@ class KpiDataService {
     $current = NULL;
     $lastUpdated = NULL;
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation');
+    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation', FALSE, ['monthly']);
     if (!empty($snapshotSeries)) {
       $snapshotValues = [];
       $lastSnapshot = NULL;
@@ -1411,37 +1426,66 @@ class KpiDataService {
       }
     }
 
+    $latestRecord = !empty($snapshotSeries) ? end($snapshotSeries) : NULL;
     if ($current === NULL) {
-      $end = (new \DateTimeImmutable('now'))->setTime(23, 59, 59);
-      $start = $end->modify('-89 days')->setTime(0, 0, 0);
-      $buckets = $this->utilizationDataService->getVisitFrequencyBuckets($start->getTimestamp(), $end->getTimestamp());
-      $totalMembers = (int) array_sum($buckets);
-      $noVisits = (int) ($buckets['no_visits'] ?? 0);
-      if ($totalMembers > 0) {
-        $current = ($totalMembers - $noVisits) / $totalMembers;
-      }
-      $lastUpdated = $end->format('Y-m-d');
+      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+      $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp());
+      $current = (float) ($summary['rate'] ?? 0.0);
+      $lastUpdated = $latestWindow['end']->format('Y-m-d');
+      $latestRecord = [
+        'meta' => [
+          'visitors' => (int) ($summary['visitors'] ?? 0),
+          'roster' => (int) ($summary['roster'] ?? 0),
+        ],
+      ];
     }
 
     if ($annualOverrides) {
       ksort($annualOverrides, SORT_STRING);
     }
 
-    return $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', NULL, 'Last 12 months', 'Last 90 days', 1.0),
+    $result = $this->withDemographicSegments(
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', 'System: Unique members with at least one card read in the trailing 90-day window ending at each month-end snapshot, divided by the active-member roster for that snapshot month.', 'Last 12 months', 'Trailing 90 days as of month-end', 1.0),
       'kpi_active_participation'
     );
+
+    $counts = $this->extractParticipationCountsFromSnapshotRecord(is_array($latestRecord) ? $latestRecord : NULL);
+    if ($counts === NULL) {
+      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+      $counts = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp());
+    }
+    $result['segments'] = array_merge($result['segments'] ?? [], $this->buildParticipationDetailSegments($counts));
+
+    return $result;
   }
 
   /**
    * Gets the data for the "Active Participation % (BIPOC)" KPI.
    */
   private function getKpiActiveParticipationBipocData(array $kpi_info): array {
-    $trend = $this->getDemographicParticipationTrend('bipoc');
-    $current = end($trend) ?: 0.0;
-    $lastUpdated = date('Y-m-d');
+    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation_bipoc', FALSE, ['monthly']);
+    $trend = [];
+    $current = NULL;
+    $lastUpdated = NULL;
+    $latestRecord = !empty($snapshotSeries) ? end($snapshotSeries) : NULL;
+    foreach ($snapshotSeries as $record) {
+      if (is_numeric($record['value'] ?? NULL)) {
+        $trend[] = (float) $record['value'];
+        $current = (float) $record['value'];
+      }
+      if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+        $lastUpdated = $record['snapshot_date']->format('Y-m-d');
+      }
+    }
+    if ($current === NULL) {
+      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+      $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'bipoc');
+      $current = (float) ($summary['rate'] ?? 0.0);
+      $lastUpdated = $latestWindow['end']->format('Y-m-d');
+      $latestRecord = ['meta' => ['visitors' => (int) ($summary['visitors'] ?? 0), 'roster' => (int) ($summary['roster'] ?? 0)]];
+    }
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       $trend,
@@ -1451,20 +1495,48 @@ class KpiDataService {
       $current,
       'kpi_active_participation_bipoc',
       'percent',
-      'System: % of BIPOC members who visited the space in the last 90 days.',
-      '8 Quarters'
+      'System: Unique BIPOC members with at least one card read in the trailing 90-day window ending at each month-end snapshot, divided by the active BIPOC roster for that snapshot month.',
+      'Last 12 months',
+      'Trailing 90 days as of month-end'
     );
+
+    $counts = $this->extractParticipationCountsFromSnapshotRecord(is_array($latestRecord) ? $latestRecord : NULL);
+    if ($counts === NULL) {
+      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+      $counts = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'bipoc');
+    }
+    $result['segments'] = $this->buildParticipationDetailSegments($counts);
+
+    return $result;
   }
 
   /**
    * Gets the data for the "Active Participation % (Female/Non-binary)" KPI.
    */
   private function getKpiActiveParticipationFemaleNbData(array $kpi_info): array {
-    $trend = $this->getDemographicParticipationTrend('female_nb');
-    $current = end($trend) ?: 0.0;
-    $lastUpdated = date('Y-m-d');
+    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation_female_nb', FALSE, ['monthly']);
+    $trend = [];
+    $current = NULL;
+    $lastUpdated = NULL;
+    $latestRecord = !empty($snapshotSeries) ? end($snapshotSeries) : NULL;
+    foreach ($snapshotSeries as $record) {
+      if (is_numeric($record['value'] ?? NULL)) {
+        $trend[] = (float) $record['value'];
+        $current = (float) $record['value'];
+      }
+      if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+        $lastUpdated = $record['snapshot_date']->format('Y-m-d');
+      }
+    }
+    if ($current === NULL) {
+      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+      $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'female_nb');
+      $current = (float) ($summary['rate'] ?? 0.0);
+      $lastUpdated = $latestWindow['end']->format('Y-m-d');
+      $latestRecord = ['meta' => ['visitors' => (int) ($summary['visitors'] ?? 0), 'roster' => (int) ($summary['roster'] ?? 0)]];
+    }
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       $trend,
@@ -1474,15 +1546,43 @@ class KpiDataService {
       $current,
       'kpi_active_participation_female_nb',
       'percent',
-      'System: % of Female/Non-binary members who visited the space in the last 90 days.',
-      '8 Quarters'
+      'System: Unique Female/NB members with at least one card read in the trailing 90-day window ending at each month-end snapshot, divided by the active Female/NB roster for that snapshot month.',
+      'Last 12 months',
+      'Trailing 90 days as of month-end'
     );
+
+    $counts = $this->extractParticipationCountsFromSnapshotRecord(is_array($latestRecord) ? $latestRecord : NULL);
+    if ($counts === NULL) {
+      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+      $counts = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'female_nb');
+    }
+    $result['segments'] = $this->buildParticipationDetailSegments($counts);
+
+    return $result;
   }
 
   /**
    * Helper to calculate participation rate trend for a demographic segment.
    */
   private function getDemographicParticipationTrend(string $segment, int $quarters = 8): array {
+    $snapshotKpiId = match ($segment) {
+      'bipoc' => 'kpi_active_participation_bipoc',
+      'female_nb' => 'kpi_active_participation_female_nb',
+      default => NULL,
+    };
+    if ($snapshotKpiId !== NULL) {
+      $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries($snapshotKpiId, FALSE, ['monthly']);
+      $snapshotTrend = [];
+      foreach ($snapshotSeries as $record) {
+        if (is_numeric($record['value'] ?? NULL)) {
+          $snapshotTrend[] = (float) $record['value'];
+        }
+      }
+      if (!empty($snapshotTrend)) {
+        return array_slice($snapshotTrend, -12);
+      }
+    }
+
     $now = new \DateTimeImmutable('now');
     $month = (int) $now->format('n');
     $year = (int) date('Y');
@@ -1509,7 +1609,7 @@ class KpiDataService {
       $start = new \DateTimeImmutable(sprintf('%d-%02d-01 00:00:00', $targetYear, $startMonth));
       $end = new \DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $targetYear, $endMonth, $lastDay));
 
-      $trend[] = $this->getDemographicParticipationRate($segment, $start, $end);
+      $trend[] = $this->getParticipationSummary($segment, $start, $end)['rate'];
     }
 
     return $trend;
@@ -1519,53 +1619,96 @@ class KpiDataService {
    * Helper to calculate participation rate for a demographic segment.
    */
   private function getDemographicParticipationRate(string $segment, ?\DateTimeImmutable $start = NULL, ?\DateTimeImmutable $end = NULL): float {
+    $summary = $this->utilizationDataService->getParticipationSummary(
+      $start?->getTimestamp() ?? ((new \DateTimeImmutable('now'))->modify('-89 days')->setTime(0, 0, 0)->getTimestamp()),
+      $end?->getTimestamp() ?? ((new \DateTimeImmutable('now'))->setTime(23, 59, 59)->getTimestamp()),
+      $segment
+    );
+    return (float) ($summary['rate'] ?? 0.0);
+  }
+
+  /**
+   * Returns participation counts and rate for the requested segment.
+   */
+  private function getParticipationSummary(?string $segment = NULL, ?\DateTimeImmutable $start = NULL, ?\DateTimeImmutable $end = NULL): array {
     if (!$end) {
       $end = (new \DateTimeImmutable('now'))->setTime(23, 59, 59);
     }
     if (!$start) {
       $start = $end->modify('-89 days')->setTime(0, 0, 0);
     }
-    
-    $db = \Drupal::database();
-    
-    // 1. Identify all active members in this demographic.
-    $rosterQuery = $db->select('civicrm_uf_match', 'ufm');
-    $rosterQuery->innerJoin('user__roles', 'ur', 'ur.entity_id = ufm.uf_id');
-    $rosterQuery->condition('ur.roles_target_id', 'member');
-    $rosterQuery->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id AND u.status = 1');
-    $rosterQuery->fields('ufm', ['uf_id', 'contact_id']);
-    
-    if ($segment === 'bipoc') {
-      $rosterQuery->innerJoin('civicrm_value_demographics_15', 'demo', 'demo.entity_id = ufm.contact_id');
-      $bipocValues = ['asian', 'black', 'middleeast', 'mena', 'hispanic', 'native', 'aian', 'islander', 'nhpi', 'multi', 'other'];
-      $or = $rosterQuery->orConditionGroup();
-      foreach ($bipocValues as $val) {
-        $or->condition('ethnicity_46', '%' . $db->escapeLike($val) . '%', 'LIKE');
-      }
-      $rosterQuery->condition($or);
-    } 
-    elseif ($segment === 'female_nb') {
-      $rosterQuery->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
-      $rosterQuery->condition('c.gender_id', [1, 4, 5, 6], 'IN');
+    return $this->utilizationDataService->getParticipationSummary($start->getTimestamp(), $end->getTimestamp(), $segment);
+  }
+
+  /**
+   * Returns the start/end dates for the most recently completed quarter.
+   */
+  private function getMostRecentCompletedQuarterBounds(): array {
+    $now = new \DateTimeImmutable('now');
+    $month = (int) $now->format('n');
+    $year = (int) $now->format('Y');
+    $quarter = (int) ceil($month / 3) - 1;
+    if ($quarter <= 0) {
+      $quarter = 4;
+      $year--;
     }
 
-    $activeInDemo = $rosterQuery->execute()->fetchAllAssoc('uf_id');
-    $totalCount = count($activeInDemo);
-    if ($totalCount === 0) {
-      return 0.0;
+    $startMonth = ($quarter - 1) * 3 + 1;
+    $endMonth = $quarter * 3;
+    $lastDay = (int) (new \DateTimeImmutable(sprintf('%d-%02d-01', $year, $endMonth)))->format('t');
+
+    return [
+      'start' => new \DateTimeImmutable(sprintf('%d-%02d-01 00:00:00', $year, $startMonth)),
+      'end' => new \DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $year, $endMonth, $lastDay)),
+    ];
+  }
+
+  /**
+   * Returns the trailing-90-day window ending at the last completed month-end.
+   */
+  private function getLatestCompletedMonthlyParticipationWindow(): array {
+    $end = (new \DateTimeImmutable('first day of this month'))->modify('-1 second');
+    $start = $end->modify('-89 days')->setTime(0, 0, 0);
+    return [
+      'start' => $start,
+      'end' => $end,
+    ];
+  }
+
+  /**
+   * Extracts raw participation counts from a snapshot KPI record.
+   */
+  private function extractParticipationCountsFromSnapshotRecord(?array $record): ?array {
+    if (empty($record['meta']) || !is_array($record['meta'])) {
+      return NULL;
     }
+    $meta = $record['meta'];
+    if (!isset($meta['visitors'], $meta['roster'])) {
+      return NULL;
+    }
+    return [
+      'visitors' => (int) $meta['visitors'],
+      'roster' => (int) $meta['roster'],
+      'rate' => (int) $meta['roster'] > 0 ? ((int) $meta['visitors'] / (int) $meta['roster']) : 0.0,
+    ];
+  }
 
-    // 2. Identify how many of them visited in the period.
-    $uids = array_keys($activeInDemo);
-    $visitQuery = $db->select('access_control_log_field_data', 'a');
-    $visitQuery->innerJoin('access_control_log__field_access_request_user', 'u', 'u.entity_id = a.id');
-    $visitQuery->condition('u.field_access_request_user_target_id', $uids, 'IN');
-    $visitQuery->condition('a.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
-    $visitQuery->addExpression('COUNT(DISTINCT u.field_access_request_user_target_id)', 'visitors');
-    
-    $visitorCount = (int) $visitQuery->execute()->fetchField();
-
-    return $visitorCount / $totalCount;
+  /**
+   * Builds detail chips showing the raw participation counts.
+   */
+  private function buildParticipationDetailSegments(array $counts): array {
+    return [
+      [
+        'label' => 'Visited',
+        'value' => (int) ($counts['visitors'] ?? 0),
+        'format' => 'integer',
+      ],
+      [
+        'label' => 'Roster',
+        'value' => (int) ($counts['roster'] ?? 0),
+        'format' => 'integer',
+      ],
+    ];
   }
 
   /**
@@ -3182,10 +3325,12 @@ Process Group PGID: 1032535   *
         return isset($rates['female_nb_rate']) && is_numeric($rates['female_nb_rate']) ? (float) $rates['female_nb_rate'] : NULL;
 
       case 'kpi_total_active_members':
-        // Do not infer segments from global demographic shares here; they may
-        // use a different population/timeslice than this KPI's active count.
-        // Segments are shown only when explicit KPI-specific metrics exist.
-        return NULL;
+        $resolvedFormat = 'percent';
+        $counts = $this->getActiveMemberDemographicCounts();
+        if ($segment === 'bipoc') {
+          return $counts['bipoc'] ?? NULL;
+        }
+        return $counts['female_nb'] ?? NULL;
     }
 
     return NULL;
@@ -3222,6 +3367,41 @@ Process Group PGID: 1032535   *
     }
 
     return $knownCount > 0 ? ($femaleNbCount / $knownCount) : NULL;
+  }
+
+  /**
+   * Returns current active-member demographic rates using known-only bases.
+   */
+  private function getActiveMemberDemographicCounts(): array {
+    static $counts = NULL;
+    if (is_array($counts)) {
+      return $counts;
+    }
+
+    $ethnicity = $this->demographicsDataService->getMembershipEthnicitySummary();
+    $gender = $this->demographicsDataService->getGenderDistribution(0);
+
+    $femaleNb = 0;
+    $knownGender = 0;
+    foreach ($gender as $row) {
+      $label = (string) ($row['label'] ?? '');
+      $count = max(0, (int) ($row['count'] ?? 0));
+      if ($this->isUnspecifiedGenderLabel($label)) {
+        continue;
+      }
+      $knownGender += $count;
+      if (!$this->isFemaleNbGenderLabel($label)) {
+        continue;
+      }
+      $femaleNb += $count;
+    }
+
+    $counts = [
+      'bipoc' => !empty($ethnicity['reported_members']) ? ((int) ($ethnicity['bipoc_members'] ?? 0) / (int) $ethnicity['reported_members']) : NULL,
+      'female_nb' => $knownGender > 0 ? ($femaleNb / $knownGender) : NULL,
+    ];
+
+    return $counts;
   }
 
   /**

@@ -219,6 +219,115 @@ class UtilizationDataService {
   }
 
   /**
+   * Returns participation counts and rate for a member segment in a period.
+   *
+   * The numerator counts distinct active-member user IDs with at least one
+   * access-control request in the window. The denominator counts the active
+   * member roster for the same segment at query time.
+   */
+  public function getParticipationSummary(int $startTimestamp, int $endTimestamp, ?string $segment = NULL): array {
+    $segmentKey = $segment !== NULL ? strtolower(trim($segment)) : 'all';
+    $cid = sprintf('makerspace_dashboard:utilization:participation:%s:%d:%d', $segmentKey, $startTimestamp, $endTimestamp);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $rosterQuery = $this->database->select('user__roles', 'ur');
+    $rosterQuery->fields('ur', ['entity_id']);
+    $rosterQuery->innerJoin('users_field_data', 'u', 'u.uid = ur.entity_id');
+    $rosterQuery->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+    $rosterQuery->condition('u.status', 1);
+
+    $hasChargebeePause = $this->database->schema()->tableExists('user__field_chargebee_payment_pause');
+    $hasManualPause = $this->database->schema()->tableExists('user__field_manual_pause');
+
+    if ($hasChargebeePause) {
+      $rosterQuery->leftJoin('user__field_chargebee_payment_pause', 'chargebee_pause', 'chargebee_pause.entity_id = ur.entity_id AND chargebee_pause.deleted = 0');
+      $chargebeeNotPaused = $rosterQuery->orConditionGroup()
+        ->isNull('chargebee_pause.field_chargebee_payment_pause_value')
+        ->condition('chargebee_pause.field_chargebee_payment_pause_value', 0);
+      $rosterQuery->condition($chargebeeNotPaused);
+    }
+
+    if ($hasManualPause) {
+      $rosterQuery->leftJoin('user__field_manual_pause', 'manual_pause', 'manual_pause.entity_id = ur.entity_id AND manual_pause.deleted = 0');
+      $manualNotPaused = $rosterQuery->orConditionGroup()
+        ->isNull('manual_pause.field_manual_pause_value')
+        ->condition('manual_pause.field_manual_pause_value', 0);
+      $rosterQuery->condition($manualNotPaused);
+    }
+
+    if ($segmentKey === 'bipoc' || $segmentKey === 'female_nb') {
+      $rosterQuery->innerJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = ur.entity_id');
+    }
+
+    if ($segmentKey === 'bipoc') {
+      $schema = $this->database->schema();
+      if ($schema->tableExists('civicrm_value_demographics_15')) {
+        $ethnicityColumn = NULL;
+        foreach (['custom_46', 'ethnicity_46'] as $candidate) {
+          if ($schema->fieldExists('civicrm_value_demographics_15', $candidate)) {
+            $ethnicityColumn = $candidate;
+            break;
+          }
+        }
+        if ($ethnicityColumn) {
+          $rosterQuery->innerJoin('civicrm_value_demographics_15', 'demo', 'demo.entity_id = ufm.contact_id');
+          $bipocValues = ['asian', 'black', 'middleeast', 'mena', 'hispanic', 'native', 'aian', 'islander', 'nhpi', 'multi', 'other'];
+          $or = $rosterQuery->orConditionGroup();
+          foreach ($bipocValues as $value) {
+            $or->condition($ethnicityColumn, '%' . $this->database->escapeLike($value) . '%', 'LIKE');
+          }
+          $rosterQuery->condition($or);
+        }
+        else {
+          $rosterQuery->condition('ur.entity_id', 0);
+        }
+      }
+      else {
+        $rosterQuery->condition('ur.entity_id', 0);
+      }
+    }
+    elseif ($segmentKey === 'female_nb') {
+      $rosterQuery->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
+      $rosterQuery->condition('c.gender_id', [1, 4, 5, 6], 'IN');
+    }
+
+    $rosterQuery->distinct();
+    $uids = array_map('intval', $rosterQuery->execute()->fetchCol());
+    $rosterCount = count($uids);
+
+    if ($rosterCount === 0) {
+      $empty = [
+        'rate' => 0.0,
+        'visitors' => 0,
+        'roster' => 0,
+      ];
+      $this->cache->set($cid, $empty, $this->time->getRequestTime() + $this->ttl, ['access_control_log_list', 'user_list', 'civicrm_contact_list']);
+      return $empty;
+    }
+
+    $visitQuery = $this->database->select('access_control_log_field_data', 'acl');
+    $visitQuery->addExpression('COUNT(DISTINCT user_ref.field_access_request_user_target_id)', 'visitors');
+    $visitQuery->innerJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.entity_id = acl.id AND user_ref.deleted = 0');
+    $visitQuery->condition('acl.type', 'access_control_request');
+    $visitQuery->condition('acl.created', $startTimestamp, '>=');
+    $visitQuery->condition('acl.created', $endTimestamp, '<=');
+    $visitQuery->condition('user_ref.field_access_request_user_target_id', $uids, 'IN');
+
+    $visitorCount = (int) $visitQuery->execute()->fetchField();
+    $summary = [
+      'rate' => $rosterCount > 0 ? ($visitorCount / $rosterCount) : 0.0,
+      'visitors' => $visitorCount,
+      'roster' => $rosterCount,
+    ];
+
+    $this->cache->set($cid, $summary, $this->time->getRequestTime() + $this->ttl, ['access_control_log_list', 'user_list', 'civicrm_contact_list']);
+
+    return $summary;
+  }
+
+  /**
    * Computes average entry counts per hour of day across a time window.
    *
    * @return array
