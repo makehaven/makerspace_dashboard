@@ -12,7 +12,8 @@ class RetentionAnnualRetentionByEthnicityChartBuilder extends RetentionSegmented
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'annual_retention_ethnicity';
-  protected const WEIGHT = 91;
+  protected const WEIGHT = 25;
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

@@ -14,7 +14,8 @@ class RetentionMemberSuccessOnboardingFunnelChartBuilder extends ChartBuilderBas
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'member_success_onboarding_funnel';
-  protected const WEIGHT = 35;
+  protected const WEIGHT = 14;
+  protected const TIER = 'supplemental';
 
   /**
    * Constructs the builder.

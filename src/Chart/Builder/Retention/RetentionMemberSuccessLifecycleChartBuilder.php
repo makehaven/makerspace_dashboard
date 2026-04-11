@@ -14,7 +14,8 @@ class RetentionMemberSuccessLifecycleChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'member_success_lifecycle';
-  protected const WEIGHT = 34;
+  protected const WEIGHT = 13;
+  protected const TIER = 'supplemental';
 
   /**
    * Constructs the builder.

@@ -15,7 +15,7 @@ class RetentionDailySnapshotChartBuilder extends RetentionSnapshotChartBuilderBa
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'snapshot_daily';
   protected const WEIGHT = 60;
-  protected const TIER = 'supplemental';
+  protected const TIER = 'experimental';
 
   public function __construct(SnapshotDataService $snapshot_data, DateFormatterInterface $date_formatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($snapshot_data, $date_formatter, $stringTranslation);

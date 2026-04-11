@@ -14,7 +14,8 @@ class RetentionEndingReasonsChartBuilder extends RetentionFlowChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'ending_reasons';
-  protected const WEIGHT = 6;
+  protected const WEIGHT = 12;
+  protected const TIER = 'supplemental';
 
   public function __construct(RetentionFlowDataService $flowDataService, DateFormatterInterface $dateFormatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($flowDataService, $dateFormatter, $stringTranslation);

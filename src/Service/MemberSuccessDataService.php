@@ -309,6 +309,68 @@ class MemberSuccessDataService {
   }
 
   /**
+   * Returns a tally of risk reasons across all currently at-risk members.
+   *
+   * Reads the latest snapshot row per member (is_latest = 1), deserializes
+   * the risk_reasons array, and counts how many at-risk members carry each
+   * reason flag.
+   *
+   * @return array{total_at_risk: int, reasons: array<string, int>}
+   *   'total_at_risk' is the member count; 'reasons' is sorted descending.
+   */
+  public function getCurrentRiskReasonBreakdown(int $riskThreshold = 20): array {
+    if (!$this->isAvailable()) {
+      return [];
+    }
+
+    $riskThreshold = max(0, $riskThreshold);
+    $cacheId = sprintf('makerspace_dashboard:member_success:risk_reason_breakdown:%d', $riskThreshold);
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('ms_member_success_snapshot', 's');
+    $query->fields('s', ['risk_reasons']);
+    $query->condition('s.is_latest', 1);
+    $query->condition('s.risk_score', $riskThreshold, '>=');
+
+    $rows = $query->execute()->fetchAll();
+    if (!$rows) {
+      return [];
+    }
+
+    $tally = [];
+    $total = 0;
+    foreach ($rows as $row) {
+      $reasons = @unserialize((string) ($row->risk_reasons ?? ''));
+      if (!is_array($reasons)) {
+        continue;
+      }
+      foreach ($reasons as $reason) {
+        $reason = (string) $reason;
+        if ($reason === '') {
+          continue;
+        }
+        $tally[$reason] = ($tally[$reason] ?? 0) + 1;
+      }
+      $total++;
+    }
+
+    if (!$tally) {
+      return [];
+    }
+
+    arsort($tally);
+    $payload = [
+      'total_at_risk' => $total,
+      'reasons' => $tally,
+    ];
+
+    $this->cache->set($cacheId, $payload, $this->time->getRequestTime() + 3600, ['civicrm_activity_list', 'user_list']);
+    return $payload;
+  }
+
+  /**
    * Chooses the latest snapshot row for each month.
    *
    * @param array $dailyRows

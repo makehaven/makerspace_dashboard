@@ -482,6 +482,110 @@ class FunnelDataService {
   }
 
   /**
+   * Returns quarterly tour-to-member conversion rates as a trend (oldest-first).
+   *
+   * Each point = (tour contacts who later joined) / (eligible tour contacts)
+   * over the 12-month rolling window ending at that completed quarter.
+   */
+  public function getTourConversionRateTrend(int $quarters = 8): array {
+    $cacheId = sprintf('makerspace_dashboard:funnel:tour_conversion_trend:%d', $quarters);
+    if ($cached = $this->cache->get($cacheId)) {
+      return $cached->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $windowEnd = $this->completedQuarterEnd($now, $i);
+      $windowStart = $this->windowStartFor($windowEnd);
+
+      $eventMap = $this->getEventContactMap('tour', $windowStart, $windowEnd);
+      $activityMap = $this->getActivityContactMap('tour', $windowStart, $windowEnd);
+
+      $contactMap = $eventMap;
+      foreach ($activityMap as $contactId => $touchDate) {
+        if (!isset($contactMap[$contactId]) || $touchDate < $contactMap[$contactId]) {
+          $contactMap[$contactId] = $touchDate;
+        }
+      }
+
+      $summary = $this->summarizeContactConversions($contactMap);
+      $eligible = $summary['eligible_contacts'];
+      $trend[] = $eligible > 0 ? round($summary['conversions'] / $eligible, 4) : 0.0;
+    }
+
+    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + 3600, [
+      'civicrm_participant_list',
+      'civicrm_activity_list',
+      'profile_list',
+    ]);
+    return $trend;
+  }
+
+  /**
+   * Returns quarterly event-participant-to-member conversion rates (oldest-first).
+   *
+   * Each point = (event participants who later joined) / (eligible participants)
+   * over the 12-month rolling window ending at that completed quarter.
+   */
+  public function getEventParticipantConversionRateTrend(int $quarters = 8): array {
+    $cacheId = sprintf('makerspace_dashboard:funnel:event_conversion_trend:%d', $quarters);
+    if ($cached = $this->cache->get($cacheId)) {
+      return $cached->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $windowEnd = $this->completedQuarterEnd($now, $i);
+      $windowStart = $this->windowStartFor($windowEnd);
+
+      // Empty label intentionally matches all event types.
+      $contactMap = $this->getEventContactMap('', $windowStart, $windowEnd);
+      $summary = $this->summarizeContactConversions($contactMap);
+      $eligible = $summary['eligible_contacts'];
+      $trend[] = $eligible > 0 ? round($summary['conversions'] / $eligible, 4) : 0.0;
+    }
+
+    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + 3600, [
+      'civicrm_participant_list',
+      'profile_list',
+    ]);
+    return $trend;
+  }
+
+  /**
+   * Returns quarterly guest-waiver-to-member conversion rates (oldest-first).
+   *
+   * Each point = (guest waiver signers who later joined) / (eligible contacts)
+   * over the 12-month rolling window ending at that completed quarter.
+   */
+  public function getGuestWaiverConversionRateTrend(int $quarters = 8): array {
+    $cacheId = sprintf('makerspace_dashboard:funnel:guest_waiver_conversion_trend:%d', $quarters);
+    if ($cached = $this->cache->get($cacheId)) {
+      return $cached->data;
+    }
+
+    $now = $this->now();
+    $trend = [];
+    for ($i = $quarters - 1; $i >= 0; $i--) {
+      $windowEnd = $this->completedQuarterEnd($now, $i);
+      $windowStart = $this->windowStartFor($windowEnd);
+
+      $contactMap = $this->getActivityContactMap('guest waiver', $windowStart, $windowEnd);
+      $summary = $this->summarizeContactConversions($contactMap);
+      $eligible = $summary['eligible_contacts'];
+      $trend[] = $eligible > 0 ? round($summary['conversions'] / $eligible, 4) : 0.0;
+    }
+
+    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + 3600, [
+      'civicrm_activity_list',
+      'profile_list',
+    ]);
+    return $trend;
+  }
+
+  /**
    * Counts unique tour participants (events + activities) in a date range.
    */
   public function getTourParticipantCount(DateTimeImmutable $start, DateTimeImmutable $end): int {
@@ -490,6 +594,40 @@ class FunnelDataService {
 
     $uids = array_unique(array_merge(array_keys($eventMap), array_keys($activityMap)));
     return count($uids);
+  }
+
+  /**
+   * Returns the end of the completed quarter N quarters ago.
+   */
+  private function completedQuarterEnd(DateTimeImmutable $now, int $quartersAgo): DateTimeImmutable {
+    $month = (int) $now->format('n');
+    $year  = (int) $now->format('Y');
+
+    $prevQ = (int) ceil($month / 3) - 1;
+    if ($prevQ <= 0) {
+      $prevQ = 4;
+      $year--;
+    }
+
+    $targetQ = $prevQ - $quartersAgo;
+    while ($targetQ <= 0) {
+      $targetQ += 4;
+      $year--;
+    }
+
+    $endMonth = $targetQ * 3;
+    $lastDay  = (int) (new DateTimeImmutable(sprintf('%d-%02d-01', $year, $endMonth)))->format('t');
+    return (new DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $year, $endMonth, $lastDay)))->setTimezone($this->timezone);
+  }
+
+  /**
+   * Returns the start of a rolling window of $months ending at $windowEnd.
+   */
+  private function windowStartFor(DateTimeImmutable $windowEnd, int $months = self::WINDOW_MONTHS): DateTimeImmutable {
+    return $windowEnd
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->sub(new DateInterval(sprintf('P%dM', $months - 1)));
   }
 
   /**

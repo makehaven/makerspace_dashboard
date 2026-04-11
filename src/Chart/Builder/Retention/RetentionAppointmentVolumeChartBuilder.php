@@ -17,7 +17,7 @@ class RetentionAppointmentVolumeChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'appointment_volume_monthly';
-  protected const WEIGHT = 64;
+  protected const WEIGHT = 18;
   protected const TIER = 'supplemental';
   protected const RANGE_DEFAULT = '1y';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y'];

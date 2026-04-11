@@ -625,6 +625,47 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.retention_active_members:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionActiveMembersChartBuilder
+    arguments:
+      - '@makerspace_dashboard.snapshot_data'
+      - '@date.formatter'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_active_participation:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionActiveParticipationChartBuilder
+    arguments:
+      - '@makerspace_dashboard.utilization_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_members_at_risk:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionMembersAtRiskChartBuilder
+    arguments:
+      - '@makerspace_dashboard.member_success_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_activation_cohort:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionActivationCohortChartBuilder
+    arguments:
+      - '@makerspace_dashboard.member_success_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.retention_risk_reason_breakdown:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionRiskReasonBreakdownChartBuilder
+    arguments:
+      - '@makerspace_dashboard.member_success_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.retention_snapshot_daily:
     class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionDailySnapshotChartBuilder
     arguments:

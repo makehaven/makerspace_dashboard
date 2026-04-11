@@ -14,7 +14,7 @@ class RetentionInterventionROIChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'intervention_roi';
-  protected const WEIGHT = 72;
+  protected const WEIGHT = 15;
   protected const TIER = 'supplemental';
 
   /**

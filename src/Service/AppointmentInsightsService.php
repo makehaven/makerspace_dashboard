@@ -235,9 +235,19 @@ class AppointmentInsightsService {
     }
 
     $months = $this->buildMonthRange($start, $end);
+    // Drop the current in-progress month — partial data makes the chart look
+    // like activity is collapsing at the start of each new month.
+    $currentMonthKey = (new \DateTimeImmutable('now'))->format('Y-m');
+    unset($months[$currentMonthKey]);
     if (empty($months)) {
       return [];
     }
+
+    // Restrict the DB query to the (now possibly trimmed) month range.
+    $lastMonthKey = array_key_last($months);
+    $lastDayOfLastMonth = (new \DateTimeImmutable($lastMonthKey . '-01'))
+      ->modify('last day of this month')
+      ->format('Y-m-d');
 
     $monthlyTotals = array_fill_keys(array_keys($months), 0);
     $query = $this->database->select('node_field_data', 'n');
@@ -249,7 +259,7 @@ class AppointmentInsightsService {
     $query->condition('n.status', 1);
     $query->condition('date_field.field_appointment_date_value', [
       $start->format('Y-m-d'),
-      $end->format('Y-m-d'),
+      $lastDayOfLastMonth,
     ], 'BETWEEN');
     $query->condition('status.field_appointment_status_value', 'canceled', '<>');
     $query->groupBy('month_key');

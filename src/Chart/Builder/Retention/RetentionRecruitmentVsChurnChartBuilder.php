@@ -15,6 +15,7 @@ class RetentionRecruitmentVsChurnChartBuilder extends RetentionFlowChartBuilderB
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'net_membership';
   protected const WEIGHT = 40;
+  protected const TIER = 'experimental';
 
   public function __construct(RetentionFlowDataService $flowDataService, DateFormatterInterface $dateFormatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($flowDataService, $dateFormatter, $stringTranslation);

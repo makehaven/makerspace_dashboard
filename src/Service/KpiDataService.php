@@ -2111,14 +2111,15 @@ class KpiDataService {
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
-      [],
+      $this->funnelDataService->getTourConversionRateTrend(),
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_tours_to_member_conversion',
       'percent',
-      $sourceNote
+      $sourceNote,
+      '8 Quarters'
     );
   }
 
@@ -2153,14 +2154,15 @@ class KpiDataService {
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
-      [],
+      $this->funnelDataService->getEventParticipantConversionRateTrend(),
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_event_participant_to_member_conversion',
       'percent',
-      $sourceNote
+      $sourceNote,
+      '8 Quarters'
     );
   }
 
@@ -2228,14 +2230,15 @@ class KpiDataService {
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
-      [],
+      $this->funnelDataService->getGuestWaiverConversionRateTrend(),
       NULL,
       NULL,
       $lastUpdated,
       $current,
       'kpi_guest_waiver_to_member_conversion',
       'percent',
-      $sourceNote
+      $sourceNote,
+      '8 Quarters'
     );
   }
 
@@ -2992,23 +2995,20 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Reserve Funds" KPI.
    */
   private function getKpiReserveFundsMonthsData(array $kpi_info): array {
-    $current = $this->financialDataService->getReserveFundsMonths();
-    $trend = $this->financialDataService->getReserveFundsMonthsTrend(18);
-    // NULL: data freshness depends on when the Google Sheet was last updated.
-    $lastUpdated = NULL;
+    $series = $this->buildReserveFundsSeries();
+    if (!$series) {
+      return $this->buildKpiResult($kpi_info, [], [], NULL, NULL, NULL, 'TBD', 'kpi_reserve_funds_months');
+    }
 
     return $this->buildKpiResult(
       $kpi_info,
-      [],
-      $trend,
-      NULL,
-      NULL,
-      $lastUpdated,
-      $current,
-      'kpi_reserve_funds_months',
-      'number',
-      'Google Sheets: Cash and Cash Equivalents / Average Monthly Operating Expense.',
-      '18 Months'
+      $series['annual'] ?? [],
+      $series['trend'] ?? [],
+      $series['ttm12'] ?? NULL,
+      $series['ttm3'] ?? NULL,
+      $series['last_updated'] ?? NULL,
+      $series['current'] ?? NULL,
+      'kpi_reserve_funds_months'
     );
   }
 
@@ -4256,33 +4256,6 @@ Process Group PGID: 1032535   *
   }
 
   /**
-   * Gets the data for the "Reserve Funds (as Months of Operating Expense)" KPI.
-   *
-   * @param array $kpi_info
-   *   The KPI configuration info.
-   *
-   * @return array
-   *   The KPI data.
-   */
-  private function getReserveFundsMonthsData(array $kpi_info): array {
-    $series = $this->buildReserveFundsSeries();
-    if (!$series) {
-      return $this->buildKpiResult($kpi_info, [], [], NULL, NULL, NULL, 'TBD', 'reserve_funds_months');
-    }
-
-    return $this->buildKpiResult(
-      $kpi_info,
-      $series['annual'] ?? [],
-      $series['trend'] ?? [],
-      $series['ttm12'] ?? NULL,
-      $series['ttm3'] ?? NULL,
-      $series['last_updated'] ?? NULL,
-      $series['current'] ?? NULL,
-      'reserve_funds_months'
-    );
-  }
-
-  /**
    * Gets the data for the "Membership Diversity (% BIPOC)" KPI.
    *
    * @param array $kpi_info
@@ -5524,7 +5497,7 @@ Process Group PGID: 1032535   *
           'description' => 'The total number of registrations for ticketed workshops held during the period.',
           'source_note' => 'CiviCRM: Sum of monthly registrations for event type "Ticketed Workshop".',
         ],
-        'reserve_funds_months' => [
+        'kpi_reserve_funds_months' => [
           'label' => 'Reserve Funds (as Months of Operating Expense)',
           'base_2025' => 3,
           'goal_2030' => 6,
