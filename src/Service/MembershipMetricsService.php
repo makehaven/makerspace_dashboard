@@ -71,6 +71,25 @@ class MembershipMetricsService {
   ];
 
   /**
+   * Membership type term ID for Terminal Program memberships.
+   *
+   * These are time-bounded memberships (e.g. a fixed-duration programme) that
+   * are not expected to renew and must be excluded from first-year retention
+   * metrics so they don't artificially depress the rate.
+   */
+  protected const TERMINAL_PROGRAM_TYPE_ID = 842;
+
+  /**
+   * Membership type term ID for Standard memberships.
+   */
+  protected const STANDARD_TYPE_ID = 716;
+
+  /**
+   * Membership type term ID for Sliding Scale memberships.
+   */
+  protected const SLIDING_SCALE_TYPE_ID = 718;
+
+  /**
    * End reason machine names treated as unpreventable attrition.
    */
   protected array $unpreventableEndReasons;
