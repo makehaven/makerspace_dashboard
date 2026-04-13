@@ -13,3 +13,9 @@ services:
       - '@makerspace_dashboard.education_evaluation_data'
     tags:
       - { name: drush.command }
+  makerspace_dashboard.commands.kpi_cache:
+    class: Drupal\makerspace_dashboard\Commands\KpiCacheCommands
+    arguments:
+      - '@makerspace_dashboard.kpi_data'
+    tags:
+      - { name: drush.command }

@@ -460,7 +460,7 @@ class MembershipMetricsService {
     }
 
     $cacheId = sprintf(
-      'makerspace_dashboard:membership:first_year_retention:%d:%s',
+      'makerspace_dashboard:membership:first_year_retention_v2:%d:%s',
       $months,
       $lastJoinMonth->format('Y-m')
     );
@@ -494,6 +494,9 @@ class MembershipMetricsService {
     $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
     $query->leftJoin('profile__field_member_end_reason', 'end_reason', 'end_reason.entity_id = p.profile_id AND end_reason.deleted = 0');
     $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
+    // Exclude Terminal Program members — time-bounded memberships not expected
+    // to renew; including them would artificially depress the blended rate.
+    $query->leftJoin('profile__field_membership_type', 'mtype', 'mtype.entity_id = p.profile_id AND mtype.deleted = 0');
     $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
     $query->addField('end_reason', 'field_member_end_reason_value', 'end_reason_value');
     $query->condition('p.created', [$startTs, $endTs], 'BETWEEN');
@@ -501,6 +504,10 @@ class MembershipMetricsService {
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
     $query->condition('u.status', 1);
+    $notTerminal = $query->orConditionGroup()
+      ->isNull('mtype.field_membership_type_target_id')
+      ->condition('mtype.field_membership_type_target_id', self::TERMINAL_PROGRAM_TYPE_ID, '<>');
+    $query->condition($notTerminal);
 
     $rows = $query->execute()->fetchAll();
     $hasData = FALSE;
@@ -569,6 +576,176 @@ class MembershipMetricsService {
         'retained' => $bucket['retained'],
         'retention_percent' => $percent,
         'evaluation_date' => $bucket['evaluation']->format('Y-m-d'),
+      ];
+    }
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $results, $expire, ['profile_list', 'user_list']);
+
+    return $results;
+  }
+
+  /**
+   * Returns first-year retention broken out by Standard vs Sliding Scale type.
+   *
+   * Terminal Program members (tid=842) are excluded entirely.  Only Standard
+   * (tid=716) and Sliding Scale (tid=718) are tracked; other types are also
+   * excluded so the "Standard" line doesn't accumulate noise from Student,
+   * Corporate, etc.
+   *
+   * @param int $months
+   *   Number of completed 12-month cohort months to return (default 36).
+   *
+   * @return array
+   *   Ordered list of rows, each with keys:
+   *   - period: Month key (Y-m-01).
+   *   - label: Human-readable month label.
+   *   - standard_total / standard_retained / standard_percent
+   *   - sliding_total / sliding_retained / sliding_percent
+   */
+  public function getMonthlyFirstYearRetentionByType(int $months = 36): array {
+    $months = max(1, $months);
+    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
+      ->setTime(0, 0)
+      ->modify('first day of this month');
+    $lastJoinMonth = $now->modify('-12 months');
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:membership:first_year_retention_by_type_v1:%d:%s',
+      $months,
+      $lastJoinMonth->format('Y-m')
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $startJoinMonth = $lastJoinMonth->modify(sprintf('-%d months', $months - 1));
+    $monthBuckets = [];
+    $periodEnd = $lastJoinMonth->modify('+1 month');
+    $period = new \DatePeriod($startJoinMonth, new \DateInterval('P1M'), $periodEnd);
+    foreach ($period as $monthDate) {
+      $key = $monthDate->format('Y-m-01');
+      $monthBuckets[$key] = [
+        'label' => $monthDate->format('M Y'),
+        'evaluation' => $monthDate->modify('+12 months'),
+        'standard_total' => 0,
+        'standard_retained' => 0,
+        'sliding_total' => 0,
+        'sliding_retained' => 0,
+      ];
+    }
+
+    if (!$monthBuckets) {
+      return [];
+    }
+
+    $startTs = strtotime($startJoinMonth->format('Y-m-01 00:00:00'));
+    $endTs = strtotime($lastJoinMonth->modify('last day of this month')->format('Y-m-t 23:59:59'));
+
+    $query = $this->database->select('profile', 'p');
+    $query->fields('p', ['created']);
+    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
+    $query->leftJoin('profile__field_member_end_reason', 'end_reason', 'end_reason.entity_id = p.profile_id AND end_reason.deleted = 0');
+    $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->leftJoin('profile__field_membership_type', 'mtype', 'mtype.entity_id = p.profile_id AND mtype.deleted = 0');
+    $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
+    $query->addField('end_reason', 'field_member_end_reason_value', 'end_reason_value');
+    $query->addField('mtype', 'field_membership_type_target_id', 'membership_type_id');
+    $query->condition('p.created', [$startTs, $endTs], 'BETWEEN');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->condition('u.status', 1);
+    // Only Standard and Sliding Scale; all others (including Terminal) excluded.
+    $query->condition('mtype.field_membership_type_target_id', [
+      self::STANDARD_TYPE_ID,
+      self::SLIDING_SCALE_TYPE_ID,
+    ], 'IN');
+
+    $rows = $query->execute()->fetchAll();
+    $hasData = FALSE;
+    $unpreventableReasons = $this->getUnpreventableEndReasons();
+    $tz = new \DateTimeZone(date_default_timezone_get());
+
+    foreach ($rows as $row) {
+      $created = (int) $row->created;
+      if ($created <= 0) {
+        continue;
+      }
+      try {
+        $joinDate = (new \DateTimeImmutable('@' . $created))->setTimezone($tz);
+      }
+      catch (\Exception $exception) {
+        continue;
+      }
+      $monthKey = $joinDate->format('Y-m-01');
+      if (!isset($monthBuckets[$monthKey])) {
+        continue;
+      }
+      $typeId = (int) ($row->membership_type_id ?? 0);
+      $isStandard = $typeId === self::STANDARD_TYPE_ID;
+      $isSliding = $typeId === self::SLIDING_SCALE_TYPE_ID;
+      if (!$isStandard && !$isSliding) {
+        continue;
+      }
+
+      $evaluationDate = $monthBuckets[$monthKey]['evaluation'];
+      $endValue = $row->end_date_value ?? '';
+      $endDate = NULL;
+      if (!empty($endValue)) {
+        try {
+          $endDate = new \DateTimeImmutable($endValue);
+        }
+        catch (\Exception $exception) {
+          $endDate = NULL;
+        }
+      }
+      $endReason = strtolower(trim((string) ($row->end_reason_value ?? '')));
+      if ($endReason === '') {
+        $endReason = NULL;
+      }
+
+      // Skip unpreventable attrition.
+      if ($endDate !== NULL && $endDate < $evaluationDate && $endReason !== NULL && in_array($endReason, $unpreventableReasons, TRUE)) {
+        continue;
+      }
+
+      $prefix = $isStandard ? 'standard' : 'sliding';
+      $monthBuckets[$monthKey][$prefix . '_total']++;
+      $hasData = TRUE;
+
+      if ($endDate === NULL || $endDate >= $evaluationDate) {
+        $monthBuckets[$monthKey][$prefix . '_retained']++;
+      }
+    }
+
+    if (!$hasData) {
+      $expire = $this->time->getRequestTime() + $this->ttl;
+      $this->cache->set($cacheId, [], $expire, ['profile_list', 'user_list']);
+      return [];
+    }
+
+    $results = [];
+    foreach ($monthBuckets as $monthKey => $bucket) {
+      if ($bucket['standard_total'] <= 0 && $bucket['sliding_total'] <= 0) {
+        continue;
+      }
+      $standardPct = $bucket['standard_total'] > 0
+        ? round(($bucket['standard_retained'] / $bucket['standard_total']) * 100, 2)
+        : NULL;
+      $slidingPct = $bucket['sliding_total'] > 0
+        ? round(($bucket['sliding_retained'] / $bucket['sliding_total']) * 100, 2)
+        : NULL;
+      $results[] = [
+        'period' => $monthKey,
+        'label' => $bucket['label'],
+        'standard_total' => $bucket['standard_total'],
+        'standard_retained' => $bucket['standard_retained'],
+        'standard_percent' => $standardPct,
+        'sliding_total' => $bucket['sliding_total'],
+        'sliding_retained' => $bucket['sliding_retained'],
+        'sliding_percent' => $slidingPct,
       ];
     }
 
@@ -1492,6 +1669,74 @@ class MembershipMetricsService {
 
     $this->cache->set($cacheId, 0, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
     return 0;
+  }
+
+  /**
+   * Returns NPS per survey year, keyed by year string.
+   *
+   * Queries each {year}_member_survey webform (from 5 years ago through the
+   * current year) and calculates the NPS from the "net_prompt" field. Years
+   * with no responses are omitted.
+   *
+   * @return array<string, int>
+   *   Map of year string (e.g. "2025") => NPS integer value (-100 to 100).
+   */
+  public function getMemberNpsSeriesByYear(): array {
+    $currentYear = (int) date('Y', $this->time->getRequestTime());
+    $cacheId = sprintf('makerspace_dashboard:membership:member_nps_series:%d', $currentYear);
+    if ($cache = $this->cache->get($cacheId)) {
+      return (array) $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (
+      !$schema->tableExists('webform_submission') ||
+      !$schema->tableExists('webform_submission_data')
+    ) {
+      return [];
+    }
+
+    $series = [];
+    for ($year = $currentYear - 5; $year <= $currentYear; $year++) {
+      $webformId = sprintf('%d_member_survey', $year);
+
+      $query = $this->database->select('webform_submission_data', 'd');
+      $query->innerJoin('webform_submission', 's', 's.sid = d.sid');
+      $query->addField('d', 'value', 'score');
+      $query->condition('s.webform_id', $webformId);
+      $query->condition('s.in_draft', 0);
+      $query->condition('d.webform_id', $webformId);
+      $query->condition('d.name', 'net_prompt');
+      $query->condition('d.delta', 0);
+
+      $promoters = 0;
+      $detractors = 0;
+      $responses = 0;
+      foreach ($query->execute() as $record) {
+        $value = trim((string) ($record->score ?? ''));
+        if ($value === '' || !is_numeric($value)) {
+          continue;
+        }
+        $score = (int) round((float) $value);
+        if ($score < 0 || $score > 10) {
+          continue;
+        }
+        $responses++;
+        if ($score >= 9) {
+          $promoters++;
+        }
+        elseif ($score <= 6) {
+          $detractors++;
+        }
+      }
+
+      if ($responses > 0) {
+        $series[(string) $year] = (int) round((($promoters - $detractors) / $responses) * 100);
+      }
+    }
+
+    $this->cache->set($cacheId, $series, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
+    return $series;
   }
 
   /**

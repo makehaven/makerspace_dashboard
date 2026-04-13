@@ -597,6 +597,53 @@ class FunnelDataService {
   }
 
   /**
+   * Returns a dense monthly series of unique tour contacts (oldest-first).
+   */
+  public function getTourMonthlyUniqueContactSeries(int $months = self::WINDOW_MONTHS): array {
+    $window = $this->buildWindow($months);
+    $cacheId = sprintf('makerspace_dashboard:funnel:tours:monthly:%s', $window['cache_key']);
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $targetRecordTypeId = $this->getActivityTargetRecordTypeId();
+
+    $query = $this->database->select('civicrm_activity', 'a');
+    $query->innerJoin('civicrm_activity_contact', 'ac', 'ac.activity_id = a.id');
+    $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = a.activity_type_id');
+    $query->addExpression("DATE_FORMAT(a.activity_date_time, '%Y-%m')", 'ym');
+    $query->addExpression('COUNT(DISTINCT ac.contact_id)', 'unique_contacts');
+    $query->condition('ac.record_type_id', $targetRecordTypeId);
+    $query->condition('ac.contact_id', 0, '>');
+    $query->condition('a.activity_date_time', [
+      $window['start']->format('Y-m-d H:i:s'),
+      $window['end']->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    $query->condition('a.is_test', 0);
+    $query->condition('a.is_deleted', 0);
+    $query->where("LOWER(COALESCE(ov.label, '')) LIKE :activity_label", [
+      ':activity_label' => '%tour%',
+    ]);
+    $query->groupBy('ym');
+
+    $byMonth = [];
+    foreach ($query->execute() as $row) {
+      $byMonth[(string) $row->ym] = (int) $row->unique_contacts;
+    }
+
+    $series = [];
+    $cursor = $window['start'];
+    for ($i = 0; $i < $window['months']; $i++) {
+      $key = $cursor->format('Y-m');
+      $series[] = $byMonth[$key] ?? 0;
+      $cursor = $cursor->modify('+1 month');
+    }
+
+    $this->cache->set($cacheId, $series, $this->time->getRequestTime() + 3600, ['civicrm_activity_list']);
+    return $series;
+  }
+
+  /**
    * Returns the end of the completed quarter N quarters ago.
    */
   private function completedQuarterEnd(DateTimeImmutable $now, int $quartersAgo): DateTimeImmutable {

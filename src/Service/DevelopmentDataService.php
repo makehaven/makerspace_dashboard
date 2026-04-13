@@ -389,22 +389,25 @@ class DevelopmentDataService {
     $pipeline->condition('ct.is_deceased', 0);
     $pipelineCount = (int) $pipeline->execute()->fetchField();
 
-    // 2. Win Ratio (All-time decided grants)
-    // Matches CiviCRM Report ID 36 logic but without the 12-month date constraint 
-    // to ensure the dashboard has enough data to show a meaningful percentage.
+    // 2. Win Ratio (submitted grants only, trailing 3 years)
+    // Excludes "abandoned" because those were never submitted — including them
+    // penalises grants we chose not to pursue. Win ratio = Won / (Won + Lost).
+    // 3-year window balances recency with having enough volume for a meaningful %.
+    $ratioStart = $this->now()->modify('-3 years')->format('Y-m-d H:i:s');
     $ratioQuery = $this->database->select('civicrm_value_funding_7', 'f');
     $ratioQuery->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
     $ratioQuery->fields('f', ['grant_status_14']);
-    $ratioQuery->condition('f.grant_status_14', ['won', 'lost', 'abandoned'], 'IN');
+    $ratioQuery->condition('f.grant_status_14', ['won', 'lost'], 'IN');
+    $ratioQuery->condition('f.date_due_21', $ratioStart, '>=');
     $ratioQuery->condition('ct.is_deleted', 0);
     $results = $ratioQuery->execute()->fetchAll();
-    
-    $counts = ['won' => 0, 'lost' => 0, 'abandoned' => 0];
+
+    $counts = ['won' => 0, 'lost' => 0];
     foreach ($results as $row) {
       $counts[$row->grant_status_14]++;
     }
-    
-    $totalDecided = array_sum($counts);
+
+    $totalDecided = $counts['won'] + $counts['lost'];
     $winRatio = $totalDecided > 0 ? ($counts['won'] / $totalDecided) : 0.0;
 
     $data = [
@@ -591,25 +594,24 @@ class DevelopmentDataService {
     for ($i = $quarters - 1; $i >= 0; $i--) {
       $qEnd   = $this->completedQuarterEnd($now, $i);
       $qStart = $this->quarterStartForEnd($qEnd);
-      // civicrm_value_funding_7.date_due_21 is stored as 'YYYYMMDDHHmmss'.
-      $qStartStr = $qStart->format('Ymd') . '000000';
-      $qEndStr   = $qEnd->format('Ymd') . '235959';
+      $qStartStr = $qStart->format('Y-m-d 00:00:00');
+      $qEndStr   = $qEnd->format('Y-m-d 23:59:59');
 
       $query = $this->database->select('civicrm_value_funding_7', 'f');
       $query->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
       $query->fields('f', ['grant_status_14']);
-      $query->condition('f.grant_status_14', ['won', 'lost', 'abandoned'], 'IN');
+      $query->condition('f.grant_status_14', ['won', 'lost'], 'IN');
       $query->condition('f.date_due_21', [$qStartStr, $qEndStr], 'BETWEEN');
       $query->condition('ct.is_deleted', 0);
 
-      $counts = ['won' => 0, 'lost' => 0, 'abandoned' => 0];
+      $counts = ['won' => 0, 'lost' => 0];
       foreach ($query->execute() as $row) {
         if (isset($counts[$row->grant_status_14])) {
           $counts[$row->grant_status_14]++;
         }
       }
 
-      $total = array_sum($counts);
+      $total = $counts['won'] + $counts['lost'];
       $trend[] = $total > 0 ? round($counts['won'] / $total, 4) : 0.0;
     }
 

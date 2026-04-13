@@ -326,8 +326,8 @@ class OverviewSection extends DashboardSectionBase {
       'governance' => [
         'kpi_board_ethnic_diversity' => 'board_ethnicity',
         'kpi_board_gender_diversity' => 'board_gender_identity',
-        'kpi_board_governance' => 'board_ethnicity',
-        'kpi_committee_effectiveness' => 'board_ethnicity',
+        'kpi_board_governance' => 'board_governance_kpi',
+        'kpi_committee_effectiveness' => 'committee_effectiveness_kpi',
       ],
       'infrastructure' => [
         'kpi_equipment_uptime_rate' => 'monthly_entries',

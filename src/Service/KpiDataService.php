@@ -3,7 +3,8 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Config\ConfigFactoryInterface;
-use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
+use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use DateTimeImmutable;
 use DateTimeZone;
@@ -136,9 +137,13 @@ class KpiDataService {
   protected ?array $incomeStatementTable = NULL;
 
   /**
-   * Cache backend for computed KPI section payloads.
+   * Persistent key-value store for computed KPI section payloads.
+   *
+   * Stored outside the cache system so entries survive `drush cr`. Each entry
+   * is a payload array: ['data' => array, 'expires_at' => int, 'config_hash'
+   * => string]. Stale entries are still returned — cron re-warms them.
    */
-  protected CacheBackendInterface $cache;
+  protected KeyValueStoreInterface $store;
 
   /**
    * Time service.
@@ -197,14 +202,15 @@ class KpiDataService {
    *   Member success lifecycle and risk metrics service.
    * @param \Drupal\makerspace_dashboard\Service\InfrastructureDataService $infrastructure_data_service
    *   Infrastructure data service.
-   * @param \Drupal\Core\Cache\CacheBackendInterface $cache
-   *   Cache backend.
+   * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value_factory
+   *   Key-value factory; provides the persistent store used for KPI payloads.
    * @param \Drupal\Component\Datetime\TimeInterface $time
    *   Time service.
    * @param int $section_cache_ttl
-   *   Section KPI cache TTL in seconds.
+   *   Section KPI freshness window in seconds. Expired entries are still
+   *   returned (stale) and refreshed on the next cron run.
    */
-  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service, InfrastructureDataService $infrastructure_data_service, CacheBackendInterface $cache, TimeInterface $time, int $section_cache_ttl = 1800) {
+  public function __construct(ConfigFactoryInterface $config_factory, FinancialDataService $financial_data_service, GoogleSheetClientService $google_sheet_client_service, EventsMembershipDataService $events_membership_data_service, DemographicsDataService $demographics_data_service, SnapshotDataService $snapshot_data_service, MembershipMetricsService $membership_metrics_service, UtilizationDataService $utilization_data_service, GovernanceBoardDataService $governance_board_data_service, EducationEvaluationDataService $education_evaluation_data_service, DevelopmentDataService $development_data_service, EntrepreneurshipDataService $entrepreneurship_data_service, FunnelDataService $funnel_data_service, MemberSuccessDataService $member_success_data_service, InfrastructureDataService $infrastructure_data_service, KeyValueFactoryInterface $key_value_factory, TimeInterface $time, int $section_cache_ttl = 1800) {
     $this->configFactory = $config_factory;
     $this->financialDataService = $financial_data_service;
     $this->googleSheetClientService = $google_sheet_client_service;
@@ -220,7 +226,7 @@ class KpiDataService {
     $this->funnelDataService = $funnel_data_service;
     $this->memberSuccessDataService = $member_success_data_service;
     $this->infrastructureDataService = $infrastructure_data_service;
-    $this->cache = $cache;
+    $this->store = $key_value_factory->get('makerspace_dashboard_kpi');
     $this->time = $time;
     $this->sectionCacheTtl = max(60, $section_cache_ttl);
   }
@@ -244,31 +250,42 @@ class KpiDataService {
       return $this->sectionKpiDataCache[$section_id];
     }
 
-    $cacheId = $this->buildSectionKpiCacheId($section_id);
-    if ($cached = $this->cache->get($cacheId)) {
-      if (is_array($cached->data)) {
-        $this->sectionKpiDataCache[$section_id] = $cached->data;
-        return $cached->data;
-      }
+    $storeKey = $this->buildSectionKpiCacheId($section_id);
+    $configHash = $this->getSectionConfigHash($section_id);
+    $stored = $this->store->get($storeKey);
+
+    // Return cached payload when the config that produced it still matches.
+    // Stale entries are returned as-is; cron re-warms them so pages never
+    // block on recomputation except on a genuine first-ever miss or right
+    // after a KPI config change.
+    if (is_array($stored)
+      && isset($stored['data'], $stored['config_hash'])
+      && $stored['config_hash'] === $configHash) {
+      $this->sectionKpiDataCache[$section_id] = $stored['data'];
+      return $stored['data'];
     }
 
-    $kpi_config = $this->getMergedKpiDefinitions($section_id);
+    $kpi_data = $this->computeSectionKpis($section_id);
+    $this->persistSectionKpis($section_id, $kpi_data, $configHash);
+    return $kpi_data;
+  }
 
+  /**
+   * Runs the per-KPI calculation methods for a section.
+   */
+  protected function computeSectionKpis(string $section_id): array {
+    $kpi_config = $this->getMergedKpiDefinitions($section_id);
     if (!$kpi_config) {
-      $this->sectionKpiDataCache[$section_id] = [];
       return [];
     }
 
     $kpi_data = [];
-    $allPriorities = $this->getSectionPriorities();
-
     foreach ($kpi_config as $kpi_id => $kpi_info) {
       $method_name = 'get' . str_replace(' ', '', ucwords(str_replace('_', ' ', $kpi_id))) . 'Data';
       if (method_exists($this, $method_name)) {
         $result = $this->{$method_name}($kpi_info);
       }
       else {
-        // Fallback for KPIs that don't have a dedicated method yet.
         \Drupal::logger('makerspace_dashboard')->notice(
           'KPI @id has no dedicated calculation method; showing placeholder. Add get@method() to KpiDataService.',
           ['@id' => $kpi_id, '@method' => str_replace(' ', '', ucwords(str_replace('_', ' ', $kpi_id))) . 'Data']
@@ -283,18 +300,20 @@ class KpiDataService {
       $kpi_data[$kpi_id] = $result;
     }
 
-    $this->sectionKpiDataCache[$section_id] = $kpi_data;
-    $this->cache->set(
-      $cacheId,
-      $kpi_data,
-      $this->time->getRequestTime() + $this->sectionCacheTtl,
-      [
-        'config:makerspace_dashboard.kpis',
-        'config:makerspace_dashboard.settings',
-      ]
-    );
-
     return $kpi_data;
+  }
+
+  /**
+   * Stores a freshly computed section payload in the persistent key-value store.
+   */
+  protected function persistSectionKpis(string $section_id, array $kpi_data, string $configHash): void {
+    $this->sectionKpiDataCache[$section_id] = $kpi_data;
+    $this->store->set($this->buildSectionKpiCacheId($section_id), [
+      'data' => $kpi_data,
+      'expires_at' => $this->time->getRequestTime() + $this->sectionCacheTtl,
+      'config_hash' => $configHash,
+      'computed_at' => $this->time->getRequestTime(),
+    ]);
   }
 
   /**
@@ -306,15 +325,98 @@ class KpiDataService {
   public function warmSectionCache(?array $sectionIds = NULL): void {
     $targetSections = $sectionIds !== NULL ? $sectionIds : array_keys($this->getAllKpiDefinitions());
     foreach ($targetSections as $sectionId) {
-      $sectionId = trim((string) $sectionId);
-      if ($sectionId === '') {
+      $this->warmSection((string) $sectionId);
+    }
+  }
+
+  /**
+   * Warms a single section's KPI payload, overwriting any existing entry.
+   */
+  public function warmSection(string $section_id): void {
+    $section_id = trim($section_id);
+    if ($section_id === '') {
+      return;
+    }
+    unset($this->sectionKpiDataCache[$section_id]);
+    $kpi_data = $this->computeSectionKpis($section_id);
+    $this->persistSectionKpis($section_id, $kpi_data, $this->getSectionConfigHash($section_id));
+  }
+
+  /**
+   * Returns section IDs whose stored payload is missing, stale, or produced
+   * from an out-of-date config hash.
+   *
+   * @return string[]
+   */
+  public function getSectionsNeedingWarm(): array {
+    $now = $this->time->getRequestTime();
+    $needs = [];
+    foreach (array_keys($this->getAllKpiDefinitions()) as $sectionId) {
+      $stored = $this->store->get($this->buildSectionKpiCacheId($sectionId));
+      if (!is_array($stored)
+        || !isset($stored['data'], $stored['config_hash'], $stored['expires_at'])
+        || $stored['config_hash'] !== $this->getSectionConfigHash($sectionId)
+        || $stored['expires_at'] < $now) {
+        $needs[] = $sectionId;
+      }
+    }
+    return $needs;
+  }
+
+  /**
+   * Deletes all stored section payloads.
+   *
+   * Next read of any section will synchronously recompute and repopulate.
+   * Cron will re-warm the rest in the background.
+   */
+  public function clearStoredKpis(): void {
+    $this->sectionKpiDataCache = [];
+    foreach (array_keys($this->store->getAll()) as $key) {
+      $this->store->delete($key);
+    }
+  }
+
+  /**
+   * Returns a freshness report keyed by section ID.
+   *
+   * Each entry is either NULL (no stored payload) or an array with
+   * `computed_at`, `expires_at`, and `config_match` keys. Used by admin UI.
+   *
+   * @return array<string,array|null>
+   */
+  public function getSectionFreshnessReport(): array {
+    $report = [];
+    foreach (array_keys($this->getAllKpiDefinitions()) as $sectionId) {
+      $stored = $this->store->get($this->buildSectionKpiCacheId($sectionId));
+      if (!is_array($stored) || !isset($stored['computed_at'], $stored['expires_at'], $stored['config_hash'])) {
+        $report[$sectionId] = NULL;
         continue;
       }
-      // Force a fresh compute to refresh the persisted cache TTL.
-      unset($this->sectionKpiDataCache[$sectionId]);
-      $this->cache->delete($this->buildSectionKpiCacheId($sectionId));
-      $this->getKpiData($sectionId);
+      $report[$sectionId] = [
+        'computed_at' => (int) $stored['computed_at'],
+        'expires_at' => (int) $stored['expires_at'],
+        'config_match' => $stored['config_hash'] === $this->getSectionConfigHash($sectionId),
+      ];
     }
+    return $report;
+  }
+
+  /**
+   * Hash of the inputs that materially affect a section's computed payload.
+   *
+   * A mismatch with the stored hash triggers a synchronous recompute — this
+   * is what replaces the `config:makerspace_dashboard.kpis` cache tag that
+   * the old cache-backend implementation relied on.
+   */
+  protected function getSectionConfigHash(string $section_id): string {
+    $kpis = $this->configFactory->get('makerspace_dashboard.kpis')->getRawData() ?? [];
+    $settings = $this->configFactory->get('makerspace_dashboard.settings')->getRawData() ?? [];
+    return hash('xxh64', serialize([
+      'section' => $section_id,
+      'kpis' => $kpis[$section_id] ?? NULL,
+      // Goal columns are globally scoped; include the whole settings blob.
+      'settings' => $settings,
+    ]));
   }
 
   /**
@@ -349,10 +451,10 @@ class KpiDataService {
   }
 
   /**
-   * Builds the persistent cache key for section KPI payloads.
+   * Builds the key-value store key for a section's KPI payload.
    */
   protected function buildSectionKpiCacheId(string $sectionId): string {
-    return 'makerspace_dashboard:kpi_data:section:v1:' . $sectionId;
+    return 'section:v2:' . $sectionId;
   }
 
   private function getMergedKpiDefinitions(string $section_id): array {
@@ -614,6 +716,96 @@ class KpiDataService {
       'current_period_label' => $currentPeriodLabel,
       'period_fraction' => $periodFraction,
     ];
+  }
+
+  /**
+   * Extracts a monthly trend from KPI snapshot records.
+   *
+   * Returns NULL when fewer than $minPoints monthly rows exist, so callers
+   * can fall back to a live computation when the snapshot history is too
+   * sparse to be meaningful.
+   *
+   * @return array|null
+   *   ['trend' => float[], 'current' => float, 'ttm12' => float|null,
+   *    'ttm3' => float|null, 'last_updated' => string|null] or NULL.
+   */
+  private function extractKpiSnapshotMonthlySeries(string $kpiId, int $minPoints = 6): ?array {
+    $series = $this->snapshotDataService->getKpiMetricSeries($kpiId, FALSE, ['monthly']);
+    if (empty($series)) {
+      return NULL;
+    }
+
+    // Collapse to one value per year-month, preferring later entries (the
+    // series is chronological, so later entries overwrite earlier duplicates).
+    $byMonth = [];
+    foreach ($series as $record) {
+      $value = is_numeric($record['value'] ?? NULL) ? (float) $record['value'] : NULL;
+      if ($value === NULL) {
+        continue;
+      }
+      $key = NULL;
+      if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+        $key = $record['snapshot_date']->format('Y-m');
+      }
+      elseif (!empty($record['period_year'])) {
+        $key = sprintf('%04d-%02d', (int) $record['period_year'], (int) ($record['period_month'] ?? 1));
+      }
+      if ($key === NULL) {
+        continue;
+      }
+      $byMonth[$key] = $value;
+    }
+
+    if (count($byMonth) < $minPoints) {
+      return NULL;
+    }
+
+    ksort($byMonth);
+    $values = array_values($byMonth);
+    $lastKey = (string) array_key_last($byMonth);
+
+    return [
+      'trend' => array_slice($values, -12),
+      'current' => (float) end($values),
+      'ttm12' => $this->calculateTrailingAverage($values, 12),
+      'ttm3' => $this->calculateTrailingAverage($values, 3),
+      'last_updated' => $lastKey . '-01',
+    ];
+  }
+
+  /**
+   * Extracts year => value from annual KPI snapshot records only.
+   *
+   * Used by live-first KPI methods that want snapshots to contribute annual
+   * overrides for the historical table without overriding the live trend.
+   */
+  private function extractKpiSnapshotAnnualOverrides(string $kpiId): array {
+    $series = $this->snapshotDataService->getKpiMetricSeries($kpiId);
+    if (empty($series)) {
+      return [];
+    }
+    $annual = [];
+    foreach ($series as $record) {
+      if (!$this->isAnnualSnapshotRecord($record)) {
+        continue;
+      }
+      $value = is_numeric($record['value'] ?? NULL) ? (float) $record['value'] : NULL;
+      if ($value === NULL) {
+        continue;
+      }
+      $year = NULL;
+      if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
+        $year = $record['snapshot_date']->format('Y');
+      }
+      elseif (!empty($record['period_year'])) {
+        $year = (string) $record['period_year'];
+      }
+      if ($year !== NULL) {
+        $annual[$year] = $value;
+      }
+    }
+    ksort($annual, SORT_STRING);
+    return $annual;
   }
 
   /**
@@ -1346,115 +1538,30 @@ class KpiDataService {
    * Gets the data for the "Active Participation %" KPI.
    */
   private function getKpiActiveParticipationData(array $kpi_info): array {
-    $annualOverrides = [];
-    $annualAggregates = [];
-    $trend = [];
-    $ttm12 = NULL;
-    $ttm3 = NULL;
-    $current = NULL;
-    $lastUpdated = NULL;
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_active_participation', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_active_participation');
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation', FALSE, ['monthly']);
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
+    $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+    $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp());
 
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
-        }
-        else {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-
-          if ($year !== NULL) {
-            if (!isset($annualAggregates[$year])) {
-              $annualAggregates[$year] = [];
-            }
-            $annualAggregates[$year][] = $value;
-          }
-        }
-      }
-
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
-      }
-
-      if ($lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
-      }
-
-      // When annual rows are missing, derive annual values from granular points.
-      foreach ($annualAggregates as $year => $values) {
-        if (isset($annualOverrides[$year]) || empty($values)) {
-          continue;
-        }
-        $annualOverrides[$year] = array_sum($values) / count($values);
-      }
+    if ($snapshot !== NULL) {
+      $result = $this->withDemographicSegments(
+        $this->buildKpiResult($kpi_info, $annualOverrides, $snapshot['trend'], $snapshot['ttm12'], $snapshot['ttm3'], $snapshot['last_updated'], $snapshot['current'], 'kpi_active_participation', 'percent', 'Snapshot-backed: unique members with at least one card read in the trailing 90-day window ending at each month-end, divided by the active-member roster.', 'Last 12 months', 'Trailing 90 days as of month-end', 1.0),
+        'kpi_active_participation'
+      );
+      $result['segments'] = array_merge($result['segments'] ?? [], $this->buildParticipationDetailSegments($summary));
+      return $result;
     }
 
-    $latestRecord = !empty($snapshotSeries) ? end($snapshotSeries) : NULL;
-    if ($current === NULL) {
-      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
-      $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp());
-      $current = (float) ($summary['rate'] ?? 0.0);
-      $lastUpdated = $latestWindow['end']->format('Y-m-d');
-      $latestRecord = [
-        'meta' => [
-          'visitors' => (int) ($summary['visitors'] ?? 0),
-          'roster' => (int) ($summary['roster'] ?? 0),
-        ],
-      ];
-    }
-
-    if ($annualOverrides) {
-      ksort($annualOverrides, SORT_STRING);
-    }
+    $current = (float) ($summary['rate'] ?? 0.0);
+    $lastUpdated = $latestWindow['end']->format('Y-m-d');
 
     $result = $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_participation', 'percent', 'System: Unique members with at least one card read in the trailing 90-day window ending at each month-end snapshot, divided by the active-member roster for that snapshot month.', 'Last 12 months', 'Trailing 90 days as of month-end', 1.0),
+      $this->buildKpiResult($kpi_info, $annualOverrides, [$current], $current, $current, $lastUpdated, $current, 'kpi_active_participation', 'percent', 'Live: Unique members with at least one card read in the trailing 90-day window ending last month-end, divided by the active-member roster.', 'Last 12 months', 'Trailing 90 days as of month-end', 1.0),
       'kpi_active_participation'
     );
 
-    $counts = $this->extractParticipationCountsFromSnapshotRecord(is_array($latestRecord) ? $latestRecord : NULL);
-    if ($counts === NULL) {
-      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
-      $counts = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp());
-    }
-    $result['segments'] = array_merge($result['segments'] ?? [], $this->buildParticipationDetailSegments($counts));
+    $result['segments'] = array_merge($result['segments'] ?? [], $this->buildParticipationDetailSegments($summary));
 
     return $result;
   }
@@ -1463,49 +1570,50 @@ class KpiDataService {
    * Gets the data for the "Active Participation % (BIPOC)" KPI.
    */
   private function getKpiActiveParticipationBipocData(array $kpi_info): array {
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation_bipoc', FALSE, ['monthly']);
-    $trend = [];
-    $current = NULL;
-    $lastUpdated = NULL;
-    $latestRecord = !empty($snapshotSeries) ? end($snapshotSeries) : NULL;
-    foreach ($snapshotSeries as $record) {
-      if (is_numeric($record['value'] ?? NULL)) {
-        $trend[] = (float) $record['value'];
-        $current = (float) $record['value'];
-      }
-      if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-        $lastUpdated = $record['snapshot_date']->format('Y-m-d');
-      }
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_active_participation_bipoc', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_active_participation_bipoc');
+
+    $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+    $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'bipoc');
+
+    if ($snapshot !== NULL) {
+      $result = $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_active_participation_bipoc',
+        'percent',
+        'Snapshot-backed: unique BIPOC members with at least one card read in the trailing 90-day window, divided by the active BIPOC roster at each month-end.',
+        'Last 12 months',
+        'Trailing 90 days as of month-end'
+      );
+      $result['segments'] = $this->buildParticipationDetailSegments($summary);
+      return $result;
     }
-    if ($current === NULL) {
-      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
-      $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'bipoc');
-      $current = (float) ($summary['rate'] ?? 0.0);
-      $lastUpdated = $latestWindow['end']->format('Y-m-d');
-      $latestRecord = ['meta' => ['visitors' => (int) ($summary['visitors'] ?? 0), 'roster' => (int) ($summary['roster'] ?? 0)]];
-    }
+
+    $current = (float) ($summary['rate'] ?? 0.0);
+    $lastUpdated = $latestWindow['end']->format('Y-m-d');
 
     $result = $this->buildKpiResult(
       $kpi_info,
-      [],
-      $trend,
-      NULL,
-      NULL,
+      $annualOverrides,
+      [$current],
+      $current,
+      $current,
       $lastUpdated,
       $current,
       'kpi_active_participation_bipoc',
       'percent',
-      'System: Unique BIPOC members with at least one card read in the trailing 90-day window ending at each month-end snapshot, divided by the active BIPOC roster for that snapshot month.',
+      'Live: Unique BIPOC members with at least one card read in the trailing 90-day window, divided by the active BIPOC roster (current ethnicity data).',
       'Last 12 months',
       'Trailing 90 days as of month-end'
     );
 
-    $counts = $this->extractParticipationCountsFromSnapshotRecord(is_array($latestRecord) ? $latestRecord : NULL);
-    if ($counts === NULL) {
-      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
-      $counts = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'bipoc');
-    }
-    $result['segments'] = $this->buildParticipationDetailSegments($counts);
+    $result['segments'] = $this->buildParticipationDetailSegments($summary);
 
     return $result;
   }
@@ -1514,49 +1622,50 @@ class KpiDataService {
    * Gets the data for the "Active Participation % (Female/Non-binary)" KPI.
    */
   private function getKpiActiveParticipationFemaleNbData(array $kpi_info): array {
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_participation_female_nb', FALSE, ['monthly']);
-    $trend = [];
-    $current = NULL;
-    $lastUpdated = NULL;
-    $latestRecord = !empty($snapshotSeries) ? end($snapshotSeries) : NULL;
-    foreach ($snapshotSeries as $record) {
-      if (is_numeric($record['value'] ?? NULL)) {
-        $trend[] = (float) $record['value'];
-        $current = (float) $record['value'];
-      }
-      if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-        $lastUpdated = $record['snapshot_date']->format('Y-m-d');
-      }
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_active_participation_female_nb', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_active_participation_female_nb');
+
+    $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
+    $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'female_nb');
+
+    if ($snapshot !== NULL) {
+      $result = $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_active_participation_female_nb',
+        'percent',
+        'Snapshot-backed: unique Female/NB members with at least one card read in the trailing 90-day window, divided by the active Female/NB roster at each month-end.',
+        'Last 12 months',
+        'Trailing 90 days as of month-end'
+      );
+      $result['segments'] = $this->buildParticipationDetailSegments($summary);
+      return $result;
     }
-    if ($current === NULL) {
-      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
-      $summary = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'female_nb');
-      $current = (float) ($summary['rate'] ?? 0.0);
-      $lastUpdated = $latestWindow['end']->format('Y-m-d');
-      $latestRecord = ['meta' => ['visitors' => (int) ($summary['visitors'] ?? 0), 'roster' => (int) ($summary['roster'] ?? 0)]];
-    }
+
+    $current = (float) ($summary['rate'] ?? 0.0);
+    $lastUpdated = $latestWindow['end']->format('Y-m-d');
 
     $result = $this->buildKpiResult(
       $kpi_info,
-      [],
-      $trend,
-      NULL,
-      NULL,
+      $annualOverrides,
+      [$current],
+      $current,
+      $current,
       $lastUpdated,
       $current,
       'kpi_active_participation_female_nb',
       'percent',
-      'System: Unique Female/NB members with at least one card read in the trailing 90-day window ending at each month-end snapshot, divided by the active Female/NB roster for that snapshot month.',
+      'Live: Unique Female/NB members with at least one card read in the trailing 90-day window, divided by the active Female/NB roster (current gender data).',
       'Last 12 months',
       'Trailing 90 days as of month-end'
     );
 
-    $counts = $this->extractParticipationCountsFromSnapshotRecord(is_array($latestRecord) ? $latestRecord : NULL);
-    if ($counts === NULL) {
-      $latestWindow = $this->getLatestCompletedMonthlyParticipationWindow();
-      $counts = $this->utilizationDataService->getParticipationSummary($latestWindow['start']->getTimestamp(), $latestWindow['end']->getTimestamp(), 'female_nb');
-    }
-    $result['segments'] = $this->buildParticipationDetailSegments($counts);
+    $result['segments'] = $this->buildParticipationDetailSegments($summary);
 
     return $result;
   }
@@ -1949,67 +2058,22 @@ class KpiDataService {
    * Gets the data for the "Total Tours (12 month)" KPI.
    */
   private function getKpiToursData(array $kpi_info): array {
-    $annualOverrides = [];
-    $trend = [];
-    $ttm12 = NULL;
-    $ttm3 = NULL;
-    $current = NULL;
-    $lastUpdated = NULL;
-
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_tours');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
-
-        if ($this->isAnnualSnapshotRecord($record)) {
-          $year = !empty($record['snapshot_date']) ? $record['snapshot_date']->format('Y') : (string) ($record['period_year'] ?? '');
-          if ($year) {
-            $annualOverrides[$year] = $value;
-          }
-        }
-      }
-
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        // For tours we SUM the months instead of averaging.
-        $ttm12 = array_sum(array_slice($snapshotValues, -12));
-        $ttm3 = array_sum(array_slice($snapshotValues, -3));
-        $current = $ttm12;
-      }
-
-      if ($lastSnapshot) {
-        $lastUpdated = !empty($lastSnapshot['snapshot_date']) ? $lastSnapshot['snapshot_date']->format('Y-m-d') : date('Y-m-d');
-      }
-    }
-
-    if ($current === NULL) {
-      $funnel = $this->funnelDataService->getTourFunnelData();
-      $current = (float) ($funnel['participants_total'] ?? 0);
-      $lastUpdated = date('Y-m-d');
-    }
-
-    if ($annualOverrides) {
-      ksort($annualOverrides, SORT_STRING);
-    }
+    $funnel = $this->funnelDataService->getTourFunnelData();
+    $trend = $this->funnelDataService->getTourMonthlyUniqueContactSeries();
+    $current = (float) ($funnel['participants_total'] ?? 0);
+    $ttm3 = (float) array_sum(array_slice($trend, -3));
 
     return $this->buildKpiResult(
       $kpi_info,
-      $annualOverrides,
+      [],
       $trend,
-      $ttm12,
+      $current,
       $ttm3,
-      $lastUpdated,
+      date('Y-m-d'),
       $current,
       'kpi_tours',
       'integer',
-      'System: Sum of monthly tour event attendees and tour activities.',
+      'Live CiviCRM: Unique contacts with a Tour activity in the last 12 months.',
       'Last 12 months',
       'Trailing 12 months',
       1.0
@@ -2313,184 +2377,92 @@ class KpiDataService {
    * Gets the data for the "Education Net Promoter Score (NPS)" KPI.
    */
   private function getKpiEducationNpsData(array $kpi_info): array {
-    $annualOverrides = [];
     $trend = [];
     $ttm12 = NULL;
     $ttm3 = NULL;
     $current = NULL;
-    $lastUpdated = NULL;
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_education_nps');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
-
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
-        }
-      }
-
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
-      }
-
-      if ($lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
-      }
+    $end = new \DateTimeImmutable('last day of this month 23:59:59');
+    $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+    $npsSeries = $this->educationEvaluationDataService->getNetPromoterSeries($start, $end);
+    $points = array_values(array_filter($npsSeries['nps'] ?? [], 'is_numeric'));
+    if ($points) {
+      $trend = array_slice($points, -12);
+      $ttm12 = $this->calculateTrailingAverage($points, 12);
+      $ttm3 = $this->calculateTrailingAverage($points, 3);
+      $current = isset($npsSeries['overall']['nps']) && is_numeric($npsSeries['overall']['nps'])
+        ? (float) $npsSeries['overall']['nps']
+        : (float) end($points);
     }
 
-    if ($current === NULL) {
-      $end = new \DateTimeImmutable('last day of this month 23:59:59');
-      $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
-      $npsSeries = $this->educationEvaluationDataService->getNetPromoterSeries($start, $end);
-      $points = array_values(array_filter($npsSeries['nps'] ?? [], 'is_numeric'));
-      if ($points) {
-        $trend = array_slice($points, -12);
-        $ttm12 = $this->calculateTrailingAverage($points, 12);
-        $ttm3 = $this->calculateTrailingAverage($points, 3);
-        $current = isset($npsSeries['overall']['nps']) && is_numeric($npsSeries['overall']['nps'])
-          ? (float) $npsSeries['overall']['nps']
-          : (float) end($points);
-      }
-      $lastUpdated = $end->format('Y-m-d');
-    }
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_education_nps');
 
-    if ($annualOverrides) {
-      ksort($annualOverrides, SORT_STRING);
-    }
-
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_education_nps');
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $end->format('Y-m-d'), $current, 'kpi_education_nps');
   }
 
   /**
    * Gets the data for the "% Workshop Participants (BIPOC)" KPI.
    */
   private function getKpiWorkshopParticipantsBipocData(array $kpi_info): array {
-    $annualOverrides = [];
-    $trend = [];
-    $ttm12 = NULL;
-    $ttm3 = NULL;
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_workshop_participants_bipoc', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_workshop_participants_bipoc');
+
+    if ($snapshot !== NULL) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_workshop_participants_bipoc',
+        'percent',
+        'Snapshot-backed: monthly % of unique workshop participants identifying as BIPOC captured at each month-end.'
+      );
+    }
+
     $current = NULL;
-    $lastUpdated = NULL;
+    $end = new \DateTimeImmutable('last day of this month 23:59:59');
+    $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+    $demographics = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_workshop_participants_bipoc');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
+    $labels = $demographics['ethnicity']['labels'] ?? [];
+    $workshop = $demographics['ethnicity']['workshop'] ?? [];
+    $bipocCount = 0.0;
+    $knownCount = 0.0;
 
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
-        }
+    foreach ($labels as $index => $label) {
+      $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
+      if ($count <= 0) {
+        continue;
       }
-
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
+      if ($this->isUnspecifiedEthnicity((string) $label)) {
+        continue;
       }
-
-      if ($lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
+      $knownCount += $count;
+      if ($this->isBipocEthnicityLabel((string) $label)) {
+        $bipocCount += $count;
       }
     }
 
-    if ($current === NULL) {
-      $end = new \DateTimeImmutable('last day of this month 23:59:59');
-      $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
-      $demographics = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
-
-      $labels = $demographics['ethnicity']['labels'] ?? [];
-      $workshop = $demographics['ethnicity']['workshop'] ?? [];
-      $bipocCount = 0.0;
-      $knownCount = 0.0;
-
-      foreach ($labels as $index => $label) {
-        $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
-        if ($count <= 0) {
-          continue;
-        }
-        if ($this->isUnspecifiedEthnicity((string) $label)) {
-          continue;
-        }
-        $knownCount += $count;
-        if ($this->isBipocEthnicityLabel((string) $label)) {
-          $bipocCount += $count;
-        }
-      }
-
-      if ($knownCount > 0) {
-        $current = $bipocCount / $knownCount;
-      }
-      $lastUpdated = $end->format('Y-m-d');
+    if ($knownCount > 0) {
+      $current = $bipocCount / $knownCount;
     }
 
-    if ($annualOverrides) {
-      ksort($annualOverrides, SORT_STRING);
-    }
+    $trend = $current !== NULL ? [$current] : [];
 
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $trend,
-      $ttm12,
-      $ttm3,
-      $lastUpdated,
+      $current,
+      $current,
+      $end->format('Y-m-d'),
       $current,
       'kpi_workshop_participants_bipoc',
       'percent',
-      'System: % of unique workshop participants identifying as BIPOC.'
+      'Live CiviCRM: % of unique workshop participants identifying as BIPOC (last 12 months, current ethnicity data).'
     );
   }
 
@@ -2498,105 +2470,67 @@ class KpiDataService {
    * Gets the data for the "% Active Instructors (BIPOC)" KPI.
    */
   private function getKpiActiveInstructorsBipocData(array $kpi_info): array {
-    $annualOverrides = [];
-    $trend = [];
-    $ttm12 = NULL;
-    $ttm3 = NULL;
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_active_instructors_bipoc', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_active_instructors_bipoc');
+
+    if ($snapshot !== NULL) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_active_instructors_bipoc',
+        'percent',
+        'Snapshot-backed: monthly % of active instructors identifying as BIPOC captured at each month-end.'
+      );
+    }
+
     $current = NULL;
-    $lastUpdated = NULL;
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_active_instructors_bipoc');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
+    $end = new \DateTimeImmutable('last day of this month 23:59:59');
+    $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+    $demographics = $this->eventsMembershipDataService->getActiveInstructorDemographics($start, $end);
+    $instructors = $demographics['instructors'] ?? [];
+    $knownCount = 0;
+    $bipocCount = 0;
+
+    foreach ($instructors as $instructor) {
+      $ethnicities = array_unique(array_filter(array_map('strval', (array) ($instructor['ethnicity'] ?? []))));
+      if (!$ethnicities) {
+        continue;
+      }
+
+      $hasKnownEthnicity = FALSE;
+      $hasBipocEthnicity = FALSE;
+      foreach ($ethnicities as $label) {
+        if ($this->isUnspecifiedEthnicity($label)) {
           continue;
         }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
-
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
+        $hasKnownEthnicity = TRUE;
+        if ($this->isBipocEthnicityLabel($label)) {
+          $hasBipocEthnicity = TRUE;
         }
       }
 
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
+      if (!$hasKnownEthnicity) {
+        continue;
       }
-
-      if ($lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
+      $knownCount++;
+      if ($hasBipocEthnicity) {
+        $bipocCount++;
       }
     }
 
-    if ($current === NULL) {
-      $end = new \DateTimeImmutable('last day of this month 23:59:59');
-      $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
-      $demographics = $this->eventsMembershipDataService->getActiveInstructorDemographics($start, $end);
-      $instructors = $demographics['instructors'] ?? [];
-      $knownCount = 0;
-      $bipocCount = 0;
-
-      foreach ($instructors as $instructor) {
-        $ethnicities = array_unique(array_filter(array_map('strval', (array) ($instructor['ethnicity'] ?? []))));
-        if (!$ethnicities) {
-          continue;
-        }
-
-        $hasKnownEthnicity = FALSE;
-        $hasBipocEthnicity = FALSE;
-        foreach ($ethnicities as $label) {
-          if ($this->isUnspecifiedEthnicity($label)) {
-            continue;
-          }
-          $hasKnownEthnicity = TRUE;
-          if ($this->isBipocEthnicityLabel($label)) {
-            $hasBipocEthnicity = TRUE;
-          }
-        }
-
-        if (!$hasKnownEthnicity) {
-          continue;
-        }
-        $knownCount++;
-        if ($hasBipocEthnicity) {
-          $bipocCount++;
-        }
-      }
-
-      if ($knownCount > 0) {
-        $current = $bipocCount / $knownCount;
-      }
-      $lastUpdated = $end->format('Y-m-d');
+    if ($knownCount > 0) {
+      $current = $bipocCount / $knownCount;
     }
 
-    if ($annualOverrides) {
-      ksort($annualOverrides, SORT_STRING);
-    }
+    $trend = $current !== NULL ? [$current] : [];
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_active_instructors_bipoc', 'percent');
+    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $current, $current, $end->format('Y-m-d'), $current, 'kpi_active_instructors_bipoc', 'percent');
   }
 
   /**
@@ -2824,74 +2758,36 @@ class KpiDataService {
    * Gets the data for the "Member Net Promoter Score (NPS)" KPI.
    */
   private function getKpiMemberNpsData(array $kpi_info): array {
-    $annualOverrides = [];
-    $trend = [];
-    $ttm12 = NULL;
-    $ttm3 = NULL;
-    $current = NULL;
-    $lastUpdated = NULL;
+    // Primary: use snapshot series if monthly snapshots have accumulated.
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_member_nps', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_member_nps');
 
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_member_nps');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
-
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
-        }
-      }
-
-      if ($snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
-      }
-
-      if ($lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
-      }
-    }
-
-    if ($current === NULL) {
-      $current = (float) $this->membershipMetricsService->getAnnualMemberNps();
-      $annualOverrides[(string) date('Y')] = $current;
-      $lastUpdated = date('Y-m-d');
-      $trend = $trend ?: [$current];
-      $ttm12 = $ttm12 ?? $current;
-      $ttm3 = $ttm3 ?? $current;
-    }
-
-    if ($annualOverrides) {
+    if ($snapshot !== NULL) {
+      $annualOverrides[(string) date('Y')] = $snapshot['current'];
       ksort($annualOverrides, SORT_STRING);
+      return $this->withDemographicSegments(
+        $this->buildKpiResult($kpi_info, $annualOverrides, $snapshot['trend'], $snapshot['ttm12'], $snapshot['ttm3'], $snapshot['last_updated'], $snapshot['current'], 'kpi_member_nps'),
+        'kpi_member_nps'
+      );
     }
+
+    // Fallback: build a trend from each year's annual member survey. The NPS
+    // surveys are annual (not monthly) so each year contributes one data point.
+    $npsByYear = $this->membershipMetricsService->getMemberNpsSeriesByYear();
+    $current = (float) $this->membershipMetricsService->getAnnualMemberNps();
+
+    foreach ($npsByYear as $year => $nps) {
+      $annualOverrides[(string) $year] = (float) $nps;
+    }
+    $annualOverrides[(string) date('Y')] = $current;
+    ksort($annualOverrides, SORT_STRING);
+
+    $trend = array_values(array_map('floatval', $npsByYear));
+    $ttm12 = $this->calculateTrailingAverage($trend, 12);
+    $ttm3 = $this->calculateTrailingAverage($trend, 3);
 
     return $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_member_nps'),
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, date('Y-m-d'), $current, 'kpi_member_nps'),
       'kpi_member_nps'
     );
   }
@@ -2930,13 +2826,16 @@ Process Group PGID: 1032535   *
   }
 
   /**
-   * Gets the data for the "# of Active Grants in Pipeline" KPI.
+   * Gets the data for the "# of Grants Submitted (Trailing 12mo)" KPI.
    */
   private function getKpiGrantPipelineCountData(array $kpi_info): array {
     $summary = $this->developmentDataService->getGrantsSummary();
-    $currentYear = (int) date('Y');
-    $current = (int) $this->developmentDataService->getGrantSubmittedYtdCount($currentYear);
     $trend = $this->developmentDataService->getGrantSubmittedTrend(12);
+    // Primary value: trailing 12-month total — a full annual window regardless
+    // of where we are in the calendar year.
+    $ttm = array_sum($trend);
+    // YTD for the subnote chip.
+    $ytd = (int) $this->developmentDataService->getGrantSubmittedYtdCount((int) date('Y'));
     $lastUpdated = date('Y-m-d');
 
     $result = $this->buildKpiResult(
@@ -2946,18 +2845,24 @@ Process Group PGID: 1032535   *
       NULL,
       NULL,
       $lastUpdated,
-      $current,
+      $ttm,
       'kpi_grant_pipeline_count',
       'integer',
-      'CiviCRM Funding: YTD count of grants with submitted documentation/link populated (period keyed by due date because no submitted timestamp exists).',
+      'CiviCRM Funding: Count of grants with submitted documentation/link in the trailing 12 months (period keyed by due date).',
       'Last 12 months',
-      'YTD'
+      'Trailing 12 months',
+      1.0
     );
 
-    $activePipeline = (int) ($summary['pipeline_count'] ?? 0);
     $segments = $result['segments'] ?? [];
     $segments[] = [
-      'label' => 'Active pipeline now',
+      'label' => 'YTD',
+      'value' => (float) $ytd,
+      'format' => 'integer',
+    ];
+    $activePipeline = (int) ($summary['pipeline_count'] ?? 0);
+    $segments[] = [
+      'label' => 'Active pipeline',
       'value' => (float) $activePipeline,
       'format' => 'integer',
     ];
@@ -3076,18 +2981,96 @@ Process Group PGID: 1032535   *
 
   /**
    * Gets the data for the "Active Incubator Ventures" KPI.
+   *
+   * Counts published business nodes marked 'incubating' whose node owner
+   * currently holds the 'member' role. This ensures the count automatically
+   * drops when a member lapses without requiring manual cleanup.
    */
   private function getKpiActiveIncubatorVenturesData(array $kpi_info): array {
-    // Flag as in-development by returning NULL current.
-    return $this->buildKpiResult($kpi_info, [], [], NULL, NULL, NULL, NULL, 'kpi_active_incubator_ventures');
+    $query = \Drupal::database()->select('node_field_data', 'n');
+    $query->join('node__field_business_display_options', 'bdo', 'n.nid = bdo.entity_id');
+    $query->join('user__roles', 'ur', 'n.uid = ur.entity_id AND ur.roles_target_id = :role', [':role' => 'member']);
+    $query->condition('n.type', 'business');
+    $query->condition('n.status', 1);
+    $query->condition('bdo.field_business_display_options_value', 'incubating');
+    $current = (float) $query->countQuery()->execute()->fetchField();
+
+    $lastUpdated = date('Y-m-d');
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      $lastUpdated,
+      $current,
+      'kpi_active_incubator_ventures',
+      'integer',
+      'System: Business nodes marked "incubating" with active member owner.'
+    );
   }
 
   /**
    * Gets the data for the "Incubator Workspace Occupancy" KPI.
+   *
+   * Calculated as (sq ft under active rental agreement) / (total sq ft of all
+   * workspace entities). Relies on the workspace_rental module ECK entities.
    */
   private function getKpiIncubatorWorkspaceOccupancyData(array $kpi_info): array {
-    // Flag as in-development by returning NULL current.
-    return $this->buildKpiResult($kpi_info, [], [], NULL, NULL, NULL, NULL, 'kpi_incubator_workspace_occupancy', 'percent');
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_incubator_workspace_occupancy', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_incubator_workspace_occupancy');
+
+    if ($snapshot !== NULL) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_incubator_workspace_occupancy',
+        'percent',
+        'Snapshot-backed: % of rentable sq ft under active rental agreement.'
+      );
+    }
+
+    $db = \Drupal::database();
+
+    // Total rentable sq ft across all workspace entities.
+    $q_total = $db->select('workspace__field_wr_sq_footage', 'sq');
+    $q_total->condition('sq.deleted', 0);
+    $q_total->addExpression('SUM(sq.field_wr_sq_footage_value)', 'total');
+    $total_sqft = (float) $q_total->execute()->fetchField();
+
+    if ($total_sqft <= 0) {
+      return $this->buildKpiResult($kpi_info, $annualOverrides, [], NULL, NULL, NULL, NULL, 'kpi_incubator_workspace_occupancy', 'percent');
+    }
+
+    // Occupied sq ft: workspaces referenced by an active rental agreement.
+    $q_occ = $db->select('rental_agreement__field_wr_status', 'rs');
+    $q_occ->condition('rs.field_wr_status_value', 'active');
+    $q_occ->condition('rs.deleted', 0);
+    $q_occ->join('rental_agreement__field_wr_workspace', 'rw', 'rs.entity_id = rw.entity_id AND rw.deleted = 0');
+    $q_occ->join('workspace__field_wr_sq_footage', 'sq', 'rw.field_wr_workspace_target_id = sq.entity_id AND sq.deleted = 0');
+    $q_occ->addExpression('SUM(sq.field_wr_sq_footage_value)', 'occupied_sqft');
+    $occupied_sqft = (float) $q_occ->execute()->fetchField();
+
+    $current = $occupied_sqft / $total_sqft;
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      date('Y-m-d'),
+      $current,
+      'kpi_incubator_workspace_occupancy',
+      'percent',
+      sprintf('Occupied %s sq ft of %s sq ft total. System: workspace_rental ECK entities.', number_format($occupied_sqft), number_format($total_sqft)),
+    );
   }
 
   /**
@@ -3110,6 +3093,24 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Member Lifetime Value (Projected)" KPI.
    */
   private function getKpiMemberLifetimeValueProjectedData(array $kpi_info): array {
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_member_lifetime_value_projected', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_member_lifetime_value_projected');
+
+    if ($snapshot !== NULL) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_member_lifetime_value_projected',
+        'currency',
+        'Snapshot-backed: projected LTV for members in their first year (Year 0).'
+      );
+    }
+
     $ltvData = $this->financialDataService->getLifetimeValueByTenure();
     // Use the "0 Years" (New Member) projection as the conservative baseline.
     $current = $ltvData['0 Years']['total'] ?? NULL;
@@ -3117,7 +3118,7 @@ Process Group PGID: 1032535   *
 
     return $this->buildKpiResult(
       $kpi_info,
-      [],
+      $annualOverrides,
       [],
       NULL,
       NULL,
@@ -3133,12 +3134,30 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Revenue vs Expense Index (per member)" KPI.
    */
   private function getKpiRevenuePerMemberIndexData(array $kpi_info): array {
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_revenue_per_member_index', 1);
+    $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_revenue_per_member_index');
+
+    if ($snapshot !== NULL) {
+      return $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_revenue_per_member_index',
+        'decimal',
+        'Snapshot-backed: (Monthly Dues Revenue per Head) / (Monthly Operating Expense per Head).'
+      );
+    }
+
     $current = $this->financialDataService->getRevenuePerMemberIndex();
     $lastUpdated = date('Y-m-d');
 
     return $this->buildKpiResult(
       $kpi_info,
-      [],
+      $annualOverrides,
       [],
       NULL,
       NULL,
@@ -3154,29 +3173,73 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Net Income (Education Program)" KPI.
    */
   private function getKpiNetIncomeEducationData(array $kpi_info): array {
-    // Use full-year actuals: sums all quarters labelled with the target year
-    // (2025 when in Q1 of the following year). This avoids the TTM approach
-    // picking up Q4 of the prior year instead of the most recent Q4.
-    $current = $this->financialDataService->getNetIncomeEducationProgram();
-    $trend = $this->financialDataService->getNetIncomeEducationTrend();
-    // NULL: data freshness depends on when the Google Sheet was last updated.
-    $lastUpdated = NULL;
+    $currentMonth = (int) date('n');
+    $currentYear  = (int) date('Y');
+    $trend        = $this->financialDataService->getNetIncomeEducationTrend();
+    $ttm          = $this->financialDataService->getNetIncomeEducationTtm();
 
-    return $this->buildKpiResult(
+    if ($currentMonth <= 3) {
+      // In Q1 we have no current-year quarters yet — show the prior full year.
+      $priorYear = $currentYear - 1;
+      $income  = $this->financialDataService->getActualsForMetric('income_education', $priorYear);
+      $expense = $this->financialDataService->getActualsForMetric('expense_education', $priorYear);
+      $current     = $income + $expense;
+      $periodLabel = 'Full Year ' . $priorYear;
+      $sourceNote  = sprintf(
+        'Finance: Full-year %d Education net income (Revenue − Instructor Pay − Materials). '
+        . 'TTM chip shows trailing 12-month actuals.',
+        $priorYear
+      );
+    }
+    else {
+      // Quarters with actual sheet data: April = 1, July = 2, October = 3.
+      $completedQuarters = (int) floor(($currentMonth - 1) / 3);
+      $income  = $this->financialDataService->getActualsForMetric('income_education', $currentYear);
+      $expense = $this->financialDataService->getActualsForMetric('expense_education', $currentYear);
+      $ytd     = $income + $expense;
+      // Annualize: project the full year at the current quarterly run-rate.
+      $current = $completedQuarters > 0 ? ($ytd / $completedQuarters) * 4 : $ytd;
+      $qLabel  = $completedQuarters === 1
+        ? 'Q1 pace'
+        : sprintf('Q1–Q%d pace', $completedQuarters);
+      $periodLabel = sprintf('Projected Full Year (%s)', $qLabel);
+      $sourceNote  = sprintf(
+        'Finance: %d YTD actuals (%d of 4 quarters) annualized to a full-year projection. '
+        . 'TTM chip shows trailing 12-month actuals.',
+        $currentYear,
+        $completedQuarters
+      );
+    }
+
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       $trend,
       NULL,
       NULL,
-      $lastUpdated,
+      NULL,
       $current,
       'kpi_net_income_education',
       'currency',
-      'Google Sheets: Full-year net income from Education program.',
+      $sourceNote,
       '12 Quarters',
-      'Full Year 2025',
+      $periodLabel,
       1.0
     );
+
+    // Append TTM as a context chip in the Details column so readers can compare
+    // the annualized projection against 12 months of known actuals side-by-side.
+    if (is_numeric($ttm)) {
+      $result['segments'] = [
+        [
+          'label' => 'TTM (12mo)',
+          'value' => (float) $ttm,
+          'format' => 'currency',
+        ],
+      ];
+    }
+
+    return $result;
   }
 
   /**
@@ -3825,10 +3888,16 @@ Process Group PGID: 1032535   *
   private function getKpiGrantWinRatioData(array $kpi_info): array {
     $summary = $this->developmentDataService->getGrantsSummary();
     $current = (float) ($summary['win_ratio'] ?? 0.0);
+    $decidedTotal = (int) ($summary['decided_total'] ?? 0);
     $trend = $this->developmentDataService->getGrantWinRatioTrend();
     $lastUpdated = date('Y-m-d');
 
-    return $this->buildKpiResult(
+    // Label makes the scope and methodology explicit.
+    $periodLabel = $decidedTotal > 0
+      ? sprintf('3 years, submitted only (%d grants)', $decidedTotal)
+      : '3 years, submitted only';
+
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       $trend,
@@ -3838,9 +3907,13 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_grant_win_ratio',
       'percent',
-      'CiviCRM: (Grants Won) / (Grants Won + Lost + Abandoned).',
-      '8 Quarters'
+      'CiviCRM: Won / (Won + Lost), trailing 3 years. Abandoned grants excluded (never submitted).',
+      '8 Quarters',
+      $periodLabel,
+      1.0
     );
+
+    return $result;
   }
 
   /**
@@ -3944,7 +4017,7 @@ Process Group PGID: 1032535   *
       $lastUpdated,
       $current,
       'kpi_entrepreneurship_event_participation',
-      'number',
+      'integer',
       'CiviCRM: Unique participants in events with interest "Prototyping & Invention" or "Entrepreneurship, Startups & Business".',
       '8 Quarters',
       'Trailing 12 months',
@@ -4115,55 +4188,24 @@ Process Group PGID: 1032535   *
    * Gets the data for the "Shop Utilization (Active Participation %)" KPI.
    */
   private function getKpiShopUtilizationData(array $kpi_info): array {
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_shop_utilization');
-    if (!empty($snapshotSeries)) {
-      $values = [];
-      $annual = [];
-      $lastUpdated = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $values[] = $value;
-        if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $record['snapshot_date']->format('Y-m-d');
-        }
-        if ($this->isAnnualSnapshotRecord($record)) {
-          $year = NULL;
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          if ($year !== NULL) {
-            $annual[$year] = $value;
-          }
-        }
-      }
-
-      if (!empty($values)) {
-        if ($annual) {
-          ksort($annual, SORT_STRING);
-        }
-        $current = (float) end($values);
-        return $this->buildKpiResult(
-          $kpi_info,
-          $annual,
-          array_slice($values, -12),
-          $this->calculateTrailingAverage($values, 12),
-          $this->calculateTrailingAverage($values, 3),
-          $lastUpdated,
-          $current,
-          'kpi_shop_utilization',
-          'percent',
-          'Snapshot-backed: Door-access participation ratio.'
-        );
-      }
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_shop_utilization');
+    if ($snapshot !== NULL) {
+      $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_shop_utilization');
+      return $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $snapshot['trend'],
+        $snapshot['ttm12'],
+        $snapshot['ttm3'],
+        $snapshot['last_updated'],
+        $snapshot['current'],
+        'kpi_shop_utilization',
+        'percent',
+        'Snapshot-backed: 90-day door-access participation ratio captured at each month-end.'
+      );
     }
 
-    $annualOverrides = [];
+    $annualBuckets = [];
     $trend = [];
     $lastUpdated = date('Y-m-d');
 
@@ -4178,15 +4220,19 @@ Process Group PGID: 1032535   *
       }
       $trend[] = $ratio;
       $year = $windowEnd->format('Y');
-      if (!isset($annualOverrides[$year])) {
-        $annualOverrides[$year] = [];
+      if (!isset($annualBuckets[$year])) {
+        $annualBuckets[$year] = [];
       }
-      $annualOverrides[$year][] = $ratio;
+      $annualBuckets[$year][] = $ratio;
     }
 
     $annualAverages = [];
-    foreach ($annualOverrides as $year => $values) {
+    foreach ($annualBuckets as $year => $values) {
       $annualAverages[$year] = $this->calculateTrailingAverage($values, count($values));
+    }
+
+    foreach ($this->extractKpiSnapshotAnnualOverrides('kpi_shop_utilization') as $year => $value) {
+      $annualAverages[$year] = $value;
     }
     if ($annualAverages) {
       ksort($annualAverages, SORT_STRING);
@@ -4213,7 +4259,7 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_shop_utilization',
       'percent',
-      'Automated: Door-access participation ratio over rolling windows.'
+      'Live: Door-access participation ratio over rolling 90-day windows.'
     );
   }
 
@@ -5880,10 +5926,10 @@ Process Group PGID: 1032535   *
         ],
         'kpi_active_incubator_ventures' => [
           'label' => '# of Active Incubator Ventures',
-          'base_2025' => 10,
-          'goal_2030' => 20,
-          'description' => 'Total count of distinct startup or product ventures utilizing the incubator infrastructure.',
-          'source_note' => 'Manual: Tracking of distinct ventures utilizing professional workspace/mentorship.',
+          'base_2025' => 24,
+          'goal_2030' => 35,
+          'description' => 'Count of early-stage ventures actively using MakeHaven to build their business — members whose business is explicitly marked "incubating" on their business profile.',
+          'source_note' => 'System: Business nodes marked "incubating" with active member owner.',
         ],
         'kpi_entrepreneurship_event_participation' => [
           'label' => '# of Entrepreneurship Events Participants',
@@ -5923,18 +5969,18 @@ Process Group PGID: 1032535   *
           'source_note' => 'Finance: Sum of corporate donation accounts from Income Statement.',
         ],
         'kpi_grant_pipeline_count' => [
-          'label' => '# of Grants Submitted (YTD)',
+          'label' => '# of Grants Submitted (Trailing 12mo)',
           'base_2025' => 9,
           'goal_2030' => 15,
-          'description' => 'Count of grant opportunities with submitted documentation recorded during the year-to-date period.',
-          'source_note' => 'CiviCRM Funding: Submitted link present; period assignment currently uses due date (submitted timestamp not available).',
+          'description' => 'Count of grant opportunities with submitted documentation in the trailing 12 months. Period assignment uses due date (submitted timestamp not available in CiviCRM).',
+          'source_note' => 'CiviCRM Funding: Submitted link present or status is waiting/won/lost/abandoned; keyed by due date.',
         ],
         'kpi_grant_win_ratio' => [
           'label' => 'Grant Win Ratio %',
           'base_2025' => 0.32,
           'goal_2030' => 0.50,
-          'description' => 'The percentage of submitted grant applications that resulted in an award.',
-          'source_note' => 'CRM: (Won Grants) / (Won + Lost + Abandoned Grants).',
+          'description' => 'Percentage of submitted grant applications that resulted in an award (Won ÷ (Won + Lost)), trailing 3 years. Abandoned grants are excluded as they were never submitted.',
+          'source_note' => 'CRM: Won / (Won + Lost), trailing 3 years. Abandoned excluded.',
         ],
         'kpi_donor_retention_rate' => [
           'label' => 'Donor Retention Rate %',

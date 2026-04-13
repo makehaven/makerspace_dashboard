@@ -32,3 +32,52 @@ The KPI tables now render baseline, per-year actuals, trailing averages, and spa
 4. **Testing hooks:** As metrics become live, add unit tests around the new service methods (e.g., membership trends) and include a fixture snapshot dataset so regression tests can validate the trailing-average math.
 
 Use this checklist to prioritize the next incremental commits—the dashboard can light up progressively as each row is backed by reliable data.
+
+## Live vs Snapshot: When to Use Which
+
+A snapshot is the right tool when **the answer changes depending on when you ask it, and you can't reconstruct the past**. Use snapshots when:
+
+1. **State is ephemeral** — "who was an active member on 2025-06-30?" is unanswerable later if roles or statuses get overwritten. Same for tool availability, current plan level, active instructor list.
+2. **The source is lossy or volatile** — external APIs (Calendly, Chargebee) where only current state is readable.
+3. **Computing history is expensive** — if reconstructing 12 months of a KPI means 12 heavy queries per dashboard render, precompute once per month.
+
+**Don't** use snapshots when the underlying data is append-mostly with reliable timestamps. CiviCRM activities, participants, donations, user `created` are all reconstructable anytime — one indexed grouped query returns the series.
+
+### KPI method pattern
+
+For KPIs backed by timestamped history, the method should:
+
+1. Compute `$current`, `$trend`, `$ttm12`, `$ttm3` from the **live** data service first.
+2. Call `extractKpiSnapshotAnnualOverrides($kpiId)` to let snapshots contribute `annual_overrides` to the historical table (useful for frozen year-end values from the importer).
+3. Pass everything to `buildKpiResult()`.
+
+See `getKpiEducationNpsData`, `getKpiShopUtilizationData`, `getKpiWorkshopAttendeesData` as reference implementations.
+
+Anti-pattern to avoid: reading the snapshot series first and only falling back to live when empty. Sparse snapshot rows produce averages over 2–3 points instead of 12, silently displaying wrong numbers. This bit `kpi_tours` and 5 other KPIs in early 2026 — all now converted to live-first.
+
+## Snapshot Pipeline for Volatile-State KPIs
+
+The following KPIs depend on state that cannot be fully reconstructed from timestamped history (ethnicity, gender, active-member status at a point in time):
+
+- `kpi_workshop_participants_bipoc`
+- `kpi_active_instructors_bipoc`
+- `kpi_shop_utilization`
+- `kpi_active_participation`
+- `kpi_active_participation_bipoc`
+- `kpi_active_participation_female_nb`
+
+These are captured at each monthly `membership_totals` snapshot via `makerspace_dashboard_makerspace_snapshot_collect_kpi()` in `makerspace_dashboard.module`. The hook freezes the log-based numerator and roster-based denominator at snapshot time so historical values don't drift as current state changes.
+
+### Reader contract
+
+`KpiDataService::extractKpiSnapshotMonthlySeries($kpiId, $minPoints = 6)` returns a dense monthly series (one value per year-month, duplicates collapsed preferring the latest source) when at least `$minPoints` months are available, otherwise NULL so the caller can fall back to a live computation. Each of the 6 KPI methods prefers this snapshot-backed series when present.
+
+### Historical backfill caveat
+
+Running `drush makerspace-snapshot:snapshot --snapshot-date=YYYY-MM-01 --snapshot-type=monthly` for a historical month computes the KPI values using the **current** user roster and current demographic/gender state against the **historical** access-log window. The visit counts are accurate; the denominators and classifications are approximations. This is close enough at MakeHaven's scale because member state changes slowly, but the approximation is inherent to any historical backfill of volatile state. New monthly snapshots captured going forward are the real thing.
+
+If you need to re-backfill with fresh data, the command is idempotent per `(definition, snapshot_date, source)` — it clears and replaces fact rows. Multiple sources for the same month are tolerated by the reader via year-month deduplication.
+
+### Known environment gotcha
+
+`SnapshotService::calculateStorageOccupancy()` checks for `storage_unit` / `storage_assignment` tables but not their related field tables. In dev environments with a partial `storage_manager` schema, the snapshot run throws an SQL error after KPI data has already been persisted. The KPI rows are fine — the error is cosmetic for the backfill use case. Fixable upstream by adding a field-table existence check or wrapping the storage query in try/catch.

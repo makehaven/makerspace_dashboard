@@ -119,6 +119,22 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.governance_board_governance_kpi:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Governance\GovernanceBoardGovernanceKpiChartBuilder
+    arguments:
+      - '@makerspace_dashboard.governance_board_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.governance_committee_effectiveness_kpi:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Governance\GovernanceCommitteeEffectivenessKpiChartBuilder
+    arguments:
+      - '@makerspace_dashboard.governance_board_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.education_event_conversion:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationEventConversionChartBuilder
     arguments:
@@ -666,6 +682,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.retention_first_year_by_type:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionFirstYearByTypeChartBuilder
+    arguments:
+      - '@makerspace_dashboard.membership_metrics'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.retention_snapshot_daily:
     class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionDailySnapshotChartBuilder
     arguments:
@@ -1053,7 +1077,7 @@ services:
       - '@makerspace_dashboard.funnel_data'
       - '@makerspace_dashboard.member_success_data'
       - '@makerspace_dashboard.infrastructure_data'
-      - '@cache.default'
+      - '@keyvalue'
       - '@datetime.time'
       - 1800
 

@@ -292,9 +292,15 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
   if ($periodStart && $periodEnd && \Drupal::hasService('makerspace_dashboard.education_evaluation_data')) {
     try {
       $evaluationService = \Drupal::service('makerspace_dashboard.education_evaluation_data');
-      $npsSeries = $evaluationService->getNetPromoterSeries($periodStart, $periodEnd);
+      // Use a trailing 12-month window ending at the snapshot period end so
+      // monthly snapshots aren't skewed by low response volume in a single month.
+      $npsWindowStart = $periodEnd->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
+      $npsSeries = $evaluationService->getNetPromoterSeries($npsWindowStart, $periodEnd);
       $overallNps = $npsSeries['overall']['nps'] ?? NULL;
-      if (is_numeric($overallNps)) {
+      $overallResponses = $npsSeries['overall']['responses'] ?? 0;
+      // Only snapshot NPS when there are actual responses — a 0-response month
+      // would store NPS=0 and override the live trailing-12-month calculation.
+      if (is_numeric($overallNps) && $overallResponses > 0) {
         $metrics['kpi_education_nps'] = [
           'value' => (float) $overallNps,
           'period_year' => $periodYear,
@@ -349,6 +355,52 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
     }
     catch (\Exception $e) {
       \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot tour participant KPI: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
+  // Active Incubator Ventures — count published business nodes marked
+  // 'incubating' whose owner currently holds the 'member' role.
+  try {
+    $query = \Drupal::database()->select('node_field_data', 'n');
+    $query->join('node__field_business_display_options', 'bdo', 'n.nid = bdo.entity_id');
+    $query->join('user__roles', 'ur', 'n.uid = ur.entity_id AND ur.roles_target_id = :role', [':role' => 'member']);
+    $query->condition('n.type', 'business');
+    $query->condition('n.status', 1);
+    $query->condition('bdo.field_business_display_options_value', 'incubating');
+    $metrics['kpi_active_incubator_ventures'] = [
+      'value' => (int) $query->countQuery()->execute()->fetchField(),
+      'period_year' => $periodYear,
+      'period_month' => $periodMonth,
+    ];
+  }
+  catch (\Exception $e) {
+    \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot active incubator ventures KPI: @message', ['@message' => $e->getMessage()]);
+  }
+
+  // Entrepreneurship Event Participation — trailing 12-month unique participant
+  // count for events tagged with Entrepreneurship or Prototyping interests.
+  if ($db = \Drupal::database()) {
+    try {
+      if ($db->schema()->tableExists('civicrm_participant')) {
+        $trailing12Start = date('Y-m-d H:i:s', strtotime('-12 months', $snapshotTimestamp));
+        $trailing12End = date('Y-m-d H:i:s', $snapshotTimestamp);
+        $eq = $db->select('civicrm_participant', 'p');
+        $eq->join('civicrm_event', 'e', 'e.id = p.event_id');
+        $eq->join('civicrm_event__field_civi_event_area_interest', 'ai', 'ai.entity_id = e.id');
+        $eq->condition('ai.field_civi_event_area_interest_target_id', [3249, 3335], 'IN');
+        $eq->condition('e.start_date', [$trailing12Start, $trailing12End], 'BETWEEN');
+        $eq->condition('p.status_id', [1, 2], 'IN');
+        $eq->addExpression('COUNT(DISTINCT p.contact_id)', 'cnt');
+        $eCount = (int) ($eq->execute()->fetchField() ?? 0);
+        $metrics['kpi_entrepreneurship_event_participation'] = [
+          'value' => $eCount,
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot entrepreneurship event participation KPI: @message', ['@message' => $e->getMessage()]);
     }
   }
 
@@ -496,6 +548,11 @@ function makerspace_dashboard_theme($existing, $type, $theme, $path) {
 
 /**
  * Implements hook_cron().
+ *
+ * Enqueues stale / missing dashboard sections for background warming. Actual
+ * recomputation happens inside the `makerspace_dashboard.kpi_section_warmer`
+ * queue worker, which processes items on subsequent cron runs (capped at 45s
+ * per tick) so a single cron invocation never blocks on the full warm set.
  */
 function makerspace_dashboard_cron(): void {
   if (!\Drupal::hasService('makerspace_dashboard.kpi_data')) {
@@ -505,11 +562,17 @@ function makerspace_dashboard_cron(): void {
   try {
     /** @var \Drupal\makerspace_dashboard\Service\KpiDataService $kpiData */
     $kpiData = \Drupal::service('makerspace_dashboard.kpi_data');
-    $kpiData->warmSectionCache();
+    $queue = \Drupal::queue('makerspace_dashboard.kpi_section_warmer');
+    $queue->createQueue();
+
+    // Worker is idempotent, so duplicate items are harmless if they land.
+    foreach ($kpiData->getSectionsNeedingWarm() as $sectionId) {
+      $queue->createItem(['section_id' => $sectionId]);
+    }
   }
   catch (\Throwable $e) {
     \Drupal::logger('makerspace_dashboard')->warning(
-      'KPI cache prewarm failed during cron: @message',
+      'KPI cache prewarm enqueue failed during cron: @message',
       ['@message' => $e->getMessage()]
     );
   }

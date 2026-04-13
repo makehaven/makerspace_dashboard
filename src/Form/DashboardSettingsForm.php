@@ -8,8 +8,10 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\makerspace_dashboard\Service\GoogleSheetClientService;
 use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Drupal\makerspace_dashboard\Service\GoogleSheetChartManager;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Config\TypedConfigManagerInterface;
+use Drupal\Core\Datetime\DateFormatterInterface;
 
 /**
  * Settings form for Makerspace dashboard configuration.
@@ -38,30 +40,33 @@ class DashboardSettingsForm extends ConfigFormBase {
   protected $googleSheetChartManager;
 
   /**
+   * KPI data service.
+   */
+  protected KpiDataService $kpiDataService;
+
+  /**
+   * Date formatter.
+   */
+  protected DateFormatterInterface $dateFormatter;
+
+  /**
    * Constructs a new DashboardSettingsForm object.
-   *
-   * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
-   *   The factory for configuration objects.
-   * @param \Drupal\Core\Config\TypedConfigManagerInterface $typed_config_manager
-   *   The typed config manager.
-   * @param \Drupal\makerspace_dashboard\Service\GoogleSheetClientService $google_sheet_client_service
-   *   The Google Sheet Client service.
-   * @param \Drupal\makerspace_dashboard\Service\DashboardSectionManager $dashboard_section_manager
-   *   The Dashboard Section Manager service.
-   * @param \Drupal\makerspace_dashboard\Service\GoogleSheetChartManager $google_sheet_chart_manager
-   *   The Google Sheet Chart Manager service.
    */
   public function __construct(
     ConfigFactoryInterface $config_factory,
     TypedConfigManagerInterface $typed_config_manager,
     GoogleSheetClientService $google_sheet_client_service,
     DashboardSectionManager $dashboard_section_manager,
-    GoogleSheetChartManager $google_sheet_chart_manager
+    GoogleSheetChartManager $google_sheet_chart_manager,
+    KpiDataService $kpi_data_service,
+    DateFormatterInterface $date_formatter
   ) {
     parent::__construct($config_factory, $typed_config_manager);
     $this->googleSheetClientService = $google_sheet_client_service;
     $this->dashboardSectionManager = $dashboard_section_manager;
     $this->googleSheetChartManager = $google_sheet_chart_manager;
+    $this->kpiDataService = $kpi_data_service;
+    $this->dateFormatter = $date_formatter;
   }
 
   /**
@@ -73,7 +78,9 @@ class DashboardSettingsForm extends ConfigFormBase {
       $container->get('config.typed'),
       $container->get('makerspace_dashboard.google_sheet_client'),
       $container->get('makerspace_dashboard.section_manager'),
-      $container->get('makerspace_dashboard.google_sheet_chart_manager')
+      $container->get('makerspace_dashboard.google_sheet_chart_manager'),
+      $container->get('makerspace_dashboard.kpi_data'),
+      $container->get('date.formatter')
     );
   }
 
@@ -194,7 +201,101 @@ class DashboardSettingsForm extends ConfigFormBase {
       '#title' => $this->t('Chart Data Status'),
     ];
 
+    $form['kpi_cache'] = [
+      '#type' => 'details',
+      '#title' => $this->t('KPI payload store'),
+      '#open' => TRUE,
+      '#description' => $this->t('KPI section payloads are stored in a persistent key-value store so they survive <code>drush cr</code>. Cron re-warms stale entries in the background via a queue worker. Use the buttons below to force an immediate refresh.'),
+    ];
+
+    $report = $this->kpiDataService->getSectionFreshnessReport();
+    $now = \Drupal::time()->getRequestTime();
+    $rows = [];
+    foreach ($report as $sectionId => $info) {
+      if ($info === NULL) {
+        $rows[] = [
+          $sectionId,
+          ['data' => $this->t('Not stored'), 'class' => ['color-warning']],
+          '—',
+          '—',
+        ];
+        continue;
+      }
+      $age = max(0, $now - $info['computed_at']);
+      $ttl = $info['expires_at'] - $now;
+      if (!$info['config_match']) {
+        $status = $this->t('Config changed — will recompute');
+      }
+      elseif ($ttl > 0) {
+        $status = $this->t('Fresh');
+      }
+      else {
+        $status = $this->t('Stale (still served)');
+      }
+      $rows[] = [
+        $sectionId,
+        $status,
+        $this->dateFormatter->formatInterval($age) . ' ' . $this->t('ago'),
+        $ttl > 0
+          ? $this->dateFormatter->formatInterval($ttl)
+          : $this->t('expired'),
+      ];
+    }
+
+    $form['kpi_cache']['status'] = [
+      '#type' => 'table',
+      '#header' => [
+        $this->t('Section'),
+        $this->t('Status'),
+        $this->t('Computed'),
+        $this->t('Fresh for'),
+      ],
+      '#rows' => $rows,
+      '#empty' => $this->t('No sections configured.'),
+    ];
+
+    $form['kpi_cache']['actions'] = [
+      '#type' => 'actions',
+    ];
+    $form['kpi_cache']['actions']['warm'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Rebuild KPI cache now'),
+      '#submit' => ['::warmKpiCache'],
+      '#limit_validation_errors' => [],
+      '#description' => $this->t('Recomputes every section synchronously. Takes ~2 minutes.'),
+    ];
+    $form['kpi_cache']['actions']['clear'] = [
+      '#type' => 'submit',
+      '#value' => $this->t('Clear KPI cache'),
+      '#submit' => ['::clearKpiCache'],
+      '#limit_validation_errors' => [],
+    ];
+
     return parent::buildForm($form, $form_state);
+  }
+
+  /**
+   * Submit handler: force a full synchronous warm of all KPI sections.
+   */
+  public function warmKpiCache(array &$form, FormStateInterface $form_state): void {
+    $start = microtime(TRUE);
+    try {
+      $this->kpiDataService->warmSectionCache();
+      $this->messenger()->addStatus($this->t('Rebuilt KPI cache in @s seconds.', [
+        '@s' => round(microtime(TRUE) - $start, 1),
+      ]));
+    }
+    catch (\Throwable $e) {
+      $this->messenger()->addError($this->t('KPI rebuild failed: @m', ['@m' => $e->getMessage()]));
+    }
+  }
+
+  /**
+   * Submit handler: drop all stored KPI payloads.
+   */
+  public function clearKpiCache(array &$form, FormStateInterface $form_state): void {
+    $this->kpiDataService->clearStoredKpis();
+    $this->messenger()->addStatus($this->t('Cleared KPI payload store. The next dashboard view will recompute on demand; cron will re-warm the rest.'));
   }
 
   /**
