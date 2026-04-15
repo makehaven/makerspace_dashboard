@@ -11,3 +11,61 @@ makerspace_dashboard.kpi_import:
   route_name: makerspace_dashboard.kpi_import
   parent: system.admin_config_system
   weight: 51
+
+# --- Staff Tools menu entries ---
+makerspace_dashboard.staff_tab:
+  title: 'Analytics'
+  description: 'Cross-functional dashboards and reports.'
+  menu_name: staff-tools
+  url: 'internal:/makerspace-dashboard'
+  weight: 30
+
+makerspace_dashboard.staff_data_dashboard:
+  title: 'Data Dashboard'
+  description: 'Aggregated KPIs across membership, finance, operations, and DEI.'
+  route_name: makerspace_dashboard.dashboard
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  weight: 5
+
+makerspace_dashboard.staff_year_over_year:
+  title: 'Year-over-Year Review'
+  route_name: makerspace_dashboard.annual_report
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  weight: 10
+
+makerspace_dashboard.staff_lending_insights:
+  title: 'Lending Library Insights'
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  url: 'internal:/lending-library/stats'
+  weight: 20
+
+makerspace_dashboard.staff_calendly_stats:
+  title: 'Calendly Tours & Meetings'
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  url: 'internal:/admin/reports/calendly/stats'
+  weight: 30
+
+makerspace_dashboard.staff_appointment_stats:
+  title: 'Facilitator Appointment Stats'
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  url: 'internal:/admin/reports/appointment-facilitator'
+  weight: 40
+
+makerspace_dashboard.staff_appointment_feedback:
+  title: 'Appointment Feedback'
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  url: 'internal:/admin/reports/appointment-feedback'
+  weight: 50
+
+makerspace_dashboard.staff_store_stripe_invoices:
+  title: 'Store Stripe Invoices'
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  url: 'internal:/admin/reports/store/stripe-invoices'
+  weight: 60
