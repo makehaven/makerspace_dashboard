@@ -410,6 +410,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.operations_store_reorder_risk:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsStoreReorderRiskChartBuilder
+    arguments:
+      - '@entity_type.manager'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.education_badge_funnel:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationBadgeFunnelChartBuilder
     arguments:
