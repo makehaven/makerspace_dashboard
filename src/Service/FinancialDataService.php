@@ -1432,4 +1432,675 @@ class FinancialDataService {
     return 0.0;
   }
 
+  /**
+   * Returns an ordered list of quarterly labels and metric values from the Income-Statement sheet.
+   *
+   * Internal helper for the multi-stream finance trend charts. Reads the sheet
+   * once and returns:
+   *   - labels: ordered ['Q1 2024', 'Q2 2024', ...] strings, oldest first
+   *   - rows:   metricKey => [float values aligned to labels]
+   *
+   * @param string[] $metricKeys
+   *   Income-Statement metric keys to extract (e.g. 'income_membership').
+   * @param int $quarters
+   *   How many trailing quarters to return.
+   *
+   * @return array{labels: string[], rows: array<string, float[]>}
+   */
+  protected function getIncomeStatementSeries(array $metricKeys, int $quarters): array {
+    $data = $this->googleSheetClient->getSheetData('Income-Statement');
+    if (empty($data)) {
+      return ['labels' => [], 'rows' => []];
+    }
+
+    $headers = array_shift($data);
+    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Oct-Dec' => 4];
+
+    $sortedColumns = [];
+    foreach ($headers as $idx => $header) {
+      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sep|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+        $year = (int) $m[2];
+        $q = $quarterOrder[$m[1]];
+        $sortKey = sprintf('%04d0%d', $year, $q);
+        $sortedColumns[$sortKey] = [
+          'idx' => $idx,
+          'label' => sprintf('Q%d %d', $q, $year),
+        ];
+      }
+    }
+
+    if (empty($sortedColumns)) {
+      return ['labels' => [], 'rows' => []];
+    }
+
+    ksort($sortedColumns);
+    $sortedColumns = array_slice($sortedColumns, -$quarters, NULL, TRUE);
+    $labels = array_values(array_map(static fn(array $c) => $c['label'], $sortedColumns));
+
+    $needed = array_flip($metricKeys);
+    $rows = [];
+    foreach ($metricKeys as $key) {
+      $rows[$key] = array_fill(0, count($sortedColumns), 0.0);
+    }
+
+    foreach ($data as $row) {
+      $key = isset($row[1]) ? (string) $row[1] : '';
+      if (!isset($needed[$key])) {
+        continue;
+      }
+      $position = 0;
+      foreach ($sortedColumns as $column) {
+        $rows[$key][$position] = $this->parseCurrencyValue((string) ($row[$column['idx']] ?? '0'));
+        $position++;
+      }
+    }
+
+    return ['labels' => $labels, 'rows' => $rows];
+  }
+
+  /**
+   * Quarterly revenue broken out by income stream for the revenue-mix chart.
+   *
+   * Income totals are returned as positive dollars. The "Other earned income"
+   * series is derived as income_total minus the sum of the named streams, so
+   * any line not yet broken out (e.g. event hosting, future store/lending) is
+   * still represented rather than lost.
+   *
+   * @param int $quarters
+   *   Trailing quarters to include (default 8 = two years).
+   *
+   * @return array{labels: string[], series: array<string, float[]>}
+   */
+  public function getRevenueMixTrend(int $quarters = 8): array {
+    $cid = 'makerspace_dashboard:revenue_mix:' . $quarters;
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $streams = [
+      'income_membership' => 'Membership dues',
+      'income_education' => 'Education',
+      'income_storage' => 'Storage',
+      'income_workspaces' => 'Workspaces',
+      'income_media' => 'Media',
+      'income_grants' => 'Grants',
+      'income_individual_donations' => 'Individual donations',
+      'income_corporate_donations' => 'Corporate donations',
+    ];
+    $needed = array_merge(array_keys($streams), ['income_total']);
+
+    $sheet = $this->getIncomeStatementSeries($needed, $quarters);
+    if (empty($sheet['labels'])) {
+      return ['labels' => [], 'series' => []];
+    }
+
+    $series = [];
+    foreach ($streams as $key => $label) {
+      $series[$label] = array_map(static fn($v) => max(0.0, (float) $v), $sheet['rows'][$key]);
+    }
+
+    $totals = array_map(static fn($v) => max(0.0, (float) $v), $sheet['rows']['income_total']);
+    $other = [];
+    foreach ($totals as $i => $total) {
+      $named = 0.0;
+      foreach ($streams as $key => $unused) {
+        $named += $sheet['rows'][$key][$i] ?? 0.0;
+      }
+      $other[] = max(0.0, $total - $named);
+    }
+    if (array_sum($other) > 0) {
+      $series['Other earned income'] = $other;
+    }
+
+    $result = ['labels' => $sheet['labels'], 'series' => $series];
+    $this->cache->set($cid, $result, time() + 3600);
+    return $result;
+  }
+
+  /**
+   * Monthly MRR change waterfall: dollars added by first-time joins,
+   * reactivations, and dollars lost to ends.
+   *
+   * "First join" anchor is COALESCE(field_member_join_date, profile.created):
+   * field_member_join_date stopped being populated for new members in Oct 2024
+   * (intentional — see project_member_tenure_date_convention memory).
+   *
+   * Reactivations come from field_member_reactivation_date — a separate field
+   * that the join workflow still writes when a lapsed member returns. Without
+   * this series the chart would systematically under-count MRR adds (~$4-5k
+   * over 12 months at current volumes).
+   *
+   * Plan upgrades, downgrades, pauses, and price changes still aren't visible
+   * here — they require a monthly MRR snapshot diff (deferred until the
+   * makerspace_snapshot cron is reliable enough to provide history).
+   *
+   * @param int $months
+   *   Trailing months to include (default 12).
+   *
+   * @return array{
+   *   labels: string[],
+   *   joined: float[],
+   *   reactivated: float[],
+   *   ended: float[],
+   *   net: float[],
+   *   at_risk_today: float
+   * }
+   */
+  public function getMrrWaterfallTrend(int $months = 12): array {
+    $cid = 'makerspace_dashboard:mrr_waterfall:' . $months;
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $end = new \DateTimeImmutable('first day of next month 00:00:00');
+    $start = $end->modify('-' . $months . ' months');
+
+    $labels = [];
+    $bucket = [];
+    $cursor = $start;
+    while ($cursor < $end) {
+      $key = $cursor->format('Y-m');
+      $labels[] = $cursor->format('M Y');
+      $bucket[$key] = ['joined' => 0.0, 'reactivated' => 0.0, 'ended' => 0.0];
+      $cursor = $cursor->modify('+1 month');
+    }
+
+    // Filter to Chargebee-billed members only so the chart reconciles with
+    // Chargebee MRR. Comps, founders, and manually-billed members have no
+    // entry in user__field_user_chargebee_plan and are excluded — they exist
+    // in Drupal MRR but not in Chargebee's reporting.
+    //
+    // Join dates: COALESCE field_member_join_date with profile.created, since
+    // field_member_join_date stopped populating for new members around Oct
+    // 2024 (see project_member_join_date_field_stale memory).
+    $hasChargebeePlan = $this->database->schema()->tableExists('user__field_user_chargebee_plan');
+    if ($this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      $joinQuery = $this->database->select('profile', 'p');
+      $joinQuery->leftJoin('profile__field_member_join_date', 'jd', 'jd.entity_id = p.profile_id AND jd.deleted = 0');
+      $joinQuery->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id AND pm.deleted = 0');
+      if ($hasChargebeePlan) {
+        $joinQuery->innerJoin('user__field_user_chargebee_plan', 'cb', "cb.entity_id = p.uid AND cb.field_user_chargebee_plan_value <> ''");
+      }
+      $joinQuery->addExpression("DATE_FORMAT(COALESCE(jd.field_member_join_date_value, FROM_UNIXTIME(p.created)), '%Y-%m')", 'period');
+      $joinQuery->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+      $joinQuery->condition('p.type', 'main');
+      $joinQuery->condition('p.is_default', 1);
+      $joinQuery->where("COALESCE(jd.field_member_join_date_value, FROM_UNIXTIME(p.created)) BETWEEN :start AND :end", [
+        ':start' => $start->format('Y-m-d'),
+        ':end' => $end->format('Y-m-d'),
+      ]);
+      $joinQuery->groupBy('period');
+      foreach ($joinQuery->execute()->fetchAll() as $row) {
+        if (isset($bucket[$row->period])) {
+          $bucket[$row->period]['joined'] = (float) $row->total;
+        }
+      }
+    }
+
+    if ($this->database->schema()->tableExists('profile__field_member_reactivation_date')
+      && $this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      $reactivationQuery = $this->database->select('profile', 'p');
+      $reactivationQuery->innerJoin('profile__field_member_reactivation_date', 'rd', 'rd.entity_id = p.profile_id AND rd.deleted = 0');
+      $reactivationQuery->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id AND pm.deleted = 0');
+      if ($hasChargebeePlan) {
+        $reactivationQuery->innerJoin('user__field_user_chargebee_plan', 'cb', "cb.entity_id = p.uid AND cb.field_user_chargebee_plan_value <> ''");
+      }
+      $reactivationQuery->addExpression("DATE_FORMAT(rd.field_member_reactivation_date_value, '%Y-%m')", 'period');
+      $reactivationQuery->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+      $reactivationQuery->condition('p.type', 'main');
+      $reactivationQuery->condition('p.is_default', 1);
+      $reactivationQuery->condition('rd.field_member_reactivation_date_value', [$start->format('Y-m-d'), $end->format('Y-m-d')], 'BETWEEN');
+      $reactivationQuery->groupBy('period');
+      foreach ($reactivationQuery->execute()->fetchAll() as $row) {
+        if (isset($bucket[$row->period])) {
+          $bucket[$row->period]['reactivated'] = (float) $row->total;
+        }
+      }
+    }
+
+    if ($this->database->schema()->tableExists('profile__field_member_end_date')
+      && $this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      $endQuery = $this->database->select('profile', 'p');
+      $endQuery->innerJoin('profile__field_member_end_date', 'ed', 'ed.entity_id = p.profile_id AND ed.deleted = 0');
+      $endQuery->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id AND pm.deleted = 0');
+      if ($hasChargebeePlan) {
+        $endQuery->innerJoin('user__field_user_chargebee_plan', 'cb', "cb.entity_id = p.uid AND cb.field_user_chargebee_plan_value <> ''");
+      }
+      $endQuery->addExpression("DATE_FORMAT(ed.field_member_end_date_value, '%Y-%m')", 'period');
+      $endQuery->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
+      $endQuery->condition('p.type', 'main');
+      $endQuery->condition('p.is_default', 1);
+      $endQuery->condition('ed.field_member_end_date_value', [$start->format('Y-m-d'), $end->format('Y-m-d')], 'BETWEEN');
+      $endQuery->groupBy('period');
+      foreach ($endQuery->execute()->fetchAll() as $row) {
+        if (isset($bucket[$row->period])) {
+          $bucket[$row->period]['ended'] = (float) $row->total;
+        }
+      }
+    }
+
+    $joined = [];
+    $reactivated = [];
+    $ended = [];
+    $net = [];
+    foreach ($bucket as $row) {
+      $joined[] = round((float) $row['joined'], 2);
+      $reactivated[] = round((float) $row['reactivated'], 2);
+      $ended[] = round((float) $row['ended'], 2);
+      $net[] = round((float) $row['joined'] + (float) $row['reactivated'] - (float) $row['ended'], 2);
+    }
+
+    $result = [
+      'labels' => $labels,
+      'joined' => $joined,
+      'reactivated' => $reactivated,
+      'ended' => $ended,
+      'net' => $net,
+      'at_risk_today' => $this->getMonthlyRevenueAtRisk(),
+    ];
+
+    $this->cache->set($cid, $result, time() + 1800, ['profile_list']);
+    return $result;
+  }
+
+  /**
+   * Cumulative dues collected per joiner, by months-since-join, for recent cohorts.
+   *
+   * For each quarterly join cohort, we estimate cumulative monthly dues by
+   * multiplying each member's stored monthly value by their tenure in months
+   * (capped at end_date or today). This is a proxy: we don't have a structured
+   * payment ledger in Drupal, but it tracks what the org actually expected to
+   * collect from each cohort if everyone paid their stated monthly dues. The
+   * chart's purpose is to compare cohort *shapes* — newer cohorts pulling
+   * above or below older ones flags retention drift before LTV averages catch
+   * up.
+   *
+   * @param int $cohortQuarters
+   *   How many trailing quarterly cohorts to plot (default 6 = 18 months).
+   * @param int $monthsHorizon
+   *   How many months of cumulative curve to render per cohort (default 24).
+   *
+   * @return array{
+   *   labels: string[],
+   *   cohorts: array<string, array{values: float[], size: int}>
+   * }
+   */
+  public function getCohortLtvCurves(int $cohortQuarters = 6, int $monthsHorizon = 24): array {
+    $cid = sprintf('makerspace_dashboard:cohort_ltv:%d:%d', $cohortQuarters, $monthsHorizon);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      return ['labels' => [], 'cohorts' => []];
+    }
+
+    $today = new \DateTimeImmutable('today');
+    $cohortStart = $today->modify('first day of -' . ($cohortQuarters * 3) . ' months');
+
+    // Cohort assignment uses current-tenure-start so a 2014 member who lapsed
+    // and rejoined in 2023 lands in the 2023 cohort (where the retention
+    // analysis question is "how is this active relationship doing"). See
+    // project_member_tenure_date_convention memory for the full rule.
+    $query = $this->database->select('profile', 'p');
+    $query->leftJoin('profile__field_member_join_date', 'jd', 'jd.entity_id = p.profile_id AND jd.deleted = 0');
+    $query->leftJoin('profile__field_member_reactivation_date', 'rd', 'rd.entity_id = p.profile_id AND rd.deleted = 0');
+    $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id AND pm.deleted = 0');
+    $query->leftJoin('profile__field_member_end_date', 'ed', 'ed.entity_id = p.profile_id AND ed.deleted = 0');
+    $query->addExpression("COALESCE(rd.field_member_reactivation_date_value, jd.field_member_join_date_value, DATE_FORMAT(FROM_UNIXTIME(p.created), '%Y-%m-%d'))", 'tenure_start');
+    $query->addField('ed', 'field_member_end_date_value', 'end_date');
+    $query->addField('pm', 'field_member_payment_monthly_value', 'monthly_value');
+    $query->condition('p.type', 'main');
+    $query->condition('p.is_default', 1);
+    $query->where("COALESCE(rd.field_member_reactivation_date_value, jd.field_member_join_date_value, FROM_UNIXTIME(p.created)) BETWEEN :start AND :end", [
+      ':start' => $cohortStart->format('Y-m-d'),
+      ':end' => $today->format('Y-m-d'),
+    ]);
+    $rows = $query->execute()->fetchAll();
+
+    $cohortBuckets = [];
+    foreach ($rows as $row) {
+      try {
+        $joinDate = new \DateTimeImmutable($row->tenure_start);
+      }
+      catch (\Exception $e) {
+        continue;
+      }
+      $monthly = (float) $row->monthly_value;
+      if ($monthly <= 0) {
+        continue;
+      }
+
+      $endDate = NULL;
+      if (!empty($row->end_date)) {
+        try {
+          $endDate = new \DateTimeImmutable($row->end_date);
+        }
+        catch (\Exception $e) {
+          $endDate = NULL;
+        }
+      }
+      $effectiveEnd = $endDate && $endDate < $today ? $endDate : $today;
+      $tenureMonths = max(0, $this->monthsBetween($joinDate, $effectiveEnd));
+
+      $quarter = (int) ceil(((int) $joinDate->format('n')) / 3);
+      $cohortKey = sprintf('Q%d %s', $quarter, $joinDate->format('Y'));
+
+      if (!isset($cohortBuckets[$cohortKey])) {
+        $cohortBuckets[$cohortKey] = [
+          'sort' => $joinDate->format('Y') . sprintf('%02d', $quarter),
+          'members' => [],
+        ];
+      }
+      $cohortBuckets[$cohortKey]['members'][] = [
+        'monthly' => $monthly,
+        'tenure' => $tenureMonths,
+      ];
+    }
+
+    uasort($cohortBuckets, static fn($a, $b) => strcmp($a['sort'], $b['sort']));
+
+    $labels = [];
+    for ($i = 0; $i <= $monthsHorizon; $i++) {
+      $labels[] = (string) $i;
+    }
+
+    $cohorts = [];
+    foreach ($cohortBuckets as $label => $info) {
+      $size = count($info['members']);
+      if ($size === 0) {
+        continue;
+      }
+      $values = [];
+      for ($month = 0; $month <= $monthsHorizon; $month++) {
+        $sumDollars = 0.0;
+        foreach ($info['members'] as $member) {
+          $monthsPaid = min($month, (int) $member['tenure']);
+          $sumDollars += $monthsPaid * (float) $member['monthly'];
+        }
+        $values[] = round($sumDollars / $size, 2);
+      }
+      $cohorts[$label] = [
+        'values' => $values,
+        'size' => $size,
+      ];
+    }
+
+    $result = ['labels' => $labels, 'cohorts' => $cohorts];
+    $this->cache->set($cid, $result, time() + 3600, ['profile_list']);
+    return $result;
+  }
+
+  /**
+   * Sum of registration fees for upcoming events, bucketed by horizon and event type.
+   *
+   * Forward-booked revenue: for each registration in the next N days where the
+   * participant status is counted (registered/attended), sum fee_amount and
+   * group by (horizon bucket, event type). Gives the finance team a leading
+   * indicator of next-quarter education income before it hits the books.
+   *
+   * @param int[] $horizons
+   *   Cumulative day horizons (default [30, 60, 90]). Buckets are derived as
+   *   "Next 30d", "31-60d", "61-90d" and so on.
+   *
+   * @return array{
+   *   labels: string[],
+   *   types: string[],
+   *   matrix: array<string, float[]>,
+   *   total: float
+   * }
+   */
+  public function getForwardBookedWorkshopRevenue(array $horizons = [30, 60, 90]): array {
+    sort($horizons);
+    $cid = 'makerspace_dashboard:forward_workshop_revenue:' . implode('-', $horizons);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('civicrm_participant')
+      || !$this->database->schema()->tableExists('civicrm_event')) {
+      return ['labels' => [], 'types' => [], 'matrix' => [], 'total' => 0.0];
+    }
+
+    $now = new \DateTimeImmutable('now');
+    $maxHorizon = max($horizons);
+    $end = $now->modify('+' . $maxHorizon . ' days');
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id IN (SELECT id FROM {civicrm_option_group} WHERE name = :grp)', [':grp' => 'event_type']);
+    $query->addField('e', 'start_date');
+    $query->addField('p', 'fee_amount');
+    $query->addExpression("COALESCE(ov.label, 'Other')", 'event_type');
+    $query->condition('pst.is_counted', 1);
+    $query->isNotNull('e.start_date');
+    $query->condition('e.start_date', [$now->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
+    $query->isNotNull('p.fee_amount');
+    $rows = $query->execute()->fetchAll();
+
+    $labels = [];
+    $bucketBoundaries = [];
+    $previous = 0;
+    foreach ($horizons as $h) {
+      if ($previous === 0) {
+        $labels[] = sprintf('Next %dd', $h);
+      }
+      else {
+        $labels[] = sprintf('%d–%dd', $previous + 1, $h);
+      }
+      $bucketBoundaries[] = $h;
+      $previous = $h;
+    }
+
+    $types = [];
+    $matrix = [];
+    $total = 0.0;
+    foreach ($rows as $row) {
+      $fee = (float) $row->fee_amount;
+      if ($fee <= 0) {
+        continue;
+      }
+      try {
+        $startDate = new \DateTimeImmutable($row->start_date);
+      }
+      catch (\Exception $e) {
+        continue;
+      }
+      $daysOut = max(0, (int) $now->diff($startDate)->days);
+
+      $bucketIdx = NULL;
+      foreach ($bucketBoundaries as $idx => $boundary) {
+        if ($daysOut <= $boundary) {
+          $bucketIdx = $idx;
+          break;
+        }
+      }
+      if ($bucketIdx === NULL) {
+        continue;
+      }
+
+      $type = (string) $row->event_type;
+      if (!isset($matrix[$type])) {
+        $matrix[$type] = array_fill(0, count($labels), 0.0);
+        $types[] = $type;
+      }
+      $matrix[$type][$bucketIdx] += $fee;
+      $total += $fee;
+    }
+
+    foreach ($matrix as $type => $values) {
+      $matrix[$type] = array_map(static fn($v) => round((float) $v, 2), $values);
+    }
+
+    $result = [
+      'labels' => $labels,
+      'types' => $types,
+      'matrix' => $matrix,
+      'total' => round($total, 2),
+    ];
+    $this->cache->set($cid, $result, time() + 1800, ['civicrm_participant_list']);
+    return $result;
+  }
+
+  /**
+   * Monthly dunning recovery: annualized dollars touched, recovered, and lost.
+   *
+   * Sources `ms_member_outreach_log` joined to per-member monthly dues. For
+   * each calendar month we count distinct members who had at least one
+   * outreach contact, then split into:
+   *   - recovered: had a positive outcome (payment_updated, will_return,
+   *     no_action_needed) at least once in that month
+   *   - lost: had a confirmed_cancel outcome in that month
+   *   - in flight: contacted but neither recovered nor lost
+   *
+   * Dollar values are annualized (monthly_value × 12) to match the existing
+   * `Monthly Revenue at Risk` KPI's denomination — so the chart speaks the
+   * same language as the KPI rail.
+   *
+   * @param int $months
+   *   Trailing months to include (default 12).
+   *
+   * @return array{
+   *   labels: string[],
+   *   recovered: float[],
+   *   lost: float[],
+   *   in_flight: float[],
+   *   total_touched: float[]
+   * }
+   */
+  public function getDunningRecoveryTrend(int $months = 12): array {
+    $cid = 'makerspace_dashboard:dunning_recovery:' . $months;
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->database->schema()->tableExists('ms_member_outreach_log')
+      || !$this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
+      return ['labels' => [], 'recovered' => [], 'lost' => [], 'in_flight' => [], 'total_touched' => []];
+    }
+
+    $end = new \DateTimeImmutable('first day of next month 00:00:00');
+    $start = $end->modify('-' . $months . ' months');
+
+    $labels = [];
+    $bucket = [];
+    $cursor = $start;
+    while ($cursor < $end) {
+      $key = $cursor->format('Y-m');
+      $labels[] = $cursor->format('M Y');
+      $bucket[$key] = ['touched' => 0.0, 'recovered' => 0.0, 'lost' => 0.0];
+      $cursor = $cursor->modify('+1 month');
+    }
+
+    $resolvedOutcomes = ['payment_updated', 'will_return', 'no_action_needed'];
+    $lostOutcomes = ['confirmed_cancel'];
+
+    // One row per (uid, month) with the best outcome that month.
+    // Outcome priority: lost > recovered > other (since lost is terminal).
+    $sql = "
+      SELECT
+        DATE_FORMAT(log.contact_date, '%Y-%m') AS period,
+        log.uid,
+        MAX(CASE WHEN log.outcome IN (:lost_outcomes[]) THEN 1 ELSE 0 END) AS was_lost,
+        MAX(CASE WHEN log.outcome IN (:resolved_outcomes[]) THEN 1 ELSE 0 END) AS was_recovered,
+        COALESCE(pm.field_member_payment_monthly_value, 0) AS monthly
+      FROM {ms_member_outreach_log} log
+      LEFT JOIN {profile} p
+        ON p.uid = log.uid AND p.type = 'main' AND p.is_default = 1
+      LEFT JOIN {profile__field_member_payment_monthly} pm
+        ON pm.entity_id = p.profile_id AND pm.deleted = 0
+      WHERE log.contact_date >= :start
+        AND log.contact_date < :end
+      GROUP BY DATE_FORMAT(log.contact_date, '%Y-%m'), log.uid, pm.field_member_payment_monthly_value
+    ";
+
+    $rows = $this->database->query($sql, [
+      ':lost_outcomes[]' => $lostOutcomes,
+      ':resolved_outcomes[]' => $resolvedOutcomes,
+      ':start' => $start->format('Y-m-d H:i:s'),
+      ':end' => $end->format('Y-m-d H:i:s'),
+    ])->fetchAll(\PDO::FETCH_ASSOC);
+
+    foreach ($rows as $row) {
+      $period = $row['period'];
+      if (!isset($bucket[$period])) {
+        continue;
+      }
+      $annual = ((float) $row['monthly']) * 12.0;
+      $bucket[$period]['touched'] += $annual;
+      if ((int) $row['was_lost'] === 1) {
+        $bucket[$period]['lost'] += $annual;
+      }
+      elseif ((int) $row['was_recovered'] === 1) {
+        $bucket[$period]['recovered'] += $annual;
+      }
+    }
+
+    $recovered = [];
+    $lost = [];
+    $inFlight = [];
+    $totals = [];
+    foreach ($bucket as $row) {
+      $recovered[] = round((float) $row['recovered'], 2);
+      $lost[] = round((float) $row['lost'], 2);
+      $totals[] = round((float) $row['touched'], 2);
+      $inFlight[] = round(max(0.0, (float) $row['touched'] - (float) $row['recovered'] - (float) $row['lost']), 2);
+    }
+
+    $result = [
+      'labels' => $labels,
+      'recovered' => $recovered,
+      'lost' => $lost,
+      'in_flight' => $inFlight,
+      'total_touched' => $totals,
+    ];
+    $this->cache->set($cid, $result, time() + 1800, ['profile_list']);
+    return $result;
+  }
+
+  /**
+   * Whole-month difference between two dates (a ≤ b assumed; clamps to 0).
+   */
+  protected function monthsBetween(\DateTimeImmutable $a, \DateTimeImmutable $b): int {
+    if ($b < $a) {
+      return 0;
+    }
+    $diff = $a->diff($b);
+    return ($diff->y * 12) + $diff->m;
+  }
+
+  /**
+   * Total revenue and operating expense by quarter for the runway-trend chart.
+   *
+   * Both lines are returned as positive dollars; in the sheet expense rows are
+   * usually parenthesized (negative), so we abs() before returning so callers
+   * can plot revenue and expense as comparable magnitudes.
+   *
+   * @param int $quarters
+   *   Trailing quarters to include (default 8).
+   *
+   * @return array{labels: string[], revenue: float[], expense: float[]}
+   */
+  public function getRevenueVsExpenseTrend(int $quarters = 8): array {
+    $cid = 'makerspace_dashboard:revenue_vs_expense:' . $quarters;
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $sheet = $this->getIncomeStatementSeries(['income_total', 'expense_total'], $quarters);
+    if (empty($sheet['labels'])) {
+      return ['labels' => [], 'revenue' => [], 'expense' => []];
+    }
+
+    $result = [
+      'labels' => $sheet['labels'],
+      'revenue' => array_map(static fn($v) => max(0.0, (float) $v), $sheet['rows']['income_total']),
+      'expense' => array_map(static fn($v) => abs((float) $v), $sheet['rows']['expense_total']),
+    ];
+
+    $this->cache->set($cid, $result, time() + 3600);
+    return $result;
+  }
+
 }

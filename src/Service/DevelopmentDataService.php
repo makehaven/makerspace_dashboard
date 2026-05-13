@@ -872,6 +872,73 @@ class DevelopmentDataService {
   }
 
   /**
+   * Returns dollar amounts and counts at each stage of the grant funnel.
+   *
+   * Pipeline stages (researching, inquiry, writing, waiting/submitted) are
+   * point-in-time current totals. Decided stages (won, lost) sum requested
+   * amounts for grants whose due date falls in the trailing window — gives
+   * the finance team an apples-to-apples view of what's coming, what's in
+   * flight, and what just landed.
+   *
+   * @param int $decidedMonths
+   *   How many trailing months of decided grants to include (default 12).
+   *
+   * @return array<int, array{stage: string, label: string, amount: float, count: int}>
+   *   Funnel stages in display order (research → won/lost).
+   */
+  public function getGrantPipelineFunnel(int $decidedMonths = 12): array {
+    $cid = $this->cacheId('grant_pipeline_funnel:' . $decidedMonths);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    if (!$this->tablesExist(['civicrm_value_funding_7', 'civicrm_contact'])) {
+      return [];
+    }
+
+    $stages = [];
+
+    foreach (['researching', 'inquiry', 'writing', 'waiting'] as $stage) {
+      $query = $this->database->select('civicrm_value_funding_7', 'f');
+      $query->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
+      $query->addExpression('SUM(f.request_amount_24)', 'amount');
+      $query->addExpression('COUNT(*)', 'count');
+      $query->condition('f.grant_status_14', $stage);
+      $query->condition('ct.is_deleted', 0);
+      $query->condition('ct.is_deceased', 0);
+      $row = $query->execute()->fetchAssoc();
+      $stages[] = [
+        'stage' => $stage,
+        'label' => $stage === 'waiting' ? 'Submitted (awaiting decision)' : ucfirst($stage),
+        'amount' => (float) ($row['amount'] ?? 0),
+        'count' => (int) ($row['count'] ?? 0),
+      ];
+    }
+
+    $decidedStart = $this->now()->modify('-' . $decidedMonths . ' months')->format('Y-m-d H:i:s');
+    foreach (['won', 'lost'] as $stage) {
+      $query = $this->database->select('civicrm_value_funding_7', 'f');
+      $query->innerJoin('civicrm_contact', 'ct', 'f.entity_id = ct.id');
+      $query->addExpression('SUM(f.request_amount_24)', 'amount');
+      $query->addExpression('COUNT(*)', 'count');
+      $query->condition('f.grant_status_14', $stage);
+      $query->condition('f.date_due_21', $decidedStart, '>=');
+      $query->condition('ct.is_deleted', 0);
+      $query->condition('ct.is_deceased', 0);
+      $row = $query->execute()->fetchAssoc();
+      $stages[] = [
+        'stage' => $stage,
+        'label' => sprintf('%s (last %dmo)', ucfirst($stage), $decidedMonths),
+        'amount' => (float) ($row['amount'] ?? 0),
+        'count' => (int) ($row['count'] ?? 0),
+      ];
+    }
+
+    $this->cache->set($cid, $stages, $this->time->getRequestTime() + $this->ttl, ['civicrm_contact_list']);
+    return $stages;
+  }
+
+  /**
    * Builds a cache identifier.
    */
   protected function cacheId(string $suffix): string {

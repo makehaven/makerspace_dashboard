@@ -37,8 +37,32 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.finance_revenue_mix:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceRevenueMixChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_revenue_vs_expense:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceRevenueVsExpenseChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.finance_mrr_trend:
     class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceMrrTrendChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_mrr_waterfall:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceMrrWaterfallChartBuilder
     arguments:
       - '@makerspace_dashboard.financial_data'
       - '@string_translation'
@@ -79,6 +103,38 @@ services:
 
   makerspace_dashboard.chart_builder.finance_ltv_by_tenure:
     class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceLifetimeValueByTenureChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_cohort_ltv:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceCohortLtvChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_forward_booked_workshop_revenue:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceForwardBookedWorkshopRevenueChartBuilder
+    arguments:
+      - '@makerspace_dashboard.financial_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_grant_pipeline_funnel:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceGrantPipelineFunnelChartBuilder
+    arguments:
+      - '@makerspace_dashboard.development_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.finance_dunning_recovery:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Finance\FinanceDunningRecoveryChartBuilder
     arguments:
       - '@makerspace_dashboard.financial_data'
       - '@string_translation'
