@@ -303,6 +303,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.education_workshop_fill_rate:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationWorkshopFillRateChartBuilder
+    arguments:
+      - '@makerspace_dashboard.events_membership_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.outreach_prejoin_events_type:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationPreJoinEventsByTypeChartBuilder
     arguments:
@@ -589,6 +597,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.outreach_tour_conversion_trend:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachTourConversionTrendChartBuilder
+    arguments:
+      - '@makerspace_dashboard.funnel_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.outreach_visit_conversion_funnel:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachVisitConversionFunnelChartBuilder
     arguments:
@@ -693,6 +709,15 @@ services:
     class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureHourlyEntryChartBuilder
     arguments:
       - '@makerspace_dashboard.utilization_window'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.infrastructure_entry_heatmap:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureEntryHeatmapChartBuilder
+    arguments:
+      - '@makerspace_dashboard.utilization_window'
+      - '@makerspace_dashboard.utilization_data'
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }

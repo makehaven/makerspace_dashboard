@@ -391,6 +391,91 @@ class UtilizationDataService {
   }
 
   /**
+   * Computes average entry counts per weekday and hour across a time window.
+   *
+   * @param int $startTimestamp
+   *   Start timestamp.
+   * @param int $endTimestamp
+   *   End timestamp.
+   *
+   * @return array
+   *   Array with keys:
+   *   - averages: Nested array keyed by weekday (0 = Sunday) then hour
+   *     (0-23) holding average entries per occurrence of that weekday.
+   *   - weekday_occurrences: How often each weekday occurs in the window.
+   *   - days: Total days covered by the window.
+   *   - total_entries: Raw entry count across the window.
+   */
+  public function getAverageEntriesByDayHour(int $startTimestamp, int $endTimestamp): array {
+    $cid = sprintf('makerspace_dashboard:utilization:day_hour_average:%d:%d', $startTimestamp, $endTimestamp);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $query = $this->database->select('access_control_log_field_data', 'acl');
+    $query->addField('acl', 'created');
+    $query->condition('acl.type', 'access_control_request');
+    $query->condition('acl.created', $startTimestamp, '>=');
+    $query->condition('acl.created', $endTimestamp, '<=');
+
+    $query->innerJoin('access_control_log__field_access_request_user', 'user_ref', 'user_ref.entity_id = acl.id AND user_ref.deleted = 0');
+    $query->innerJoin('user__roles', 'user_roles', 'user_roles.entity_id = user_ref.field_access_request_user_target_id');
+    $query->condition('user_roles.roles_target_id', $this->memberRoles, 'IN');
+    $query->innerJoin('users_field_data', 'u', 'u.uid = user_ref.field_access_request_user_target_id');
+    $query->condition('u.status', 1);
+
+    $results = $query->execute();
+
+    $timezone = new \DateTimeZone('America/New_York');
+    $totals = [];
+    foreach (range(0, 6) as $weekday) {
+      $totals[$weekday] = array_fill(0, 24, 0);
+    }
+
+    $totalEntries = 0;
+    foreach ($results as $record) {
+      $date = new \DateTime('@' . (int) $record->created);
+      $date->setTimezone($timezone);
+      $weekday = (int) $date->format('w');
+      $hour = (int) $date->format('G');
+      $totals[$weekday][$hour]++;
+      $totalEntries++;
+    }
+
+    // Count how often each weekday occurs in the window so the averages
+    // reflect entries per occurrence of that weekday.
+    $weekdayOccurrences = array_fill(0, 7, 0);
+    $cursor = (new \DateTimeImmutable('@' . $startTimestamp))->setTimezone($timezone)->setTime(0, 0, 0);
+    $endDay = (new \DateTimeImmutable('@' . $endTimestamp))->setTimezone($timezone)->setTime(0, 0, 0);
+    $totalDays = 0;
+    while ($cursor <= $endDay) {
+      $weekdayOccurrences[(int) $cursor->format('w')]++;
+      $totalDays++;
+      $cursor = $cursor->add(new \DateInterval('P1D'));
+    }
+
+    $averages = [];
+    foreach ($totals as $weekday => $hours) {
+      $occurrences = max(1, $weekdayOccurrences[$weekday]);
+      foreach ($hours as $hour => $total) {
+        $averages[$weekday][$hour] = round($total / $occurrences, 2);
+      }
+    }
+
+    $data = [
+      'averages' => $averages,
+      'weekday_occurrences' => $weekdayOccurrences,
+      'days' => $totalDays,
+      'total_entries' => $totalEntries,
+    ];
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cid, $data, $expire, ['access_control_log_list', 'user_list']);
+
+    return $data;
+  }
+
+  /**
    * Builds weekday/time-of-day buckets for first entries.
    */
   public function getFirstEntryBucketsByWeekday(int $startTimestamp, int $endTimestamp): array {

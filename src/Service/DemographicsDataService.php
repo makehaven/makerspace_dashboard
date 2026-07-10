@@ -296,7 +296,6 @@ class DemographicsDataService {
 
     $query = $this->database->select('profile', 'p');
     $query->addExpression('COUNT(DISTINCT p.uid)', 'member_count');
-    $query->addField('gender', 'field_member_gender_value', 'gender_raw');
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
@@ -307,7 +306,20 @@ class DemographicsDataService {
     $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
 
-    $query->groupBy('gender.field_member_gender_value');
+    // CiviCRM is the canonical demographics source since December 2025; the
+    // Drupal profile field only holds legacy responses.
+    if ($this->database->schema()->tableExists('civicrm_uf_match')) {
+      $query->leftJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = p.uid');
+      $query->leftJoin('civicrm_contact', 'cc', 'cc.id = ufm.contact_id AND cc.is_deleted = 0');
+      $query->leftJoin('civicrm_option_group', 'gog', "gog.name = 'gender'");
+      $query->leftJoin('civicrm_option_value', 'gov', 'gov.option_group_id = gog.id AND gov.value = cc.gender_id');
+      $query->addExpression('COALESCE(gov.label, gender.field_member_gender_value)', 'gender_raw');
+      $query->groupBy('gender_raw');
+    }
+    else {
+      $query->addField('gender', 'field_member_gender_value', 'gender_raw');
+      $query->groupBy('gender.field_member_gender_value');
+    }
     $query->orderBy('member_count', 'DESC');
 
     $results = $query->execute();
@@ -652,7 +664,6 @@ class DemographicsDataService {
     }
 
     $query = $this->database->select('profile', 'p');
-    $query->addField('birthday', 'field_member_birthday_value', 'birthday_raw');
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
@@ -662,6 +673,17 @@ class DemographicsDataService {
     $query->condition('u.status', 1);
     $query->innerJoin('user__roles', 'ur', 'ur.entity_id = p.uid');
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
+
+    // CiviCRM is the canonical demographics source since December 2025; the
+    // Drupal profile field only holds legacy responses.
+    if ($this->database->schema()->tableExists('civicrm_uf_match')) {
+      $query->leftJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = p.uid');
+      $query->leftJoin('civicrm_contact', 'cc', 'cc.id = ufm.contact_id AND cc.is_deleted = 0');
+      $query->addExpression('COALESCE(cc.birth_date, birthday.field_member_birthday_value)', 'birthday_raw');
+    }
+    else {
+      $query->addField('birthday', 'field_member_birthday_value', 'birthday_raw');
+    }
     $query->addField('p', 'uid', 'uid');
     $query->distinct();
 
@@ -999,6 +1021,7 @@ class DemographicsDataService {
     $query->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
     $query->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
     $query->condition('u.status', 1);
+    $this->addCivicrmEthnicityField($query);
 
     $valuesByUid = [];
     foreach ($query->execute() as $record) {
@@ -1010,6 +1033,7 @@ class DemographicsDataService {
         $valuesByUid[$uid] = [];
       }
       $valuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
+      $valuesByUid[$uid][] = (string) ($record->civicrm_ethnicity_value ?? '');
     }
 
     $activeMembers = count($valuesByUid);
@@ -1051,6 +1075,7 @@ class DemographicsDataService {
     $joinQuery->condition('p.is_default', 1);
     $joinQuery->condition('p.created', $startTs, '>=');
     $joinQuery->condition('p.created', $endTs, '<=');
+    $this->addCivicrmEthnicityField($joinQuery);
 
     $cancelQuery = $this->database->select('profile', 'p');
     $cancelQuery->addField('p', 'uid', 'uid');
@@ -1062,6 +1087,7 @@ class DemographicsDataService {
     $cancelQuery->condition('p.is_default', 1);
     $cancelQuery->condition('end_date.field_member_end_date_value', $startDate, '>=');
     $cancelQuery->condition('end_date.field_member_end_date_value', $endDate, '<=');
+    $this->addCivicrmEthnicityField($cancelQuery);
 
     $joinValuesByUid = [];
     foreach ($joinQuery->execute() as $record) {
@@ -1073,6 +1099,7 @@ class DemographicsDataService {
         $joinValuesByUid[$uid] = [];
       }
       $joinValuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
+      $joinValuesByUid[$uid][] = (string) ($record->civicrm_ethnicity_value ?? '');
     }
 
     $cancelValuesByUid = [];
@@ -1085,6 +1112,7 @@ class DemographicsDataService {
         $cancelValuesByUid[$uid] = [];
       }
       $cancelValuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
+      $cancelValuesByUid[$uid][] = (string) ($record->civicrm_ethnicity_value ?? '');
     }
 
     $joinReported = 0;
@@ -1184,6 +1212,23 @@ class DemographicsDataService {
       return [$value];
     }
     return $parts;
+  }
+
+  /**
+   * Adds the CiviCRM ethnicity value to a profile-based query when available.
+   *
+   * Demographic collection moved from the Drupal profile to CiviCRM in
+   * December 2025; CiviCRM is the canonical source and the profile field is
+   * retained only for legacy responses.
+   */
+  protected function addCivicrmEthnicityField($query): void {
+    $metadata = $this->getEthnicityFieldMetadata();
+    if (!$metadata || !$this->database->schema()->tableExists('civicrm_uf_match')) {
+      return;
+    }
+    $query->leftJoin('civicrm_uf_match', 'ufm_eth', 'ufm_eth.uf_id = p.uid');
+    $query->leftJoin($metadata['table'], 'civi_eth', 'civi_eth.entity_id = ufm_eth.contact_id');
+    $query->addField('civi_eth', $metadata['column'], 'civicrm_ethnicity_value');
   }
 
   /**
