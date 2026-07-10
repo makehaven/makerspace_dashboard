@@ -277,18 +277,54 @@ class MemberDemographicLocationDataService {
 
   /**
    * Applies the ethnicity filter to a query.
+   *
+   * CiviCRM is the canonical demographics source since December 2025; the
+   * Drupal profile field only holds legacy responses, so both are matched.
    */
   protected function applyEthnicityFilter($query, string $value): void {
-    $query->innerJoin('profile__field_member_ethnicity', 'ethnicity', 'ethnicity.entity_id = p.profile_id AND ethnicity.deleted = 0');
-    $query->condition('ethnicity.field_member_ethnicity_value', $value);
+    $query->leftJoin('profile__field_member_ethnicity', 'ethnicity', 'ethnicity.entity_id = p.profile_id AND ethnicity.deleted = 0');
+    $civicrmColumn = $this->getCivicrmEthnicityColumn();
+    if ($civicrmColumn) {
+      $query->leftJoin('civicrm_value_demographics_15', 'civi_eth', 'civi_eth.entity_id = c.id');
+      // CiviCRM CheckBox values are stored padded with CHAR(1) separators.
+      $query->where(
+        "(ethnicity.field_member_ethnicity_value = :ethnicity_value OR civi_eth.$civicrmColumn LIKE :ethnicity_packed)",
+        [
+          ':ethnicity_value' => $value,
+          ':ethnicity_packed' => '%' . chr(1) . $value . chr(1) . '%',
+        ]
+      );
+    }
+    else {
+      $query->condition('ethnicity.field_member_ethnicity_value', $value);
+    }
+  }
+
+  /**
+   * Resolves the CiviCRM ethnicity column when the table exists.
+   */
+  protected function getCivicrmEthnicityColumn(): ?string {
+    $schema = $this->database->schema();
+    if ($schema->tableExists('civicrm_value_demographics_15')) {
+      foreach (['custom_46', 'ethnicity_46'] as $candidate) {
+        if ($schema->fieldExists('civicrm_value_demographics_15', $candidate)) {
+          return $candidate;
+        }
+      }
+    }
+    return NULL;
   }
 
   /**
    * Applies the age bucket filter to a query.
+   *
+   * Prefers the CiviCRM birth date (canonical since December 2025) and falls
+   * back to the legacy Drupal profile birthday.
    */
   protected function applyAgeFilter($query, array $bucket): void {
-    $expression = "TIMESTAMPDIFF(YEAR, STR_TO_DATE(birthday.field_member_birthday_value, '%Y-%m-%d'), CURDATE())";
-    $query->innerJoin('profile__field_member_birthday', 'birthday', 'birthday.entity_id = p.profile_id AND birthday.deleted = 0 AND birthday.field_member_birthday_value <> \'\'');
+    $query->leftJoin('profile__field_member_birthday', 'birthday', 'birthday.entity_id = p.profile_id AND birthday.deleted = 0 AND birthday.field_member_birthday_value <> \'\'');
+    $expression = "TIMESTAMPDIFF(YEAR, COALESCE(c.birth_date, STR_TO_DATE(birthday.field_member_birthday_value, '%Y-%m-%d')), CURDATE())";
+    $query->where("COALESCE(c.birth_date, birthday.field_member_birthday_value) IS NOT NULL");
     if (isset($bucket['min'])) {
       $query->where($expression . ' >= :age_min', [':age_min' => (int) $bucket['min']]);
     }
@@ -298,11 +334,39 @@ class MemberDemographicLocationDataService {
   }
 
   /**
-   * Applies a profile gender filter to a query.
+   * Applies a gender filter to a query.
+   *
+   * Matches the CiviCRM gender (canonical since December 2025) or the legacy
+   * Drupal profile value.
    */
   protected function applyGenderFilter($query, string $genderValue): void {
-    $query->innerJoin('profile__field_member_gender', 'gender', 'gender.entity_id = p.profile_id AND gender.deleted = 0');
-    $query->condition('gender.field_member_gender_value', $genderValue);
+    $query->leftJoin('profile__field_member_gender', 'gender', 'gender.entity_id = p.profile_id AND gender.deleted = 0');
+    $civicrmGenderIds = $this->mapGenderValueToCivicrmIds($genderValue);
+    if ($civicrmGenderIds) {
+      $ids = implode(',', array_map('intval', $civicrmGenderIds));
+      $query->where(
+        "(gender.field_member_gender_value = :gender_value OR c.gender_id IN ($ids))",
+        [':gender_value' => $genderValue]
+      );
+    }
+    else {
+      $query->condition('gender.field_member_gender_value', $genderValue);
+    }
+  }
+
+  /**
+   * Maps a normalized Drupal gender value to CiviCRM gender IDs.
+   */
+  protected function mapGenderValueToCivicrmIds(string $genderValue): array {
+    $map = [
+      'female' => [1],
+      'male' => [2],
+      // The Drupal "other" option is labeled Non-binary.
+      'other' => [3, 4],
+      'transgender' => [5],
+      'self_describe' => [6],
+    ];
+    return $map[$genderValue] ?? [];
   }
 
   /**
