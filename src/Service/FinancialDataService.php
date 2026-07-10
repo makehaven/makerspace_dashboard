@@ -640,10 +640,10 @@ class FinancialDataService {
    *   The average monthly operating expense.
    */
   public function getAverageMonthlyOperatingExpense(): float {
-    // @todo: Implement logic to get this value from Xero. This will be called
-    // by the 'annual' snapshot in the makerspace_snapshot module to calculate
-    // the "Reserve Funds (as Months of Operating Expense)" KPI.
-    return 25000.00;
+    // Trailing four quarters of expense_total from the Income-Statement
+    // Google Sheet tab, averaged per month.
+    $ttm = $this->getMetricTtmSum('expense_total', 4);
+    return $ttm > 0 ? $ttm / 12 : 0.0;
   }
 
   /**
@@ -653,10 +653,7 @@ class FinancialDataService {
    *   The earned income sustaining core percentage.
    */
   public function getEarnedIncomeSustainingCore(): float {
-    // @todo: Implement logic to calculate this from Xero. The formula is:
-    // (Income - (grants+donations)) / (expenses- (grant program expense +capital investment)).
-    // This will be called by the 'annual' snapshot.
-    return 0.85;
+    return $this->getEarnedIncomeSustainingCoreRate();
   }
 
   /**
@@ -825,10 +822,10 @@ class FinancialDataService {
 
     // Map the "Mon-Mon YYYY" header format used in the sheet to a sortable key.
     // Headers look like: "Oct-Dec 2025", "Jul-Sep 2025", "Apr-Jun 2025", etc.
-    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Oct-Dec' => 4];
+    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Jul-Sept' => 3, 'Oct-Dec' => 4];
     $trend = [];
     foreach ($headers as $idx => $header) {
-      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sep|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sept?|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
         $q = $quarterOrder[$m[1]];
         // Sortable key: YYYY0Q so ksort gives oldest-first chronological order.
         $sortKey = $m[2] . '0' . $q;
@@ -908,17 +905,6 @@ class FinancialDataService {
     // Note: The sheet currently tracks dollar amount, not count.
     // Returning 0 for now as we don't have a count in the sheet.
     return 0;
-  }
-
-  /**
-   * Gets the donor retention rate.
-   *
-   * @return float
-   *   The donor retention rate.
-   */
-  public function getDonorRetentionRate(): float {
-    // @todo: Implement logic to get this value from the finance system.
-    return 0.0;
   }
 
   /**
@@ -1158,7 +1144,7 @@ class FinancialDataService {
 
     // Build a map of YYYY-MM => monthly_expense from the quarterly expense row.
     // Each quarter covers 3 months; monthly expense ≈ quarterly total / 3.
-    $quarterMap = ['Jan-Mar' => [1, 2, 3], 'Apr-Jun' => [4, 5, 6], 'Jul-Sep' => [7, 8, 9], 'Oct-Dec' => [10, 11, 12]];
+    $quarterMap = ['Jan-Mar' => [1, 2, 3], 'Apr-Jun' => [4, 5, 6], 'Jul-Sep' => [7, 8, 9], 'Jul-Sept' => [7, 8, 9], 'Oct-Dec' => [10, 11, 12]];
     $expData    = $this->googleSheetClient->getSheetData('Income-Statement');
     $monthlyExpMap = [];
 
@@ -1174,7 +1160,7 @@ class FinancialDataService {
 
       if ($expRow) {
         foreach ($expHeaders as $idx => $header) {
-          if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sep|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+          if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sept?|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
             $qExp = abs($this->parseCurrencyValue($expRow[$idx] ?? '0')) / 3;
             foreach ($quarterMap[$m[1]] as $mo) {
               $monthlyExpMap[sprintf('%s-%02d', $m[2], $mo)] = $qExp;
@@ -1296,8 +1282,10 @@ class FinancialDataService {
 
     $headers = array_shift($data);
     $colIdx = -1;
+    // The sheet has used both "Jul-Sep" and "Jul-Sept" for Q3 headers.
+    $candidates = [$targetCol, str_replace('Jul-Sep ', 'Jul-Sept ', $targetCol)];
     foreach ($headers as $idx => $header) {
-      if (trim((string) $header) === $targetCol) {
+      if (in_array(trim((string) $header), $candidates, TRUE)) {
         $colIdx = $idx;
         break;
       }
@@ -1454,11 +1442,11 @@ class FinancialDataService {
     }
 
     $headers = array_shift($data);
-    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Oct-Dec' => 4];
+    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Jul-Sept' => 3, 'Oct-Dec' => 4];
 
     $sortedColumns = [];
     foreach ($headers as $idx => $header) {
-      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sep|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sept?|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
         $year = (int) $m[2];
         $q = $quarterOrder[$m[1]];
         $sortKey = sprintf('%04d0%d', $year, $q);
