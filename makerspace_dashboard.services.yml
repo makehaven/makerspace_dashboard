@@ -713,6 +713,15 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.infrastructure_entry_heatmap:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureEntryHeatmapChartBuilder
+    arguments:
+      - '@makerspace_dashboard.utilization_window'
+      - '@makerspace_dashboard.utilization_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.infrastructure_first_entry:
     class: Drupal\makerspace_dashboard\Chart\Builder\Infrastructure\InfrastructureFirstEntryChartBuilder
     arguments:
