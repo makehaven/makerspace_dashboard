@@ -644,6 +644,154 @@ class FunnelDataService {
   }
 
   /**
+   * Returns a monthly tour-to-member conversion trend (oldest-first).
+   *
+   * For each of the trailing full months this counts the distinct contacts
+   * with a tour touchpoint (event participation or activity) and how many of
+   * those contacts joined within the conversion window of their earliest
+   * tour date that month.
+   *
+   * @param int $months
+   *   Number of trailing full months to include.
+   * @param int $conversionWindowDays
+   *   Days after the tour within which a join counts as a conversion.
+   *
+   * @return array
+   *   Structured series data with keys:
+   *   - range: Window metadata (start, end, months).
+   *   - conversion_window_days: The conversion window applied.
+   *   - labels: Month labels (oldest-first).
+   *   - month_keys: Canonical Y-m-01 strings aligned with the labels.
+   *   - tours: Eligible tour contacts per month (excludes existing members).
+   *   - conversions: Contacts joining within the window, per month.
+   *   - rates: Conversion percentages aligned with the labels.
+   */
+  public function getTourMonthlyConversionSeries(int $months = self::WINDOW_MONTHS, int $conversionWindowDays = 90): array {
+    $months = max(1, $months);
+    $end = $this->now()
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->modify('-1 second');
+    $start = $end
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->sub(new DateInterval(sprintf('P%dM', $months - 1)));
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:funnel:tours:monthly_conversion:%d:%s:%s',
+      $conversionWindowDays,
+      $start->format('Ymd'),
+      $end->format('Ymd')
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $labels = [];
+    $monthKeys = [];
+    $tours = [];
+    $conversions = [];
+    $rates = [];
+
+    $cursor = $start;
+    for ($i = 0; $i < $months; $i++) {
+      $monthStart = $cursor;
+      $monthEnd = $cursor->modify('last day of this month')->setTime(23, 59, 59);
+
+      $contactMap = $this->getEventContactMap('tour', $monthStart, $monthEnd);
+      foreach ($this->getActivityContactMap('tour', $monthStart, $monthEnd) as $contactId => $touchDate) {
+        if (!isset($contactMap[$contactId]) || $touchDate < $contactMap[$contactId]) {
+          $contactMap[$contactId] = $touchDate;
+        }
+      }
+
+      $summary = $this->summarizeWindowedConversions($contactMap, $conversionWindowDays);
+
+      $labels[] = $monthStart->format('M Y');
+      $monthKeys[] = $monthStart->format('Y-m-01');
+      $tours[] = $summary['eligible'];
+      $conversions[] = $summary['conversions'];
+      $rates[] = $summary['eligible'] > 0 ? round(($summary['conversions'] / $summary['eligible']) * 100, 1) : 0.0;
+
+      $cursor = $cursor->modify('+1 month');
+    }
+
+    $data = [
+      'range' => [
+        'start' => $start,
+        'end' => $end,
+        'months' => $months,
+      ],
+      'conversion_window_days' => $conversionWindowDays,
+      'labels' => $labels,
+      'month_keys' => $monthKeys,
+      'tours' => $tours,
+      'conversions' => $conversions,
+      'rates' => $rates,
+    ];
+
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+      'civicrm_participant_list',
+      'civicrm_activity_list',
+      'profile_list',
+    ]);
+    return $data;
+  }
+
+  /**
+   * Summarizes conversions that land within a bounded window of the touch.
+   *
+   * Mirrors summarizeContactConversions() but only counts joins occurring
+   * within $conversionWindowDays of the contact's touch date. Contacts whose
+   * join date precedes the touch are treated as existing members and
+   * excluded from the eligible pool.
+   *
+   * @param array $contactDates
+   *   Map of contact_id => DateTimeImmutable representing the touch date.
+   * @param int $conversionWindowDays
+   *   Days after the touch within which a join counts as a conversion.
+   */
+  protected function summarizeWindowedConversions(array $contactDates, int $conversionWindowDays): array {
+    if (empty($contactDates)) {
+      return [
+        'eligible' => 0,
+        'conversions' => 0,
+        'already_members' => 0,
+      ];
+    }
+
+    $contactToUid = $this->loadContactUserMap(array_keys($contactDates));
+    $joinDates = !empty($contactToUid) ? $this->loadJoinDates(array_values($contactToUid)) : [];
+
+    $eligible = 0;
+    $alreadyMembers = 0;
+    $converted = 0;
+    foreach ($contactDates as $contactId => $touchDate) {
+      $uid = $contactToUid[$contactId] ?? NULL;
+      $joinDate = $uid !== NULL ? ($joinDates[$uid] ?? NULL) : NULL;
+      if ($joinDate === NULL) {
+        $eligible++;
+        continue;
+      }
+      if ($joinDate < $touchDate) {
+        $alreadyMembers++;
+        continue;
+      }
+      $eligible++;
+      $deadline = $touchDate->add(new DateInterval(sprintf('P%dD', $conversionWindowDays)));
+      if ($joinDate <= $deadline) {
+        $converted++;
+      }
+    }
+
+    return [
+      'eligible' => $eligible,
+      'conversions' => $converted,
+      'already_members' => $alreadyMembers,
+    ];
+  }
+
+  /**
    * Returns the end of the completed quarter N quarters ago.
    */
   private function completedQuarterEnd(DateTimeImmutable $now, int $quartersAgo): DateTimeImmutable {

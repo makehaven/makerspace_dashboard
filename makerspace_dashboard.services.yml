@@ -597,6 +597,14 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  makerspace_dashboard.chart_builder.outreach_tour_conversion_trend:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachTourConversionTrendChartBuilder
+    arguments:
+      - '@makerspace_dashboard.funnel_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.outreach_visit_conversion_funnel:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachVisitConversionFunnelChartBuilder
     arguments:
