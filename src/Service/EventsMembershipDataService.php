@@ -1869,6 +1869,86 @@ class EventsMembershipDataService {
   }
 
   /**
+   * Returns monthly workshop fill-rate percentages for a date range.
+   *
+   * Fill rate = counted registrations / total capacity across active events
+   * with an explicit capacity (max_participants > 0) starting in the month.
+   *
+   * @param \DateTimeImmutable $start_date
+   *   Start of the reporting window.
+   * @param \DateTimeImmutable $end_date
+   *   End of the reporting window.
+   * @param string $eventTypeLabel
+   *   Event type label to filter by. Defaults to "Ticketed Workshop".
+   *
+   * @return array
+   *   Structured series data with keys:
+   *   - items: Ordered list of month info arrays containing:
+   *     - month_key: Canonical Y-m-01 string.
+   *     - label: Human-readable month label.
+   *     - date: \DateTimeImmutable instance.
+   *     - fill_rate: Percentage of seats filled (0-100, one decimal).
+   *     - seats_filled: Counted registrations across eligible events.
+   *     - capacity: Total capacity across eligible events.
+   *     - eligible_events: Number of events with explicit capacity.
+   *   - labels: Month labels mapped from the items.
+   *   - fill_rates: Fill-rate percentages aligned with the labels order.
+   *   - seats_filled: Counted registrations aligned with the labels order.
+   *   - capacity: Capacity totals aligned with the labels order.
+   *   - summary: Aggregate stats from the capacity utilization series.
+   */
+  public function getMonthlyWorkshopFillRateSeries(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): array {
+    $cacheId = sprintf(
+      'makerspace_dashboard:workshop_fill_rate:%s:%s:%s',
+      $start_date->format('YmdHis'),
+      $end_date->format('YmdHis'),
+      md5($eventTypeLabel)
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $capacitySeries = $this->getWorkshopCapacityUtilizationSeries($start_date, $end_date, $eventTypeLabel);
+
+    $items = [];
+    $labels = [];
+    $fillRates = [];
+    $seatsFilled = [];
+    $capacity = [];
+    $lastMonthKey = $end_date->format('Y-m-01');
+    foreach ($capacitySeries['items'] as $item) {
+      if ($item['month_key'] > $lastMonthKey) {
+        continue;
+      }
+      $rate = round(((float) ($item['fill_ratio'] ?? 0)) * 100, 1);
+      $items[] = [
+        'month_key' => $item['month_key'],
+        'label' => $item['label'],
+        'date' => $item['date'],
+        'fill_rate' => $rate,
+        'seats_filled' => (int) $item['counted_total'],
+        'capacity' => (int) $item['capacity_total'],
+        'eligible_events' => (int) $item['eligible_events'],
+      ];
+      $labels[] = $item['label'];
+      $fillRates[] = $rate;
+      $seatsFilled[] = (int) $item['counted_total'];
+      $capacity[] = (int) $item['capacity_total'];
+    }
+
+    $result = [
+      'items' => $items,
+      'labels' => $labels,
+      'fill_rates' => $fillRates,
+      'seats_filled' => $seatsFilled,
+      'capacity' => $capacity,
+      'summary' => $capacitySeries['summary'],
+    ];
+    $this->cache->set($cacheId, $result, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+    return $result;
+  }
+
+  /**
    * Resolves the option group ID for event types.
    */
   protected function getEventTypeGroupId(): ?int {
