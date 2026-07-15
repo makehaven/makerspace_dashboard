@@ -70,18 +70,34 @@ class GovernanceBoardDataService {
     $ethnicityCounts = array_fill_keys(array_values($ethnicityMap), 0);
     $now = new DateTimeImmutable('now', new DateTimeZone(date_default_timezone_get()));
 
+    // Person-level tallies for the diversity KPIs: unknown/undisclosed
+    // responses are excluded from the denominators, and a member selecting
+    // any BIPOC identity counts as BIPOC once (even alongside White).
+    $genderKnown = 0;
+    $genderFemaleNb = 0;
+    $ethnicityReported = 0;
+    $ethnicityBipoc = 0;
+
     foreach ($roster as $member) {
       // Gender Mapping.
       $genderId = (int) ($member['gender_id'] ?? 0);
       switch ($genderId) {
         case 1: $genderCounts['Female']++; break;
         case 2: $genderCounts['Male']++; break;
-        case 4: 
-        case 5: 
+        case 4:
+        case 5:
         case 6:
           $genderCounts['Non-Binary']++; break;
         default:
           $genderCounts['Other/Unknown']++; break;
+      }
+      // 1=Female, 2=Male, 3=Other, 4=Non-binary, 5=Transgender,
+      // 6=Prefer to Self-describe; 0/unset = undisclosed.
+      if ($genderId >= 1 && $genderId <= 6) {
+        $genderKnown++;
+        if (in_array($genderId, [1, 3, 4, 5, 6], TRUE)) {
+          $genderFemaleNb++;
+        }
       }
 
       // Age buckets.
@@ -104,17 +120,32 @@ class GovernanceBoardDataService {
 
       // Ethnicity mapping.
       $rawEth = (string) ($member['ethnicity'] ?? '');
-      $ethValues = array_filter(explode(',', str_replace(["\x01", "\x02"], ',', $rawEth)));
-      if (empty($ethValues)) {
+      $ethValues = array_filter(array_map('trim', explode(',', str_replace(["\x01", "\x02"], ',', $rawEth))));
+      $reportedValues = [];
+      foreach ($ethValues as $val) {
+        $val = strtolower($val);
+        if ($val === '' || $val === 'not_specified' || $val === 'decline' || str_contains($val, 'prefer_not')) {
+          continue;
+        }
+        $reportedValues[] = $val;
+      }
+      if (empty($reportedValues)) {
         $ethnicityCounts['Not Specified']++;
       } else {
-        foreach ($ethValues as $val) {
-          $val = strtolower(trim($val));
+        $memberIsBipoc = FALSE;
+        foreach ($reportedValues as $val) {
           if (isset($ethnicityMap[$val])) {
             $ethnicityCounts[$ethnicityMap[$val]]++;
           } else {
             $ethnicityCounts['Other / Multi']++;
           }
+          if ($val !== 'white' && !str_contains($val, 'caucasian')) {
+            $memberIsBipoc = TRUE;
+          }
+        }
+        $ethnicityReported++;
+        if ($memberIsBipoc) {
+          $ethnicityBipoc++;
         }
       }
     }
@@ -182,6 +213,18 @@ class GovernanceBoardDataService {
         'actual_counts' => $ethnicityCounts,
         'actual_pct' => $this->normalizePercentages($ethnicityCounts, $totalMembers),
         'goal_pct' => $goalEthnicity,
+      ],
+      'person_summary' => [
+        'gender' => [
+          'known' => $genderKnown,
+          'female_nb' => $genderFemaleNb,
+          'female_nb_share' => $genderKnown > 0 ? $genderFemaleNb / $genderKnown : NULL,
+        ],
+        'ethnicity' => [
+          'reported' => $ethnicityReported,
+          'bipoc' => $ethnicityBipoc,
+          'bipoc_share' => $ethnicityReported > 0 ? $ethnicityBipoc / $ethnicityReported : NULL,
+        ],
       ],
       'total_members' => $totalMembers,
       'source_url' => $this->sheetClient->getGoogleSheetUrl(),
@@ -312,16 +355,25 @@ class GovernanceBoardDataService {
     $query->condition('s.in_draft', 0);
 
     $results = $query->execute()->fetchAll();
-    
-    $total = count($results);
-    $high = 0;
+
+    // Average score on the survey's 1-5 scale, matching the Goals sheet
+    // targets (e.g. 4.5). Blank/invalid answers are skipped rather than
+    // counted as zeros.
+    $total = 0;
+    $sum = 0;
     $lastUpdated = NULL;
 
     foreach ($results as $row) {
-      $val = (int) $row->value;
-      if ($val >= 4) {
-        $high++;
+      $raw = trim((string) $row->value);
+      if ($raw === '' || !is_numeric($raw)) {
+        continue;
       }
+      $val = (float) $raw;
+      if ($val < 1 || $val > 5) {
+        continue;
+      }
+      $total++;
+      $sum += $val;
     }
 
     // Get last updated time.
@@ -335,7 +387,7 @@ class GovernanceBoardDataService {
     }
 
     return [
-      'value' => $total > 0 ? ($high / $total) : NULL,
+      'value' => $total > 0 ? round($sum / $total, 2) : NULL,
       'last_updated' => $lastUpdated,
       'response_count' => $total,
     ];

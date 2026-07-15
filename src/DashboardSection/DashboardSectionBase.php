@@ -423,8 +423,12 @@ SVG;
       return (string) $this->t('n/a');
     }
     if ($format === 'percent' && is_numeric($value)) {
+      // Values with abs > 1.5 are percentage points; anything at or below is
+      // a 0-1 ratio. The 1.5 threshold matches normalizePercentOrAbsoluteValue
+      // (which drives the stoplight color), so a ratio above 1.0
+      // (e.g. 1.04 = 104%) displays as 104%, not 1.0%.
       $normalized = (float) $value;
-      if (abs($normalized) > 1) {
+      if (abs($normalized) > 1.5) {
         $normalized = $normalized / 100;
       }
       $percentage = $normalized * 100;
@@ -433,6 +437,11 @@ SVG;
     }
     if ($format === 'integer' && is_numeric($value)) {
       return number_format((float) $value, 0);
+    }
+    if ($format === 'currency' && is_numeric($value)) {
+      $float = (float) $value;
+      $decimals = abs($float) < 100 ? 2 : 0;
+      return ($float < 0 ? '-$' : '$') . number_format(abs($float), $decimals);
     }
     if (is_numeric($value)) {
       $float = (float) $value;

@@ -948,8 +948,6 @@ class DemographicsDataService {
     $reportedMembers = [];
     $bipocMembers = [];
     $distribution = [];
-    $ignored = $this->getIgnoredEthnicityValues();
-    $bipocValues = $this->getBipocEthnicityValues();
 
     foreach ($results as $record) {
       $contactId = (int) ($record->id ?? 0);
@@ -960,7 +958,7 @@ class DemographicsDataService {
       $normalizedValues = [];
       foreach ($values as $entry) {
         $normalized = strtolower($entry);
-        if ($normalized === '' || in_array($normalized, $ignored, TRUE)) {
+        if ($this->isUnspecifiedEthnicityValue($normalized)) {
           continue;
         }
         $normalizedValues[] = $normalized;
@@ -971,18 +969,22 @@ class DemographicsDataService {
         continue;
       }
 
-      if (count($normalizedValues) > 1) {
-        $distribution['multi'] = ($distribution['multi'] ?? 0) + 1;
-        $reportedMembers[$contactId] = TRUE;
-        $bipocMembers[$contactId] = TRUE;
-        continue;
+      $reportedMembers[$contactId] = TRUE;
+      // A person counts as BIPOC when any selected identity is BIPOC, even
+      // when White is also selected.
+      foreach ($normalizedValues as $normalized) {
+        if ($this->isBipocEthnicityValue($normalized)) {
+          $bipocMembers[$contactId] = TRUE;
+          break;
+        }
       }
 
-      $single = $normalizedValues[0];
-      $distribution[$single] = ($distribution[$single] ?? 0) + 1;
-      $reportedMembers[$contactId] = TRUE;
-      if (in_array($single, $bipocValues, TRUE)) {
-        $bipocMembers[$contactId] = TRUE;
+      if (count($normalizedValues) > 1) {
+        $distribution['multi'] = ($distribution['multi'] ?? 0) + 1;
+      }
+      else {
+        $single = $normalizedValues[0];
+        $distribution[$single] = ($distribution[$single] ?? 0) + 1;
       }
     }
 
@@ -1003,7 +1005,7 @@ class DemographicsDataService {
   }
 
   /**
-   * Returns active-member BIPOC snapshot counts using profile ethnicity values.
+   * Returns active-member BIPOC snapshot counts using CiviCRM ethnicity data.
    *
    * @return array
    *   Array with:
@@ -1018,8 +1020,6 @@ class DemographicsDataService {
     $query->innerJoin('user__roles', 'ur', 'ur.entity_id = u.uid');
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
     $query->innerJoin('profile', 'p', "p.uid = u.uid AND p.type = 'main' AND p.status = 1 AND p.is_default = 1");
-    $query->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
-    $query->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
     $query->condition('u.status', 1);
     $this->addCivicrmEthnicityField($query);
 
@@ -1032,7 +1032,6 @@ class DemographicsDataService {
       if (!isset($valuesByUid[$uid])) {
         $valuesByUid[$uid] = [];
       }
-      $valuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
       $valuesByUid[$uid][] = (string) ($record->civicrm_ethnicity_value ?? '');
     }
 
@@ -1068,8 +1067,6 @@ class DemographicsDataService {
 
     $joinQuery = $this->database->select('profile', 'p');
     $joinQuery->addField('p', 'uid', 'uid');
-    $joinQuery->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
-    $joinQuery->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
     $joinQuery->condition('p.type', 'main');
     $joinQuery->condition('p.status', 1);
     $joinQuery->condition('p.is_default', 1);
@@ -1080,8 +1077,6 @@ class DemographicsDataService {
     $cancelQuery = $this->database->select('profile', 'p');
     $cancelQuery->addField('p', 'uid', 'uid');
     $cancelQuery->innerJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
-    $cancelQuery->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
-    $cancelQuery->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
     $cancelQuery->condition('p.type', 'main');
     $cancelQuery->condition('p.status', 1);
     $cancelQuery->condition('p.is_default', 1);
@@ -1098,7 +1093,6 @@ class DemographicsDataService {
       if (!isset($joinValuesByUid[$uid])) {
         $joinValuesByUid[$uid] = [];
       }
-      $joinValuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
       $joinValuesByUid[$uid][] = (string) ($record->civicrm_ethnicity_value ?? '');
     }
 
@@ -1111,7 +1105,6 @@ class DemographicsDataService {
       if (!isset($cancelValuesByUid[$uid])) {
         $cancelValuesByUid[$uid] = [];
       }
-      $cancelValuesByUid[$uid][] = (string) ($record->ethnicity_value ?? '');
       $cancelValuesByUid[$uid][] = (string) ($record->civicrm_ethnicity_value ?? '');
     }
 
@@ -1154,7 +1147,7 @@ class DemographicsDataService {
   /**
    * Returns ethnicity values counted toward the BIPOC percentage.
    */
-  protected function getBipocEthnicityValues(): array {
+  public function getBipocEthnicityValues(): array {
     return [
       'asian',
       'black',
@@ -1164,6 +1157,7 @@ class DemographicsDataService {
       'native',
       'aian',
       'islander',
+      'pacific',
       'nhpi',
       'multi',
       'other',
@@ -1207,10 +1201,9 @@ class DemographicsDataService {
       return [];
     }
     $normalized = str_replace(["\x01", "\x02", '|'], ',', $value);
-    $parts = array_map('trim', array_filter(explode(',', $normalized), static fn($part) => $part !== ''));
-    if (!$parts) {
-      return [$value];
-    }
+    $parts = array_values(array_filter(array_map('trim', explode(',', $normalized)), static fn($part) => $part !== ''));
+    // A string consisting only of separators carries no response; returning
+    // the raw value would let junk like "\x01\x01" classify as reported.
     return $parts;
   }
 
@@ -1298,7 +1291,7 @@ class DemographicsDataService {
   /**
    * Classifies raw ethnicity values as reported/BIPOC.
    */
-  protected function classifyEthnicityValues(array $rawValues): array {
+  public function classifyEthnicityValues(array $rawValues): array {
     $normalizedValues = [];
     foreach ($rawValues as $rawValue) {
       $entries = $this->explodeCustomFieldValues((string) $rawValue);
@@ -1311,10 +1304,9 @@ class DemographicsDataService {
       }
     }
 
-    $ignored = $this->getIgnoredEthnicityValues();
     $filtered = [];
     foreach (array_keys($normalizedValues) as $value) {
-      if (in_array($value, $ignored, TRUE)) {
+      if ($this->isUnspecifiedEthnicityValue($value)) {
         continue;
       }
       $filtered[] = $value;
@@ -1344,10 +1336,16 @@ class DemographicsDataService {
 
   /**
    * Determines whether a normalized ethnicity value should count as BIPOC.
+   *
+   * Accepts both stored machine codes ("black", "middleeast") and display
+   * labels ("Black / African American"). Unknown/declined responses are never
+   * BIPOC; White-identifying values are not BIPOC on their own — the
+   * person-level rule (any BIPOC selection makes the person BIPOC, even
+   * alongside White) lives in classifyEthnicityValues().
    */
-  protected function isBipocEthnicityValue(string $value): bool {
+  public function isBipocEthnicityValue(string $value): bool {
     $value = strtolower(trim($value));
-    if ($value === '') {
+    if ($value === '' || $this->isUnspecifiedEthnicityValue($value)) {
       return FALSE;
     }
 
@@ -1356,7 +1354,46 @@ class DemographicsDataService {
       return TRUE;
     }
 
-    return !str_contains($value, 'white');
+    if (str_contains($value, 'white') || str_contains($value, 'caucasian')) {
+      return FALSE;
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Determines whether an ethnicity value/label is an unknown or declined
+   * response that should be excluded from reported totals.
+   *
+   * Handles both stored machine codes (not_specified, prefer_not_to_say,
+   * decline) and mapped display labels ("Prefer not to say", "Unspecified").
+   */
+  public function isUnspecifiedEthnicityValue(string $value): bool {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '') {
+      return TRUE;
+    }
+    if (in_array($normalized, $this->getIgnoredEthnicityValues(), TRUE)) {
+      return TRUE;
+    }
+    $tokens = [
+      'unspecified',
+      'not_specified',
+      'not specified',
+      'unknown',
+      'prefer not',
+      'prefer_not',
+      'decline',
+      'not provided',
+      'not_provided',
+      'n/a',
+    ];
+    foreach ($tokens as $token) {
+      if (str_contains($normalized, $token)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
 }

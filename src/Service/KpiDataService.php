@@ -681,7 +681,20 @@ class KpiDataService {
       }
     }
 
-    $annual = $kpi_info['annual_values'] ?? [];
+    // Several callers stamp period-end dates (e.g. end of the current month)
+    // into last_updated; a "last updated" in the future misleads readers
+    // about freshness, so clamp to today.
+    if ($lastUpdated !== NULL && $lastUpdated > date('Y-m-d')) {
+      $lastUpdated = date('Y-m-d');
+    }
+
+    // Configured targets: static metadata annual_values with Google Sheet
+    // targets already merged over them (see getMergedKpiDefinitions). Kept
+    // separate from $annualOverrides, which hold measured ACTUALS — goals
+    // must never fall back to a KPI's own historical actuals.
+    $targetValues = $kpi_info['annual_values'] ?? [];
+
+    $annual = $targetValues;
     foreach ($annualOverrides as $year => $value) {
       $annual[(string) $year] = $value;
     }
@@ -690,11 +703,11 @@ class KpiDataService {
     }
     $currentYear = (int) date('Y');
     $sheetTargets = $kpiId ? ($this->getSheetAnnualTargets()[$kpiId] ?? []) : [];
-    $goalYear = $this->determineGoalYear($annual, $sheetTargets, $currentYear);
+    $goalYear = $this->determineGoalYear($targetValues, $sheetTargets, $currentYear);
     $goalKey = (string) $goalYear;
-    
-    // Prioritize spreadsheet goals for the Goal column.
-    $goalCurrentYear = $sheetTargets[$goalKey] ?? $annual[$goalKey] ?? NULL;
+
+    // Goal column: Google Sheet target first, configured target second.
+    $goalCurrentYear = $sheetTargets[$goalKey] ?? $targetValues[$goalKey] ?? NULL;
 
     return [
       'label' => $kpi_info['label'] ?? '',
@@ -2404,90 +2417,82 @@ class KpiDataService {
    * Gets the data for the "% Workshop Participants (BIPOC)" KPI.
    */
   private function getKpiWorkshopParticipantsBipocData(array $kpi_info): array {
-    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_workshop_participants_bipoc', 1);
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_workshop_participants_bipoc', 3);
     $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_workshop_participants_bipoc');
 
-    if ($snapshot !== NULL) {
-      return $this->buildKpiResult(
-        $kpi_info,
-        $annualOverrides,
-        $snapshot['trend'],
-        $snapshot['ttm12'],
-        $snapshot['ttm3'],
-        $snapshot['last_updated'],
-        $snapshot['current'],
-        'kpi_workshop_participants_bipoc',
-        'percent',
-        'Snapshot-backed: monthly % of unique workshop participants identifying as BIPOC captured at each month-end.'
-      );
-    }
-
-    $current = NULL;
+    // Headline: unique people over the trailing 12 months, classified
+    // per person (any BIPOC identity counts, even alongside White; unknown
+    // and declined responses are excluded from the denominator).
     $end = new \DateTimeImmutable('last day of this month 23:59:59');
     $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
-    $demographics = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
+    $summary = $this->getWorkshopParticipantBipocSummary($start, $end);
+    $current = $summary['rate'];
 
-    $labels = $demographics['ethnicity']['labels'] ?? [];
-    $workshop = $demographics['ethnicity']['workshop'] ?? [];
-    $bipocCount = 0.0;
-    $knownCount = 0.0;
-
-    foreach ($labels as $index => $label) {
-      $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
-      if ($count <= 0) {
-        continue;
-      }
-      if ($this->isUnspecifiedEthnicity((string) $label)) {
-        continue;
-      }
-      $knownCount += $count;
-      if ($this->isBipocEthnicityLabel((string) $label)) {
-        $bipocCount += $count;
-      }
-    }
-
-    if ($knownCount > 0) {
-      $current = $bipocCount / $knownCount;
-    }
-
-    $trend = $current !== NULL ? [$current] : [];
+    $trend = $snapshot['trend'] ?? ($current !== NULL ? [$current] : []);
 
     return $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $trend,
       $current,
-      $current,
-      $end->format('Y-m-d'),
+      NULL,
+      date('Y-m-d'),
       $current,
       'kpi_workshop_participants_bipoc',
       'percent',
-      'Live CiviCRM: % of unique workshop participants identifying as BIPOC (last 12 months, current ethnicity data).'
+      sprintf(
+        'Live CiviCRM: %% of unique workshop participants identifying as BIPOC over the trailing 12 months (%d of %d participants with a reported ethnicity; %d unknown/declined excluded). A person selecting any BIPOC identity counts as BIPOC, including alongside White. Monthly sparkline from snapshots.',
+        (int) $summary['bipoc'],
+        (int) $summary['reported'],
+        (int) $summary['unknown']
+      ),
+      NULL,
+      'Trailing 12 months'
     );
+  }
+
+  /**
+   * Computes the per-person workshop participant BIPOC summary for a window.
+   *
+   * @return array
+   *   ['rate' => float|null, 'reported' => int, 'bipoc' => int,
+   *    'unknown' => int, 'total' => int]
+   */
+  private function getWorkshopParticipantBipocSummary(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $byContact = $this->eventsMembershipDataService->getWorkshopParticipantEthnicityByContact($start, $end);
+    $reported = 0;
+    $bipoc = 0;
+    $unknown = 0;
+    foreach ($byContact as $rawValue) {
+      $classification = $this->demographicsDataService->classifyEthnicityValues([(string) $rawValue]);
+      if (empty($classification['reported'])) {
+        $unknown++;
+        continue;
+      }
+      $reported++;
+      if (!empty($classification['bipoc'])) {
+        $bipoc++;
+      }
+    }
+
+    return [
+      'rate' => $reported > 0 ? $bipoc / $reported : NULL,
+      'reported' => $reported,
+      'bipoc' => $bipoc,
+      'unknown' => $unknown,
+      'total' => count($byContact),
+    ];
   }
 
   /**
    * Gets the data for the "% Active Instructors (BIPOC)" KPI.
    */
   private function getKpiActiveInstructorsBipocData(array $kpi_info): array {
-    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_active_instructors_bipoc', 1);
+    $snapshot = $this->extractKpiSnapshotMonthlySeries('kpi_active_instructors_bipoc', 3);
     $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_active_instructors_bipoc');
 
-    if ($snapshot !== NULL) {
-      return $this->buildKpiResult(
-        $kpi_info,
-        $annualOverrides,
-        $snapshot['trend'],
-        $snapshot['ttm12'],
-        $snapshot['ttm3'],
-        $snapshot['last_updated'],
-        $snapshot['current'],
-        'kpi_active_instructors_bipoc',
-        'percent',
-        'Snapshot-backed: monthly % of active instructors identifying as BIPOC captured at each month-end.'
-      );
-    }
-
+    // Headline: instructors active in the trailing 12 months, classified per
+    // person. Snapshot months only feed the sparkline.
     $current = NULL;
 
     $end = new \DateTimeImmutable('last day of this month 23:59:59');
@@ -2528,9 +2533,26 @@ class KpiDataService {
       $current = $bipocCount / $knownCount;
     }
 
-    $trend = $current !== NULL ? [$current] : [];
+    $trend = $snapshot['trend'] ?? ($current !== NULL ? [$current] : []);
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $current, $current, $end->format('Y-m-d'), $current, 'kpi_active_instructors_bipoc', 'percent');
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      $trend,
+      $current,
+      NULL,
+      date('Y-m-d'),
+      $current,
+      'kpi_active_instructors_bipoc',
+      'percent',
+      sprintf(
+        'Live CiviCRM: %% of instructors who taught in the trailing 12 months identifying as BIPOC (%d of %d with a reported ethnicity). A person selecting any BIPOC identity counts as BIPOC, including alongside White. Monthly sparkline from snapshots.',
+        $bipocCount,
+        $knownCount
+      ),
+      NULL,
+      'Trailing 12 months'
+    );
   }
 
   /**
@@ -2774,12 +2796,21 @@ class KpiDataService {
     // Fallback: build a trend from each year's annual member survey. The NPS
     // surveys are annual (not monthly) so each year contributes one data point.
     $npsByYear = $this->membershipMetricsService->getMemberNpsSeriesByYear();
-    $current = (float) $this->membershipMetricsService->getAnnualMemberNps();
+    $survey = $this->membershipMetricsService->getLatestMemberNpsSurvey();
 
     foreach ($npsByYear as $year => $nps) {
       $annualOverrides[(string) $year] = (float) $nps;
     }
-    $annualOverrides[(string) date('Y')] = $current;
+
+    if ($survey === NULL) {
+      // No survey responses at all: show TBD, never a fake 0 score.
+      return $this->getPlaceholderData($kpi_info, 'kpi_member_nps');
+    }
+
+    // Attribute the score to the year it was actually surveyed — a 2024
+    // survey score must not appear as the current-year value.
+    $current = (float) $survey['nps'];
+    $annualOverrides[(string) $survey['year']] = $current;
     ksort($annualOverrides, SORT_STRING);
 
     $trend = array_values(array_map('floatval', $npsByYear));
@@ -2787,17 +2818,27 @@ class KpiDataService {
     $ttm3 = $this->calculateTrailingAverage($trend, 3);
 
     return $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, date('Y-m-d'), $current, 'kpi_member_nps'),
+      $this->buildKpiResult(
+        $kpi_info,
+        $annualOverrides,
+        $trend,
+        $ttm12,
+        $ttm3,
+        date('Y-m-d'),
+        $current,
+        'kpi_member_nps',
+        NULL,
+        sprintf('Annual member survey (%d): NPS from %d responses (promoters minus detractors, 0-10 scale).', $survey['year'], $survey['responses']),
+        NULL,
+        sprintf('%d member survey', $survey['year'])
+      ),
       'kpi_member_nps'
     );
   }
 
   /**
-   * Gets the data for the "$ Annual Individual Giving" KPI.
-   */
-  /**
    * Gets the data for the "$ Annual Corporate Sponsorships" KPI.
-Process Group PGID: 1032535   *
+   *
    * Uses non-member donor monthly amounts as an automated sponsorship proxy.
    */
   private function getKpiAnnualCorporateSponsorshipsData(array $kpi_info): array {
@@ -2960,7 +3001,10 @@ Process Group PGID: 1032535   *
     $colLabel = $this->financialDataService->quarterToColumnLabel($prevYear, $prevQ);
     $current = $this->financialDataService->getPreviousQuarterMemberRevenue();
     $trend = $this->financialDataService->getMetricTrend('income_membership');
-    $lastUpdated = date('Y-m-d');
+    $lastUpdated = $current !== NULL ? date('Y-m-d') : NULL;
+    $sourceNote = $current !== NULL
+      ? "Google Sheets: Membership income for $colLabel (most recently completed quarter)."
+      : "Google Sheets: $colLabel has not been posted to the Income-Statement tab yet.";
 
     return $this->buildKpiResult(
       $kpi_info,
@@ -2972,7 +3016,7 @@ Process Group PGID: 1032535   *
       $current,
       'kpi_member_revenue_quarterly',
       'currency',
-      "Google Sheets: Membership income for $colLabel (most recently completed quarter).",
+      $sourceNote,
       '12 Quarters',
       "Prior quarter ($colLabel)",
       1.0
@@ -3473,28 +3517,7 @@ Process Group PGID: 1032535   *
   private function getWorkshopBipocParticipationRate(): ?float {
     $end = new \DateTimeImmutable('last day of this month 23:59:59');
     $start = $end->modify('first day of this month')->modify('-11 months')->setTime(0, 0, 0);
-    $demographics = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
-
-    $labels = $demographics['ethnicity']['labels'] ?? [];
-    $workshop = $demographics['ethnicity']['workshop'] ?? [];
-    $bipocCount = 0.0;
-    $knownCount = 0.0;
-
-    foreach ($labels as $index => $label) {
-      $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
-      if ($count <= 0) {
-        continue;
-      }
-      if ($this->isUnspecifiedEthnicity((string) $label)) {
-        continue;
-      }
-      $knownCount += $count;
-      if ($this->isBipocEthnicityLabel((string) $label)) {
-        $bipocCount += $count;
-      }
-    }
-
-    return $knownCount > 0 ? ($bipocCount / $knownCount) : NULL;
+    return $this->getWorkshopParticipantBipocSummary($start, $end)['rate'];
   }
 
   /**
@@ -3530,6 +3553,9 @@ Process Group PGID: 1032535   *
     $startTs = $start->getTimestamp();
     $endTs = $end->getTimestamp();
 
+    // Demographics moved to CiviCRM in December 2025; read gender and
+    // ethnicity from the linked contact rather than the retired profile
+    // fields (which are empty for post-migration joiners).
     $query = $db->select('profile', 'p');
     $query->addField('p', 'uid');
     $query->condition('p.type', 'main');
@@ -3537,10 +3563,11 @@ Process Group PGID: 1032535   *
     $query->condition('p.is_default', 1);
     $query->condition('p.created', $startTs, '>=');
     $query->condition('p.created', $endTs, '<=');
-    $query->leftJoin('profile__field_member_gender', 'gender', 'gender.entity_id = p.profile_id AND gender.deleted = 0');
-    $query->addField('gender', 'field_member_gender_value', 'gender_value');
-    $query->leftJoin('profile__field_member_ethnicity', 'eth', 'eth.entity_id = p.profile_id AND eth.deleted = 0');
-    $query->addField('eth', 'field_member_ethnicity_value', 'ethnicity_value');
+    $query->leftJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = p.uid');
+    $query->leftJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id AND c.is_deleted = 0');
+    $query->addField('c', 'gender_id', 'gender_id');
+    $query->leftJoin('civicrm_value_demographics_15', 'demo', 'demo.entity_id = ufm.contact_id');
+    $query->addField('demo', 'ethnicity_46', 'ethnicity_value');
 
     $byUid = [];
     foreach ($query->execute() as $record) {
@@ -3550,13 +3577,13 @@ Process Group PGID: 1032535   *
       }
       if (!isset($byUid[$uid])) {
         $byUid[$uid] = [
-          'gender' => '',
+          'gender_id' => 0,
           'ethnicity' => [],
         ];
       }
-      $gender = trim((string) ($record->gender_value ?? ''));
-      if ($gender !== '') {
-        $byUid[$uid]['gender'] = strtolower($gender);
+      $genderId = (int) ($record->gender_id ?? 0);
+      if ($genderId > 0) {
+        $byUid[$uid]['gender_id'] = $genderId;
       }
       $ethnicity = trim((string) ($record->ethnicity_value ?? ''));
       if ($ethnicity !== '') {
@@ -3570,29 +3597,20 @@ Process Group PGID: 1032535   *
     $bipoc = 0;
 
     foreach ($byUid as $entry) {
-      $gender = $entry['gender'] ?? '';
-      if ($gender !== '' && $gender !== 'decline') {
+      // Gender options: 1=Female, 2=Male, 3=Other, 4=Non-binary,
+      // 5=Transgender, 6=Prefer to Self-describe.
+      $genderId = (int) ($entry['gender_id'] ?? 0);
+      if ($genderId > 0) {
         $genderKnown++;
-        if (in_array($gender, ['female', 'other', 'transgender', 'self_describe'], TRUE)) {
+        if (in_array($genderId, [1, 3, 4, 5, 6], TRUE)) {
           $femaleNb++;
         }
       }
 
-      $reported = FALSE;
-      $isBipoc = FALSE;
-      foreach ($entry['ethnicity'] as $ethnicity) {
-        $label = strtolower(trim((string) $ethnicity));
-        if ($this->isUnspecifiedEthnicity($label)) {
-          continue;
-        }
-        $reported = TRUE;
-        if ($this->isBipocEthnicityLabel($label)) {
-          $isBipoc = TRUE;
-        }
-      }
-      if ($reported) {
+      $classification = $this->demographicsDataService->classifyEthnicityValues($entry['ethnicity']);
+      if (!empty($classification['reported'])) {
         $ethnicityKnown++;
-        if ($isBipoc) {
+        if (!empty($classification['bipoc'])) {
           $bipoc++;
         }
       }
@@ -3746,14 +3764,14 @@ Process Group PGID: 1032535   *
     $query->condition('c.is_deleted', 0);
 
     if ($segment === 'female_nb') {
-      $query->condition('c.gender_id', [1, 4, 5, 6], 'IN');
+      $query->condition('c.gender_id', [1, 3, 4, 5, 6], 'IN');
     }
     else {
       if (!$schema->tableExists('civicrm_value_demographics_15')) {
         return [];
       }
       $query->innerJoin('civicrm_value_demographics_15', 'demo', 'demo.entity_id = c.id');
-      $bipocValues = ['asian', 'black', 'middleeast', 'mena', 'hispanic', 'native', 'aian', 'islander', 'nhpi', 'multi', 'other'];
+      $bipocValues = $this->demographicsDataService->getBipocEthnicityValues();
       $or = $query->orConditionGroup();
       foreach ($bipocValues as $value) {
         $or->condition('demo.ethnicity_46', '%' . $db->escapeLike($value) . '%', 'LIKE');
@@ -4112,32 +4130,22 @@ Process Group PGID: 1032535   *
     $annualOverrides = [];
     $currentYear = (int) date('Y');
 
-    $ethnicityOptions = $this->membershipMetricsService->getCohortFilterOptions('ethnicity', 100);
-    $pocValues = [];
-    foreach ($ethnicityOptions as $option) {
-      $label = (string) ($option['label'] ?? $option['value'] ?? '');
-      if ($label !== '' && $this->isBipocEthnicityLabel($label)) {
-        $pocValues[] = (string) $option['value'];
-      }
-    }
-    $pocValues = array_values(array_unique($pocValues));
+    // Any member whose multi-select ethnicity includes at least one BIPOC
+    // value counts once (including alongside White). Unknown/declined
+    // responses never match, so they are excluded rather than misclassified.
+    $pocValues = $this->demographicsDataService->getBipocEthnicityValues();
 
     if ($pocValues) {
       for ($year = $currentYear - 5; $year <= $currentYear - 1; $year++) {
-        $joined = 0;
-        $active = 0;
-
-        foreach ($pocValues as $ethnicityValue) {
-          $cohort = $this->membershipMetricsService->getAnnualCohorts($year, $year, [
-            'type' => 'ethnicity',
-            'value' => $ethnicityValue,
-          ]);
-          if (empty($cohort[0])) {
-            continue;
-          }
-          $joined += (int) ($cohort[0]['joined'] ?? 0);
-          $active += (int) ($cohort[0]['active'] ?? 0);
+        $cohort = $this->membershipMetricsService->getAnnualCohorts($year, $year, [
+          'type' => 'ethnicity_any',
+          'value' => $pocValues,
+        ]);
+        if (empty($cohort[0])) {
+          continue;
         }
+        $joined = (int) ($cohort[0]['joined'] ?? 0);
+        $active = (int) ($cohort[0]['active'] ?? 0);
 
         if ($joined > 0) {
           $annualOverrides[(string) $year] = $active / $joined;
@@ -4146,22 +4154,8 @@ Process Group PGID: 1032535   *
     }
 
     if (empty($annualOverrides)) {
-      $fallback = (float) $this->membershipMetricsService->getAnnualRetentionPoc();
-      if ($fallback > 1.5 && $fallback <= 100) {
-        $fallback = $fallback / 100;
-      }
-      return $this->buildKpiResult(
-        $kpi_info,
-        [(string) ($currentYear - 1) => $fallback],
-        [$fallback],
-        $fallback,
-        $fallback,
-        date('Y-m-d'),
-        $fallback,
-        'kpi_retention_poc',
-        'percent',
-        'Fallback: Membership metrics POC retention estimate.'
-      );
+      // No measurable cohorts — show TBD rather than a fabricated estimate.
+      return $this->getPlaceholderData($kpi_info, 'kpi_retention_poc');
     }
 
     ksort($annualOverrides, SORT_STRING);
@@ -4277,8 +4271,8 @@ Process Group PGID: 1032535   *
       $stats['last_updated'],
       $stats['value'],
       'kpi_board_governance',
-      'percent',
-      'Survey: Annual self-assessment of Board effectiveness. Value is % of responses scored 4 or 5.'
+      NULL,
+      'Survey: Annual self-assessment of Board effectiveness. Value is the average score on a 1-5 scale (blank answers excluded).'
     );
   }
 
@@ -4296,8 +4290,8 @@ Process Group PGID: 1032535   *
       $stats['last_updated'],
       $stats['value'],
       'kpi_committee_effectiveness',
-      'percent',
-      'Survey: Annual self-assessment of Committee effectiveness. Value is % of responses scored 4 or 5.'
+      NULL,
+      'Survey: Annual self-assessment of Committee effectiveness. Value is the average score on a 1-5 scale (blank answers excluded).'
     );
   }
 
@@ -4338,9 +4332,8 @@ Process Group PGID: 1032535   *
     catch (\Throwable $exception) {
       return $this->getPlaceholderData($kpi_info, 'kpi_board_gender_diversity');
     }
-    $gender = $composition['gender']['actual_pct'] ?? [];
-    $maleShare = isset($gender['Male']) ? (float) $gender['Male'] : 0.0;
-    $current = max(0.0, 1.0 - $maleShare);
+    $summary = $composition['person_summary']['gender'] ?? [];
+    $current = $summary['female_nb_share'] ?? NULL;
     // NULL: board roster is manually maintained in Google Sheets; freshness unknown.
     $lastUpdated = NULL;
 
@@ -4353,7 +4346,12 @@ Process Group PGID: 1032535   *
       $lastUpdated,
       $current,
       'kpi_board_gender_diversity',
-      'percent'
+      'percent',
+      sprintf(
+        'CiviCRM board roster: %d of %d members with a reported gender identify as Female, Non-binary, Transgender, or Self-described. Undisclosed genders are excluded from the denominator.',
+        (int) ($summary['female_nb'] ?? 0),
+        (int) ($summary['known'] ?? 0)
+      )
     );
   }
 
@@ -4367,8 +4365,8 @@ Process Group PGID: 1032535   *
     catch (\Throwable $exception) {
       return $this->getPlaceholderData($kpi_info, 'kpi_board_ethnic_diversity');
     }
-    $ethnicity = $composition['ethnicity']['actual_pct'] ?? [];
-    $current = $this->sumPercentages($ethnicity, $this->getBoardBipocLabels());
+    $summary = $composition['person_summary']['ethnicity'] ?? [];
+    $current = $summary['bipoc_share'] ?? NULL;
     // NULL: board roster is manually maintained in Google Sheets; freshness unknown.
     $lastUpdated = NULL;
 
@@ -4381,7 +4379,12 @@ Process Group PGID: 1032535   *
       $lastUpdated,
       $current,
       'kpi_board_ethnic_diversity',
-      'percent'
+      'percent',
+      sprintf(
+        'CiviCRM board roster: %d of %d members with a reported ethnicity identify as BIPOC (any BIPOC selection counts, including alongside White). Undisclosed ethnicities are excluded from the denominator.',
+        (int) ($summary['bipoc'] ?? 0),
+        (int) ($summary['reported'] ?? 0)
+      )
     );
   }
 
@@ -4415,65 +4418,19 @@ Process Group PGID: 1032535   *
    * Determines whether an ethnicity label should be treated as unspecified.
    */
   private function isUnspecifiedEthnicity(string $label): bool {
-    $normalized = strtolower(trim($label));
-    if ($normalized === '') {
-      return TRUE;
-    }
-
-    $unspecifiedTokens = [
-      'unspecified',
-      'unknown',
-      'prefer not',
-      'decline',
-      'not provided',
-      'n/a',
-    ];
-    foreach ($unspecifiedTokens as $token) {
-      if (str_contains($normalized, $token)) {
-        return TRUE;
-      }
-    }
-
-    return FALSE;
+    return $this->demographicsDataService->isUnspecifiedEthnicityValue($label);
   }
 
   /**
    * Determines whether an ethnicity label should be counted as BIPOC.
+   *
+   * Delegates to DemographicsDataService so machine codes (not_specified,
+   * prefer_not_to_say) and display labels classify identically everywhere.
    */
   private function isBipocEthnicityLabel(string $label): bool {
-    $normalized = strtolower(trim($label));
-    if ($this->isUnspecifiedEthnicity($normalized)) {
-      return FALSE;
-    }
-
-    return !str_contains($normalized, 'white');
+    return $this->demographicsDataService->isBipocEthnicityValue($label);
   }
 
-  /**
-   * Sums the provided percentage labels, ignoring missing entries.
-   */
-  private function sumPercentages(array $values, array $labels): float {
-    $total = 0.0;
-    foreach ($labels as $label) {
-      $total += isset($values[$label]) ? (float) $values[$label] : 0.0;
-    }
-    return $total;
-  }
-
-  /**
-   * Returns the BIPOC-focused labels for board composition summaries.
-   */
-  private function getBoardBipocLabels(): array {
-    return [
-      'Asian',
-      'Black or African American',
-      'Middle Eastern or North African',
-      'Native Hawaiian or Pacific Islander',
-      'Hispanic or Latino',
-      'American Indian or Alaska Native',
-      'Other / Multi',
-    ];
-  }
 
   /**
    * Calculates a trailing average for the supplied window.
@@ -4606,22 +4563,25 @@ Process Group PGID: 1032535   *
       return NULL;
     }
 
-    $expensesByIndex = [];
-    foreach (array_keys($dateColumns) as $i) {
+    // Key by the parsed header date, not the column position: the
+    // bookkeeper's tabs run newest-first and columns get prepended, so
+    // positional order does not reflect chronology.
+    $expensesByDate = [];
+    foreach ($dateColumns as $i => $date) {
       $rawValue = $targetRow[$i] ?? '';
       $numericValue = $this->normalizeSheetNumber($rawValue);
       if ($numericValue === NULL) {
         continue;
       }
-      $expensesByIndex[$i] = abs($numericValue);
+      $expensesByDate[$date->format('Y-m-d')] = abs($numericValue);
     }
 
-    if (!$expensesByIndex) {
+    if (!$expensesByDate) {
       return NULL;
     }
 
-    ksort($expensesByIndex);
-    $latestQuarters = array_slice($expensesByIndex, -4, NULL, TRUE);
+    ksort($expensesByDate, SORT_STRING);
+    $latestQuarters = array_slice($expensesByDate, -4, NULL, TRUE);
     if (!$latestQuarters) {
       return NULL;
     }

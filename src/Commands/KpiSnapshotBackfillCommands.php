@@ -163,6 +163,101 @@ class KpiSnapshotBackfillCommands extends DrushCommands {
   }
 
   /**
+   * Rewrites stored monthly BIPOC KPI snapshot values with the fixed
+   * ethnicity classification.
+   *
+   * Historical monthly rows for the workshop-participant and active-instructor
+   * BIPOC KPIs were computed with a broken multi-value split (multiracial
+   * responses collapsed to non-BIPOC) and per-registration weighting. This
+   * recomputes each stored month with the corrected services. Ethnicity data
+   * is read as of today, so this is a best-effort trend repair.
+   *
+   * @command makerspace-dashboard:rewrite-bipoc-kpi-snapshots
+   * @aliases msd:rewrite-bipoc-kpi-snapshots
+   * @option apply Persist the rewritten values. Default is dry-run.
+   * @usage drush msd:rewrite-bipoc-kpi-snapshots
+   * @usage drush msd:rewrite-bipoc-kpi-snapshots --apply
+   */
+  public function rewriteBipocMonthly(array $options = ['apply' => FALSE]): void {
+    $apply = (bool) ($options['apply'] ?? FALSE);
+    $targetKpis = ['kpi_workshop_participants_bipoc', 'kpi_active_instructors_bipoc'];
+
+    $query = $this->database->select('ms_fact_kpi_snapshot', 'f');
+    $query->innerJoin('ms_snapshot', 's', 's.id = f.snapshot_id');
+    $query->fields('f', ['snapshot_id', 'kpi_id', 'metric_value']);
+    $query->fields('s', ['snapshot_date', 'snapshot_type']);
+    $query->condition('f.kpi_id', $targetKpis, 'IN');
+    $query->orderBy('s.snapshot_date', 'ASC');
+    $rows = $query->execute()->fetchAll();
+
+    if (!$rows) {
+      $this->io()->warning('No stored monthly rows found for the BIPOC KPIs.');
+      return;
+    }
+
+    $this->io()->title('BIPOC KPI monthly snapshot rewrite' . ($apply ? '' : ' (dry-run)'));
+    $updates = 0;
+    $skipped = 0;
+
+    foreach ($rows as $row) {
+      // Mirror the snapshot writer's window: the data period is the month
+      // containing snapshot_date - 1 day (snapshots are dated the 1st of the
+      // following month).
+      try {
+        $reference = (new \DateTimeImmutable((string) $row->snapshot_date))->modify('-1 day');
+      }
+      catch (\Exception $e) {
+        $skipped++;
+        continue;
+      }
+      $periodStart = $reference->modify('first day of this month')->setTime(0, 0, 0);
+      $periodEnd = $reference->modify('last day of this month')->setTime(23, 59, 59);
+
+      $newValue = NULL;
+      if ($row->kpi_id === 'kpi_workshop_participants_bipoc') {
+        $byContact = $this->eventsMembershipDataService->getWorkshopParticipantEthnicityByContact($periodStart, $periodEnd);
+        $newValue = makerspace_dashboard_calculate_bipoc_rate_by_contact($byContact);
+      }
+      elseif ($row->kpi_id === 'kpi_active_instructors_bipoc') {
+        $instructorDemo = $this->eventsMembershipDataService->getActiveInstructorDemographics($periodStart, $periodEnd);
+        $newValue = makerspace_dashboard_calculate_instructor_bipoc_rate((array) $instructorDemo);
+      }
+
+      $oldValue = (float) $row->metric_value;
+      if ($newValue === NULL) {
+        $this->io()->text(sprintf(' - %s %s: %.4f -> no data (row left unchanged)', $row->snapshot_date, $row->kpi_id, $oldValue));
+        $skipped++;
+        continue;
+      }
+
+      $this->io()->text(sprintf(' - %s %s: %.4f -> %.4f', $row->snapshot_date, $row->kpi_id, $oldValue, $newValue));
+
+      if ($apply) {
+        $this->database->update('ms_fact_kpi_snapshot')
+          ->fields([
+            'metric_value' => (float) $newValue,
+            'meta' => serialize([
+              'source' => 'makerspace_dashboard_bipoc_rewrite',
+              'rewritten_from' => $oldValue,
+              'rewrite_date' => date('Y-m-d'),
+            ]),
+          ])
+          ->condition('snapshot_id', (int) $row->snapshot_id)
+          ->condition('kpi_id', (string) $row->kpi_id)
+          ->execute();
+      }
+      $updates++;
+    }
+
+    if ($apply) {
+      $this->io()->success(sprintf('Rewrote %d rows (%d skipped).', $updates, $skipped));
+    }
+    else {
+      $this->io()->warning(sprintf('Dry-run: %d rows would be rewritten (%d skipped). Re-run with --apply.', $updates, $skipped));
+    }
+  }
+
+  /**
    * Resolves KPI list from options.
    */
   protected function resolveRequestedKpis(string $kpisOption, bool $includeRisky): array {
@@ -275,8 +370,8 @@ class KpiSnapshotBackfillCommands extends DrushCommands {
    * Computes annual workshop participant BIPOC rate.
    */
   protected function computeWorkshopParticipantsBipoc(\DateTimeImmutable $start, \DateTimeImmutable $end): ?float {
-    $participantDemo = $this->eventsMembershipDataService->getParticipantDemographics($start, $end);
-    $rate = makerspace_dashboard_calculate_workshop_bipoc_rate((array) $participantDemo);
+    $ethnicityByContact = $this->eventsMembershipDataService->getWorkshopParticipantEthnicityByContact($start, $end);
+    $rate = makerspace_dashboard_calculate_bipoc_rate_by_contact($ethnicityByContact);
     return is_numeric($rate) ? (float) $rate : NULL;
   }
 

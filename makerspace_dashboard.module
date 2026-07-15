@@ -264,8 +264,8 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
         'period_month' => $periodMonth,
       ];
 
-      $participantDemo = $eventsService->getParticipantDemographics($periodStart, $periodEnd);
-      $workshopBipocRate = makerspace_dashboard_calculate_workshop_bipoc_rate((array) $participantDemo);
+      $workshopEthnicityByContact = $eventsService->getWorkshopParticipantEthnicityByContact($periodStart, $periodEnd);
+      $workshopBipocRate = makerspace_dashboard_calculate_bipoc_rate_by_contact($workshopEthnicityByContact);
       if ($workshopBipocRate !== NULL) {
         $metrics['kpi_workshop_participants_bipoc'] = [
           'value' => $workshopBipocRate,
@@ -422,32 +422,31 @@ function makerspace_dashboard_sum_count_items(array $items): int {
 }
 
 /**
- * Calculates workshop participant BIPOC rate from demographics payload.
+ * Calculates a per-person BIPOC rate from a contact => raw ethnicity map.
+ *
+ * A person counts as BIPOC when any selected identity is BIPOC (including
+ * alongside White); unknown/declined responses are excluded entirely.
  */
-function makerspace_dashboard_calculate_workshop_bipoc_rate(array $participant_demo): ?float {
-  $labels = (array) ($participant_demo['ethnicity']['labels'] ?? []);
-  $workshop = (array) ($participant_demo['ethnicity']['workshop'] ?? []);
-  if (empty($labels) || empty($workshop)) {
+function makerspace_dashboard_calculate_bipoc_rate_by_contact(array $ethnicity_by_contact): ?float {
+  if (empty($ethnicity_by_contact)) {
     return NULL;
   }
-
-  $knownCount = 0.0;
-  $bipocCount = 0.0;
-  foreach ($labels as $index => $label) {
-    $count = isset($workshop[$index]) && is_numeric($workshop[$index]) ? (float) $workshop[$index] : 0.0;
-    if ($count <= 0) {
+  /** @var \Drupal\makerspace_dashboard\Service\DemographicsDataService $demographics */
+  $demographics = \Drupal::service('makerspace_dashboard.demographics_data');
+  $reported = 0;
+  $bipoc = 0;
+  foreach ($ethnicity_by_contact as $rawValue) {
+    $classification = $demographics->classifyEthnicityValues([(string) $rawValue]);
+    if (empty($classification['reported'])) {
       continue;
     }
-    if (makerspace_dashboard_is_unspecified_ethnicity((string) $label)) {
-      continue;
-    }
-    $knownCount += $count;
-    if (makerspace_dashboard_is_bipoc_ethnicity_label((string) $label)) {
-      $bipocCount += $count;
+    $reported++;
+    if (!empty($classification['bipoc'])) {
+      $bipoc++;
     }
   }
 
-  return $knownCount > 0 ? ($bipocCount / $knownCount) : NULL;
+  return $reported > 0 ? ($bipoc / $reported) : NULL;
 }
 
 /**
@@ -495,37 +494,14 @@ function makerspace_dashboard_calculate_instructor_bipoc_rate(array $instructor_
  * Determines whether an ethnicity label should be treated as unspecified.
  */
 function makerspace_dashboard_is_unspecified_ethnicity(string $label): bool {
-  $normalized = strtolower(trim($label));
-  if ($normalized === '') {
-    return TRUE;
-  }
-
-  $unspecifiedTokens = [
-    'unspecified',
-    'unknown',
-    'prefer not',
-    'decline',
-    'not provided',
-    'n/a',
-  ];
-  foreach ($unspecifiedTokens as $token) {
-    if (str_contains($normalized, $token)) {
-      return TRUE;
-    }
-  }
-
-  return FALSE;
+  return \Drupal::service('makerspace_dashboard.demographics_data')->isUnspecifiedEthnicityValue($label);
 }
 
 /**
  * Determines whether an ethnicity label should be counted as BIPOC.
  */
 function makerspace_dashboard_is_bipoc_ethnicity_label(string $label): bool {
-  $normalized = strtolower(trim($label));
-  if (makerspace_dashboard_is_unspecified_ethnicity($normalized)) {
-    return FALSE;
-  }
-  return !str_contains($normalized, 'white');
+  return \Drupal::service('makerspace_dashboard.demographics_data')->isBipocEthnicityValue($label);
 }
 
 /**

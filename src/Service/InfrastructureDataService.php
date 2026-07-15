@@ -91,8 +91,9 @@ class InfrastructureDataService {
 
     foreach ($results as $status => $count) {
       $status = mb_strtolower($status);
-      // Exclude tools that are 'Gone' or in 'Storage' from the active fleet.
-      if (str_contains($status, 'gone') || str_contains($status, 'storage')) {
+      // Exclude tools outside the active fleet: removed ('Gone'), shelved
+      // ('Storage'), and not-yet-commissioned ('Setup').
+      if (str_contains($status, 'gone') || str_contains($status, 'storage') || str_contains($status, 'setup')) {
         continue;
       }
 
@@ -267,10 +268,17 @@ class InfrastructureDataService {
    * Heuristic to determine whether a status is considered operational.
    */
   protected function isOperationalStatus(string $label): bool {
-    $normalized = mb_strtolower($label);
-    $operationalIndicators = ['operat', 'available', 'ok', 'ready', 'up', 'active', 'online'];
-    foreach ($operationalIndicators as $indicator) {
-      if (str_contains($normalized, $indicator)) {
+    $normalized = mb_strtolower(trim($label));
+    // Negated labels ("Not Operational", "Non-functional") are never up,
+    // regardless of what substrings they contain.
+    if (str_starts_with($normalized, 'not ') || str_starts_with($normalized, 'non')) {
+      return FALSE;
+    }
+    // Known-usable statuses in the asset_status vocabulary. "Reported
+    // Concern" means flagged but still usable, so it counts as up.
+    $operationalStatuses = ['operational', 'reported concern', 'available', 'ok', 'ready', 'active', 'online'];
+    foreach ($operationalStatuses as $status) {
+      if (str_contains($normalized, $status)) {
         return TRUE;
       }
     }

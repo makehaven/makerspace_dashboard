@@ -772,18 +772,28 @@ class MembershipMetricsService {
         $query->addField('d', 'ethnicity_46', 'filter_value');
         $query->condition('d.ethnicity_46', '', '<>');
         $query->groupBy('filter_value');
-        $query->orderBy('member_count', 'DESC');
-        $query->range(0, $limit);
-        $options = [];
+        // Multi-select combos are exploded below, so every stored combination
+        // must be inspected — not just the top rows.
+        $ignored = ['decline', 'not_specified', 'prefer_not_to_say', 'prefer_not_to_disclose'];
+        $counts = [];
         foreach ($query->execute() as $record) {
-          $val = trim((string) $record->filter_value, "\x01");
-          $parts = explode("\x01", $val);
-          $value = $parts[0] ?? '';
-          if ($value === '') continue;
+          $memberCount = (int) $record->member_count;
+          $parts = array_filter(array_map('trim', explode("\x01", (string) $record->filter_value)));
+          foreach ($parts as $value) {
+            $value = strtolower($value);
+            if ($value === '' || in_array($value, $ignored, TRUE)) {
+              continue;
+            }
+            $counts[$value] = ($counts[$value] ?? 0) + $memberCount;
+          }
+        }
+        arsort($counts);
+        $options = [];
+        foreach (array_slice($counts, 0, $limit, TRUE) as $value => $memberCount) {
           $options[] = [
             'value' => $value,
             'label' => $value,
-            'count' => (int) $record->member_count,
+            'count' => $memberCount,
           ];
         }
         $this->cache->set($cacheId, $options, time() + 3600);
@@ -1325,6 +1335,25 @@ class MembershipMetricsService {
         $query->condition('cohort_ethnicity.ethnicity_46', '%' . $this->database->escapeLike((string) $value) . '%', 'LIKE');
         break;
 
+      case 'ethnicity_any':
+        // Matches members whose multi-select ethnicity contains ANY of the
+        // provided values. One join + OR group so each member counts once,
+        // regardless of how many of the values they selected.
+        $values = array_values(array_filter(array_map('strval', (array) $value)));
+        if (!$values) {
+          // An empty list must not silently degrade to an unfiltered cohort.
+          $query->alwaysFalse();
+          break;
+        }
+        $query->innerJoin('civicrm_uf_match', 'ufm_eth', 'ufm_eth.uf_id = p.uid');
+        $query->innerJoin('civicrm_value_demographics_15', 'cohort_ethnicity', 'cohort_ethnicity.entity_id = ufm_eth.contact_id');
+        $or = $query->orConditionGroup();
+        foreach ($values as $ethnicityValue) {
+          $or->condition('cohort_ethnicity.ethnicity_46', '%' . $this->database->escapeLike($ethnicityValue) . '%', 'LIKE');
+        }
+        $query->condition($or);
+        break;
+
       case 'gender':
         $query->innerJoin('civicrm_uf_match', 'ufm_gen', 'ufm_gen.uf_id = p.uid');
         $query->innerJoin('civicrm_contact', 'cohort_gender', 'cohort_gender.id = ufm_gen.contact_id');
@@ -1367,8 +1396,18 @@ class MembershipMetricsService {
       return 'all';
     }
     $type = strtolower((string) $filter['type']);
-    $value = (string) $filter['value'];
-    return $type . ':' . md5($value);
+    $value = $filter['value'];
+    if (is_array($value)) {
+      // Empty list = always-false filter (see applyCohortFilter); must not
+      // share the unfiltered 'all' cache entry.
+      if (!$value) {
+        return $type . ':empty';
+      }
+      $value = array_map('strval', $value);
+      sort($value);
+      $value = implode('|', $value);
+    }
+    return $type . ':' . md5((string) $value);
   }
 
   /**
@@ -1606,10 +1645,24 @@ class MembershipMetricsService {
    *   The annual member NPS.
    */
   public function getAnnualMemberNps(): int {
+    return (int) ($this->getLatestMemberNpsSurvey()['nps'] ?? 0);
+  }
+
+  /**
+   * Returns the most recent annual member survey NPS with its provenance.
+   *
+   * Steps back up to five years to the latest {year}_member_survey webform
+   * with responses.
+   *
+   * @return array|null
+   *   ['nps' => int, 'year' => int, 'responses' => int], or NULL when no
+   *   survey with responses exists.
+   */
+  public function getLatestMemberNpsSurvey(): ?array {
     $currentYear = (int) date('Y', $this->time->getRequestTime());
-    $cacheId = sprintf('makerspace_dashboard:membership:annual_member_nps:%d', $currentYear);
+    $cacheId = sprintf('makerspace_dashboard:membership:latest_member_nps:%d', $currentYear);
     if ($cache = $this->cache->get($cacheId)) {
-      return (int) $cache->data;
+      return $cache->data;
     }
 
     $schema = $this->database->schema();
@@ -1617,17 +1670,17 @@ class MembershipMetricsService {
       !$schema->tableExists('webform_submission') ||
       !$schema->tableExists('webform_submission_data')
     ) {
-      return 0;
+      return NULL;
     }
 
     // Prefer the current year survey, then step backward to the latest
     // available member survey with responses.
     $targetWebforms = [];
     for ($year = $currentYear; $year >= $currentYear - 5; $year--) {
-      $targetWebforms[] = sprintf('%d_member_survey', $year);
+      $targetWebforms[$year] = sprintf('%d_member_survey', $year);
     }
 
-    foreach ($targetWebforms as $webformId) {
+    foreach ($targetWebforms as $surveyYear => $webformId) {
       $query = $this->database->select('webform_submission_data', 'd');
       $query->innerJoin('webform_submission', 's', 's.sid = d.sid');
       $query->addField('d', 'value', 'score');
@@ -1661,14 +1714,18 @@ class MembershipMetricsService {
       }
 
       if ($responses > 0) {
-        $nps = (int) round((($promoters - $detractors) / $responses) * 100);
-        $this->cache->set($cacheId, $nps, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
-        return $nps;
+        $result = [
+          'nps' => (int) round((($promoters - $detractors) / $responses) * 100),
+          'year' => (int) $surveyYear,
+          'responses' => $responses,
+        ];
+        $this->cache->set($cacheId, $result, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
+        return $result;
       }
     }
 
-    $this->cache->set($cacheId, 0, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
-    return 0;
+    $this->cache->set($cacheId, NULL, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
+    return NULL;
   }
 
   /**
@@ -1737,18 +1794,6 @@ class MembershipMetricsService {
 
     $this->cache->set($cacheId, $series, $this->time->getRequestTime() + $this->ttl, ['webform_submission_list']);
     return $series;
-  }
-
-  /**
-   * Gets the annual retention rate for POC members.
-   *
-   * @return float
-   *   The annual POC retention rate.
-   */
-  public function getAnnualRetentionPoc(): float {
-    // @todo: Implement logic to calculate this. This will be called by the
-    // 'annual' snapshot.
-    return 0.68;
   }
 
   /**

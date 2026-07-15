@@ -560,7 +560,7 @@ class EventsMembershipDataService {
       // 1=female, 4=non-binary, 5=transgender, 6=self-describe.
       if ($genderId > 0 && $genderId !== 7) {
         $genderKnown++;
-        if (in_array($genderId, [1, 4, 5, 6], TRUE)) {
+        if (in_array($genderId, [1, 3, 4, 5, 6], TRUE)) {
           $femaleNb++;
         }
       }
@@ -578,11 +578,11 @@ class EventsMembershipDataService {
           $label = (string) $ethnicityLabels[(int) $value];
         }
         $normalized = strtolower(trim($label));
-        if ($normalized === '' || str_contains($normalized, 'unknown') || str_contains($normalized, 'prefer not') || str_contains($normalized, 'decline')) {
+        if ($this->isUnspecifiedEthnicityLabel($normalized)) {
           continue;
         }
         $reported = TRUE;
-        if (!str_contains($normalized, 'white')) {
+        if (!str_contains($normalized, 'white') && !str_contains($normalized, 'caucasian')) {
           $isBipoc = TRUE;
         }
       }
@@ -1142,7 +1142,7 @@ class EventsMembershipDataService {
           $label = $ethnicityLabels[(int) $ethnicityValue];
         }
         else {
-          $label = $ethnicityValue;
+          $label = $this->mapEthnicityCodeToLabel(strtolower(trim($ethnicityValue)));
         }
         $ethnicityBuckets[$label][$bucket] = ($ethnicityBuckets[$label][$bucket] ?? 0) + 1;
       }
@@ -1185,6 +1185,72 @@ class EventsMembershipDataService {
     $this->cache->set($cid, $data, $this->buildTtl(), ['civicrm_participant_list', 'civicrm_contact_list']);
 
     return $data;
+  }
+
+  /**
+   * Returns raw ethnicity values for unique workshop participants.
+   *
+   * One entry per unique contact with a counted registration on an active
+   * workshop event in the window (event type label containing "workshop").
+   * Values are the raw CiviCRM multi-value strings; classification is the
+   * caller's responsibility (see DemographicsDataService).
+   *
+   * @return array
+   *   Map of contact ID => raw ethnicity value ('' when none recorded).
+   */
+  public function getWorkshopParticipantEthnicityByContact(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cid = sprintf(
+      'makerspace_dashboard:workshop_participant_ethnicity:%d:%d',
+      $start_date->getTimestamp(),
+      $end_date->getTimestamp()
+    );
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('civicrm_participant')) {
+      return [];
+    }
+
+    $query = $this->database->select('civicrm_participant', 'p');
+    $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $query->innerJoin('civicrm_contact', 'c', 'c.id = p.contact_id');
+    $query->innerJoin('civicrm_option_value', 'event_type', 'event_type.value = e.event_type_id');
+    $query->innerJoin('civicrm_option_group', 'event_type_group', "event_type_group.id = event_type.option_group_id AND event_type_group.name = 'event_type'");
+    $query->condition('pst.is_counted', 1);
+    $query->condition('e.is_active', 1);
+    $query->condition('p.is_test', 0);
+    $query->condition('c.is_deleted', 0);
+    $query->where("LOWER(event_type.label) LIKE '%workshop%'");
+    $query->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    $query->addField('c', 'id', 'contact_id');
+
+    $metadata = $this->getEthnicityFieldMetadata();
+    if (!empty($metadata['table']) && !empty($metadata['column'])) {
+      $query->leftJoin($metadata['table'], 'demo', 'demo.entity_id = c.id');
+      $query->addExpression("MAX(COALESCE(demo.{$metadata['column']}, ''))", 'ethnicity_raw');
+    }
+    else {
+      $query->addExpression("''", 'ethnicity_raw');
+    }
+    $query->groupBy('c.id');
+
+    $byContact = [];
+    foreach ($query->execute() as $record) {
+      $contactId = (int) ($record->contact_id ?? 0);
+      if ($contactId <= 0) {
+        continue;
+      }
+      $byContact[$contactId] = (string) ($record->ethnicity_raw ?? '');
+    }
+
+    $this->cache->set($cid, $byContact, $this->buildTtl(), ['civicrm_participant_list', 'civicrm_contact_list']);
+    return $byContact;
   }
 
   /**
@@ -1643,10 +1709,10 @@ class EventsMembershipDataService {
       else {
         $label = strtolower((string) $value);
       }
-      if ($label === '') {
+      if ($label === '' || $this->isUnspecifiedEthnicityLabel($label)) {
         continue;
       }
-      if (str_contains($label, 'white')) {
+      if (str_contains($label, 'white') || str_contains($label, 'caucasian')) {
         $hasWhite = TRUE;
       }
       else {
@@ -2141,14 +2207,15 @@ class EventsMembershipDataService {
     if ($value === NULL || $value === '') {
       return [''];
     }
-    if (str_contains($value, chr(0))) {
-      $value = str_replace(chr(0), ',', $value);
-    }
+    // CiviCRM stores multi-select custom values wrapped in \x01 separators
+    // (VALUE_SEPARATOR); \x02 and NUL appear in legacy exports.
+    $value = str_replace(["\x01", "\x02", chr(0)], ',', $value);
     $parts = preg_split('/[,|;]/', $value, -1, PREG_SPLIT_NO_EMPTY);
+    $parts = array_values(array_filter(array_map('trim', (array) $parts), static fn($part) => $part !== ''));
     if (empty($parts)) {
-      return [$value];
+      return [''];
     }
-    return array_map('trim', $parts);
+    return $parts;
   }
 
   /**
@@ -2191,6 +2258,24 @@ class EventsMembershipDataService {
       'prefer_not_to_disclose',
       'not_specified',
     ];
+  }
+
+  /**
+   * Determines whether an ethnicity code/label is an unknown or declined
+   * response. Handles machine codes (not_specified) and display labels
+   * ("Prefer not to say").
+   */
+  protected function isUnspecifiedEthnicityLabel(string $value): bool {
+    $normalized = strtolower(trim($value));
+    if ($normalized === '' || in_array($normalized, $this->getIgnoredEthnicityValues(), TRUE)) {
+      return TRUE;
+    }
+    foreach (['unspecified', 'not_specified', 'not specified', 'unknown', 'prefer not', 'prefer_not', 'decline', 'not provided', 'n/a'] as $token) {
+      if (str_contains($normalized, $token)) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 
   /**

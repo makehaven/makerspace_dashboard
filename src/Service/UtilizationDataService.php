@@ -273,7 +273,7 @@ class UtilizationDataService {
         }
         if ($ethnicityColumn) {
           $rosterQuery->innerJoin('civicrm_value_demographics_15', 'demo', 'demo.entity_id = ufm.contact_id');
-          $bipocValues = ['asian', 'black', 'middleeast', 'mena', 'hispanic', 'native', 'aian', 'islander', 'nhpi', 'multi', 'other'];
+          $bipocValues = ['asian', 'black', 'middleeast', 'mena', 'hispanic', 'native', 'aian', 'islander', 'pacific', 'nhpi', 'multi', 'other'];
           $or = $rosterQuery->orConditionGroup();
           foreach ($bipocValues as $value) {
             $or->condition($ethnicityColumn, '%' . $this->database->escapeLike($value) . '%', 'LIKE');
@@ -290,7 +290,7 @@ class UtilizationDataService {
     }
     elseif ($segmentKey === 'female_nb') {
       $rosterQuery->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
-      $rosterQuery->condition('c.gender_id', [1, 4, 5, 6], 'IN');
+      $rosterQuery->condition('c.gender_id', [1, 3, 4, 5, 6], 'IN');
     }
 
     $rosterQuery->distinct();

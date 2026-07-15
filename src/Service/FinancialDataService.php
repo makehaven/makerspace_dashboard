@@ -1271,13 +1271,13 @@ class FinancialDataService {
   /**
    * Gets membership income for the most recently completed quarter.
    */
-  public function getPreviousQuarterMemberRevenue(): float {
+  public function getPreviousQuarterMemberRevenue(): ?float {
     [$prevYear, $prevQ] = $this->getPreviousQuarterLabel();
     $targetCol = $this->quarterToColumnLabel($prevYear, $prevQ);
 
     $data = $this->googleSheetClient->getSheetData('Income-Statement');
     if (empty($data)) {
-      return 0.0;
+      return NULL;
     }
 
     $headers = array_shift($data);
@@ -1292,16 +1292,21 @@ class FinancialDataService {
     }
 
     if ($colIdx === -1) {
-      return 0.0;
+      // Quarter column not posted yet: n/a, not $0.
+      return NULL;
     }
 
     foreach ($data as $row) {
       if (isset($row[1]) && $row[1] === 'income_membership') {
-        return abs($this->parseCurrencyValue($row[$colIdx] ?? '0'));
+        $raw = trim((string) ($row[$colIdx] ?? ''));
+        if ($raw === '') {
+          return NULL;
+        }
+        return abs($this->parseCurrencyValue($raw));
       }
     }
 
-    return 0.0;
+    return NULL;
   }
 
   /**
