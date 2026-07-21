@@ -404,6 +404,43 @@ function makerspace_dashboard_makerspace_snapshot_collect_kpi(array $context): a
     }
   }
 
+  // Freeze the two workshop-fill metrics the board does not already track, so
+  // they gain trended monthly history. Fill rate itself is already tracked as
+  // kpi_workshop_capacity_utilization (and is corrected by the capacity clamp
+  // in EventsMembershipDataService), so it is deliberately not duplicated here.
+  // Same event-type definition and clamped capacity as that KPI, so all three
+  // stay consistent.
+  if ($periodStart && $periodEnd && \Drupal::hasService('makerspace_dashboard.events_membership_data')) {
+    try {
+      $fill = \Drupal::service('makerspace_dashboard.events_membership_data')
+        ->getWorkshopFillKpiForPeriod($periodStart, $periodEnd);
+      if (($fill['events'] ?? 0) > 0) {
+        $metrics['kpi_workshop_empty_seats'] = [
+          'value' => $fill['empty_seats'],
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+          'meta' => [
+            'events' => $fill['events'],
+            'seats_filled' => $fill['seats_filled'],
+            'capacity' => $fill['capacity'],
+          ],
+        ];
+        $metrics['kpi_workshop_zero_revenue_rate'] = [
+          'value' => $fill['zero_revenue_rate'],
+          'period_year' => $periodYear,
+          'period_month' => $periodMonth,
+          'meta' => [
+            'events' => $fill['events'],
+            'zero_revenue_events' => $fill['zero_revenue_events'],
+          ],
+        ];
+      }
+    }
+    catch (\Exception $e) {
+      \Drupal::logger('makerspace_dashboard')->error('Unable to snapshot workshop fill KPIs: @message', ['@message' => $e->getMessage()]);
+    }
+  }
+
   return $metrics;
 }
 

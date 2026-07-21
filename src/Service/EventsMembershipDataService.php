@@ -22,6 +22,17 @@ class EventsMembershipDataService {
   private const PRE_JOIN_EVENT_TYPE_LIMIT = 5;
 
   /**
+   * Largest workshop capacity treated as a genuine seat target.
+   *
+   * A few runs carry a placeholder max_participants (e.g. 99 on a lecture-style
+   * class). Left raw, one such row inflates total capacity and empty seats and
+   * deflates the fill rate for the whole month. Fill/utilization math clamps
+   * effective capacity to this value so a placeholder can't distort the trend.
+   * Raise it if legitimate large-format workshops become common.
+   */
+  public const WORKSHOP_CAPACITY_CAP = 25;
+
+  /**
    * Database connection.
    */
   protected Connection $database;
@@ -1854,7 +1865,9 @@ class EventsMembershipDataService {
       if (!isset($monthly[$monthKey])) {
         continue;
       }
-      $capacity = max(0, (int) $record->max_participants);
+      // Clamp placeholder caps (e.g. 99 on a lecture) so one run can't skew the
+      // month's fill rate and empty-seat totals. See WORKSHOP_CAPACITY_CAP.
+      $capacity = min(max(0, (int) $record->max_participants), self::WORKSHOP_CAPACITY_CAP);
       if ($capacity <= 0) {
         continue;
       }
@@ -2012,6 +2025,77 @@ class EventsMembershipDataService {
     ];
     $this->cache->set($cacheId, $result, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
     return $result;
+  }
+
+  /**
+   * Single-period workshop fill summary for the monthly snapshot KPI history.
+   *
+   * Reuses getWorkshopCapacityUtilizationSeries() so the retained KPI matches
+   * the on-screen Workshop Fill Rate chart by construction (same event-type
+   * definition, same clamped capacity), then adds the zero-revenue rate the
+   * live chart does not compute.
+   *
+   * @param \DateTimeImmutable $start
+   *   Inclusive lower bound.
+   * @param \DateTimeImmutable $end
+   *   Inclusive upper bound (the utilization query uses BETWEEN).
+   * @param string $eventTypeLabel
+   *   CiviCRM event type label; defaults to the ticketed-workshop chart basis.
+   *
+   * @return array{events:int,seats_filled:int,capacity:int,empty_seats:int,fill_rate:float,zero_revenue_events:int,zero_revenue_rate:float}
+   *   Zero-safe aggregates. fill_rate and zero_revenue_rate are percentages
+   *   (0-100). A period with no eligible workshops returns all zeros.
+   */
+  public function getWorkshopFillKpiForPeriod(\DateTimeImmutable $start, \DateTimeImmutable $end, string $eventTypeLabel = 'Ticketed Workshop'): array {
+    $series = $this->getWorkshopCapacityUtilizationSeries($start, $end, $eventTypeLabel);
+    $summary = $series['summary'] ?? [];
+
+    $events = (int) ($summary['eligible_events'] ?? 0);
+    $capacity = (int) ($summary['capacity_total'] ?? 0);
+    $filled = (int) ($summary['counted_total'] ?? 0);
+    $emptySeats = max(0, $capacity - $filled);
+    $fillRate = $capacity > 0 ? round(100 * $filled / $capacity, 1) : 0.0;
+
+    $zeroRevenueEvents = 0;
+    if ($events > 0) {
+      $eventTypeGroupId = $this->getEventTypeGroupId();
+      $query = $this->database->select('civicrm_event', 'e');
+      $query->addField('e', 'id', 'event_id');
+      $query->leftJoin('civicrm_participant', 'p', 'p.event_id = e.id AND p.is_test = 0');
+      $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
+      $query->leftJoin('civicrm_contribution', 'ct', 'ct.id = pp.contribution_id AND ct.contribution_status_id = 1');
+      if ($eventTypeGroupId) {
+        $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+          ':event_type_group' => $eventTypeGroupId,
+        ]);
+      }
+      else {
+        $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+        $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+        $query->condition('og.name', 'event_type');
+      }
+      $query->condition('ov.label', $eventTypeLabel);
+      $query->condition('e.start_date', [
+        $start->format('Y-m-d H:i:s'),
+        $end->format('Y-m-d H:i:s'),
+      ], 'BETWEEN');
+      $query->condition('e.is_active', 1);
+      $query->condition('e.max_participants', 0, '>');
+      $query->addExpression('COALESCE(SUM(ct.total_amount), 0)', 'revenue');
+      $query->groupBy('e.id');
+      $query->having('COALESCE(SUM(ct.total_amount), 0) = 0');
+      $zeroRevenueEvents = (int) $query->countQuery()->execute()->fetchField();
+    }
+
+    return [
+      'events' => $events,
+      'seats_filled' => $filled,
+      'capacity' => $capacity,
+      'empty_seats' => $emptySeats,
+      'fill_rate' => $fillRate,
+      'zero_revenue_events' => $zeroRevenueEvents,
+      'zero_revenue_rate' => $events > 0 ? round(100 * $zeroRevenueEvents / $events, 1) : 0.0,
+    ];
   }
 
   /**
