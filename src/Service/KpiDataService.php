@@ -695,13 +695,30 @@ class KpiDataService {
     $targetValues = $kpi_info['annual_values'] ?? [];
 
     $annual = $targetValues;
+    $annualSources = [];
+    foreach ($targetValues as $year => $value) {
+      $annualSources[(string) $year] = 'target';
+    }
     foreach ($annualOverrides as $year => $value) {
       $annual[(string) $year] = $value;
+      $annualSources[(string) $year] = 'actual';
     }
     if ($annual) {
       ksort($annual, SORT_STRING);
     }
     $currentYear = (int) date('Y');
+
+    // The current calendar year is only partially elapsed, so a measured value
+    // stamped on it is never a full-year total: depending on the KPI it is
+    // either year-to-date or a rolling 12-month window (several callers below
+    // stamp $funnel['range']['end'] year with a trailing-12-month figure).
+    // Flagging it keeps readers from comparing it against completed years.
+    if (($annualSources[(string) $currentYear] ?? NULL) === 'actual') {
+      $annualSources[(string) $currentYear] = 'actual_ytd';
+    }
+    if ($annualSources) {
+      ksort($annualSources, SORT_STRING);
+    }
     $sheetTargets = $kpiId ? ($this->getSheetAnnualTargets()[$kpiId] ?? []) : [];
     $goalYear = $this->determineGoalYear($targetValues, $sheetTargets, $currentYear);
     $goalKey = (string) $goalYear;
@@ -717,6 +734,7 @@ class KpiDataService {
       'goal_current_year' => $goalCurrentYear,
       'goal_current_year_label' => $goalYear,
       'annual_values' => $annual,
+      'annual_value_sources' => $annualSources,
       'ttm_12' => $ttm12,
       'ttm_3' => $ttm3,
       'trend' => $trend,

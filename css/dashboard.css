@@ -545,6 +545,99 @@
   width: 45%;
 }
 
+/* Annual table: past actuals, a partial current year, and future targets all
+   share one grid, so each cell says which of the three it is. */
+.kpi-annual-intro {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: #475569;
+  max-width: 70ch;
+}
+
+.kpi-annual-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 1.1rem;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  list-style: none;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.kpi-annual-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.kpi-annual-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 3px;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  flex: 0 0 auto;
+}
+
+.kpi-annual-swatch--ytd {
+  background-color: #fef9c3;
+  border-color: #fde68a;
+}
+
+.kpi-annual-swatch--target {
+  background-color: #f1f5f9;
+  border-color: #cbd5e1;
+  border-style: dashed;
+}
+
+.kpi-annual-cell {
+  white-space: nowrap;
+}
+
+.kpi-annual-cell .kpi-annual-value {
+  display: block;
+}
+
+.kpi-annual-cell .kpi-annual-flag {
+  display: block;
+  font-size: 0.62rem;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.kpi-annual-cell--actual .kpi-annual-flag {
+  color: #94a3b8;
+}
+
+.kpi-annual-cell--actual-ytd {
+  background-color: #fefce8;
+}
+
+.kpi-annual-cell--actual-ytd .kpi-annual-flag {
+  color: #a16207;
+}
+
+.kpi-annual-cell--target {
+  background-color: #f8fafc;
+  color: #475569;
+}
+
+.kpi-annual-cell--target .kpi-annual-value {
+  font-style: italic;
+}
+
+.kpi-annual-cell--target .kpi-annual-flag {
+  color: #64748b;
+}
+
+.kpi-annual-cell--empty .kpi-annual-value {
+  color: #94a3b8;
+}
+
 .kpi-stoplight-table {
   margin-top: 1rem;
 }

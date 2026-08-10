@@ -194,7 +194,7 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     foreach ($kpi_data as $kpi) {
       $row = [$kpi['label'] ?? ''];
       foreach ($year_columns as $year) {
-        $row[] = $this->formatKpiValue($kpi['annual_values'][$year] ?? NULL, $kpi['display_format'] ?? NULL);
+        $row[] = $this->buildAnnualValueCell($kpi, $year);
       }
       $annual_rows[] = $row;
     }
@@ -245,9 +245,25 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     ];
 
     if (!empty($annual_rows)) {
+      $currentYear = $this->getCurrentGoalYear();
       $build['annual_data_details'] = [
         '#type' => 'details',
-        '#title' => $this->t('Annual Data'),
+        '#title' => $this->t('Annual Data (history and targets)'),
+        'intro' => [
+          '#markup' => '<p class="kpi-annual-intro">'
+          . $this->t('This table runs past the current year on purpose: it puts each KPI’s measured history next to the targets adopted for the years ahead. Years through @last_year are measured actuals, @current_year is measured but incomplete (year-to-date for some KPIs, a rolling 12-month window for others, so it will not line up with a completed year), and later years are goals from the strategic plan, not forecasts or recorded data. Cells are flagged individually because a single year can hold a measured value for one KPI and a goal for another. An “n/a” means neither an actual nor a goal exists for that year.', [
+            '@last_year' => $currentYear - 1,
+            '@current_year' => $currentYear,
+          ])
+          . '</p>',
+        ],
+        'legend' => [
+          '#markup' => '<ul class="kpi-annual-legend">'
+          . '<li><span class="kpi-annual-swatch kpi-annual-swatch--actual"></span>' . $this->t('Actual — measured, completed year') . '</li>'
+          . '<li><span class="kpi-annual-swatch kpi-annual-swatch--ytd"></span>' . $this->t('Current — measured but incomplete year') . '</li>'
+          . '<li><span class="kpi-annual-swatch kpi-annual-swatch--target"></span>' . $this->t('Goal — target we are aiming at, not data') . '</li>'
+          . '</ul>',
+        ],
         'annual_table' => [
           '#type' => 'table',
           '#header' => $annual_header,
@@ -268,6 +284,82 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
     ];
 
     return $build;
+  }
+
+  /**
+   * Builds one cell of the annual data table.
+   *
+   * The annual table deliberately spans past the current year, so a cell can
+   * hold three very different things: a measured actual for a completed year,
+   * a partial year-to-date measurement for the current year, or a target for a
+   * year that has not happened. Rendering all three identically is what makes
+   * the table read as fabricated future data, so each cell is labelled.
+   *
+   * @param array $kpi
+   *   The KPI payload.
+   * @param string $year
+   *   The four digit year column.
+   *
+   * @return array
+   *   A table cell definition.
+   */
+  protected function buildAnnualValueCell(array $kpi, string $year): array {
+    $value = $kpi['annual_values'][$year] ?? NULL;
+    $formatted = $this->formatKpiValue($value, $kpi['display_format'] ?? NULL);
+
+    if ($value === NULL || $value === '' || $value === 'n/a') {
+      return [
+        'data' => ['#markup' => '<span class="kpi-annual-value">' . Html::escape($formatted) . '</span>'],
+        'class' => ['kpi-annual-cell', 'kpi-annual-cell--empty'],
+      ];
+    }
+
+    $source = $this->resolveAnnualValueSource($kpi, $year);
+    $flags = [
+      'actual' => [
+        'label' => $this->t('actual'),
+        'title' => $this->t('Measured result for @year.', ['@year' => $year]),
+      ],
+      'actual_ytd' => [
+        // Some KPIs stamp a calendar-year-to-date sum here and others stamp a
+        // rolling 12-month value, so this flag deliberately does not claim
+        // "YTD" — the per-KPI window lives in the calculation notes.
+        'label' => $this->t('current'),
+        'title' => $this->t('Measured value for @year, not a goal. Depending on the KPI this is either year-to-date or a rolling 12-month window, so it is not directly comparable to a completed year — see KPI Calculation Notes for this KPI’s exact window.', ['@year' => $year]),
+      ],
+      'target' => [
+        'label' => $this->t('goal'),
+        'title' => $this->t('Target for @year from the strategic plan. Not measured data or a forecast.', ['@year' => $year]),
+      ],
+    ][$source];
+
+    return [
+      'data' => [
+        '#markup' => '<span class="kpi-annual-value">' . Html::escape($formatted) . '</span>'
+        . '<span class="kpi-annual-flag">' . $flags['label'] . '</span>',
+      ],
+      'class' => ['kpi-annual-cell', 'kpi-annual-cell--' . str_replace('_', '-', $source)],
+      'title' => (string) $flags['title'],
+    ];
+  }
+
+  /**
+   * Classifies an annual value as an actual, a year-to-date figure or a target.
+   *
+   * Falls back to the calendar year when a KPI payload predates
+   * annual_value_sources, so no section renders unlabelled cells.
+   */
+  protected function resolveAnnualValueSource(array $kpi, string $year): string {
+    $source = $kpi['annual_value_sources'][$year] ?? NULL;
+    if (in_array($source, ['actual', 'actual_ytd', 'target'], TRUE)) {
+      return $source;
+    }
+
+    $currentYear = $this->getCurrentGoalYear();
+    if ((int) $year > $currentYear) {
+      return 'target';
+    }
+    return (int) $year === $currentYear ? 'actual_ytd' : 'actual';
   }
 
   /**

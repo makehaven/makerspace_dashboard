@@ -29,6 +29,11 @@ class FunnelDataService {
   protected ?int $activityTargetRecordTypeId = NULL;
 
   /**
+   * Cached event_type option group id (0 means "looked up, not found").
+   */
+  protected ?int $eventTypeOptionGroupId = NULL;
+
+  /**
    * Constructs the service.
    */
   public function __construct(
@@ -223,27 +228,22 @@ class FunnelDataService {
    * Loads a contact => earliest event date map for the given label match.
    */
   protected function getEventContactMap(string $labelMatch, DateTimeImmutable $start, DateTimeImmutable $end): array {
-    $cacheId = sprintf('makerspace_dashboard:funnel:event_map:%s:%s:%s', strtolower($labelMatch), $start->format('Ymd'), $end->format('Ymd'));
+    $cacheId = sprintf('makerspace_dashboard:funnel:event_map:v2:%s:%s:%s', strtolower($labelMatch), $start->format('Ymd'), $end->format('Ymd'));
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
-    $pattern = '%' . $this->database->escapeLike(strtolower($labelMatch)) . '%';
     $query = $this->database->select('civicrm_participant', 'p');
     $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
     $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
-    $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
     $query->fields('p', ['contact_id']);
     $query->addExpression('MIN(e.start_date)', 'first_event_date');
-    $query->condition('pst.is_counted', 1);
-    $query->condition('p.contact_id', 0, '>');
+    $this->applyRealParticipantConditions($query);
     $query->condition('e.start_date', [
       $start->format('Y-m-d H:i:s'),
       $end->format('Y-m-d H:i:s'),
     ], 'BETWEEN');
-    $query->where('LOWER(COALESCE(ov.label, \'\')) LIKE :event_label', [
-      ':event_label' => $pattern,
-    ]);
+    $this->applyEventTypeLabelMatch($query, $labelMatch);
     $query->groupBy('p.contact_id');
 
     $map = [];
@@ -261,6 +261,77 @@ class FunnelDataService {
 
     $this->cache->set($cacheId, $map, $this->time->getRequestTime() + 3600, ['civicrm_participant_list']);
     return $map;
+  }
+
+  /**
+   * Restricts a participant query to real, counted registrations.
+   *
+   * CiviCRM keeps test registrations and template events in the same tables as
+   * live ones. Counting them inflates the denominator of every event funnel,
+   * which reads as a conversion-rate drop rather than as bad data.
+   *
+   * @param \Drupal\Core\Database\Query\SelectInterface $query
+   *   A query with `civicrm_participant` aliased as `p`, `civicrm_event` as
+   *   `e`, and `civicrm_participant_status_type` as `pst`.
+   */
+  protected function applyRealParticipantConditions($query): void {
+    $query->condition('pst.is_counted', 1);
+    $query->condition('p.contact_id', 0, '>');
+    // COALESCE rather than `= 0`: legacy rows can carry NULL in these flags,
+    // and a plain equality check would silently drop real registrations.
+    $query->where('COALESCE(p.is_test, 0) = 0');
+    $query->where('COALESCE(e.is_template, 0) = 0');
+  }
+
+  /**
+   * Joins the event-type option value and applies an optional label filter.
+   *
+   * `civicrm_option_value.value` is only unique within its option group, so
+   * joining on the raw event_type_id without scoping the group can match a
+   * label belonging to an unrelated group (activity types, participant roles).
+   * An empty $labelMatch still joins, so callers can select the label.
+   *
+   * @param \Drupal\Core\Database\Query\SelectInterface $query
+   *   A query with `civicrm_event` aliased as `e`.
+   * @param string $labelMatch
+   *   Case-insensitive substring the event type label must contain. An empty
+   *   string matches every event type.
+   */
+  protected function applyEventTypeLabelMatch($query, string $labelMatch): void {
+    $groupId = $this->getEventTypeOptionGroupId();
+    if ($groupId) {
+      $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $groupId,
+      ]);
+    }
+    else {
+      $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+
+    $trimmed = trim($labelMatch);
+    if ($trimmed === '') {
+      return;
+    }
+    $query->where('LOWER(COALESCE(ov.label, \'\')) LIKE :event_label', [
+      ':event_label' => '%' . $this->database->escapeLike(strtolower($trimmed)) . '%',
+    ]);
+  }
+
+  /**
+   * Resolves and caches the option group id holding event types.
+   */
+  protected function getEventTypeOptionGroupId(): ?int {
+    if ($this->eventTypeOptionGroupId !== NULL) {
+      return $this->eventTypeOptionGroupId ?: NULL;
+    }
+    $query = $this->database->select('civicrm_option_group', 'og');
+    $query->fields('og', ['id']);
+    $query->condition('og.name', 'event_type');
+    $groupId = $query->execute()->fetchField();
+    $this->eventTypeOptionGroupId = $groupId ? (int) $groupId : 0;
+    return $this->eventTypeOptionGroupId ?: NULL;
   }
 
   /**
@@ -736,6 +807,312 @@ class FunnelDataService {
       'profile_list',
     ]);
     return $data;
+  }
+
+  /**
+   * Returns a monthly event-to-member conversion trend (oldest-first).
+   *
+   * The event equivalent of getTourMonthlyConversionSeries(): for each
+   * trailing full month it counts the distinct contacts who attended any
+   * counted event that month and how many of them joined within the
+   * conversion window of their earliest event that month. Contacts who were
+   * already members are excluded from the eligible pool.
+   *
+   * @param int $months
+   *   Number of trailing full months to include.
+   * @param int $conversionWindowDays
+   *   Days after the event within which a join counts as a conversion.
+   *
+   * @return array
+   *   Structured series data with keys: range, conversion_window_days,
+   *   labels, month_keys, participants, conversions, rates.
+   */
+  public function getEventMonthlyConversionSeries(int $months = self::WINDOW_MONTHS, int $conversionWindowDays = 90): array {
+    $months = max(1, $months);
+    $end = $this->now()
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->modify('-1 second');
+    $start = $end
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->sub(new DateInterval(sprintf('P%dM', $months - 1)));
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:funnel:events:monthly_conversion:%d:%s:%s',
+      $conversionWindowDays,
+      $start->format('Ymd'),
+      $end->format('Ymd')
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $labels = [];
+    $monthKeys = [];
+    $participants = [];
+    $conversions = [];
+    $rates = [];
+
+    $cursor = $start;
+    for ($i = 0; $i < $months; $i++) {
+      $monthStart = $cursor;
+      $monthEnd = $cursor->modify('last day of this month')->setTime(23, 59, 59);
+
+      // Empty label match intentionally includes every event type.
+      $contactMap = $this->getEventContactMap('', $monthStart, $monthEnd);
+      $summary = $this->summarizeWindowedConversions($contactMap, $conversionWindowDays);
+
+      $labels[] = $monthStart->format('M Y');
+      $monthKeys[] = $monthStart->format('Y-m-01');
+      $participants[] = $summary['eligible'];
+      $conversions[] = $summary['conversions'];
+      $rates[] = $summary['eligible'] > 0 ? round(($summary['conversions'] / $summary['eligible']) * 100, 1) : 0.0;
+
+      $cursor = $cursor->modify('+1 month');
+    }
+
+    $data = [
+      'range' => [
+        'start' => $start,
+        'end' => $end,
+        'months' => $months,
+      ],
+      'conversion_window_days' => $conversionWindowDays,
+      'labels' => $labels,
+      'month_keys' => $monthKeys,
+      'participants' => $participants,
+      'conversions' => $conversions,
+      'rates' => $rates,
+    ];
+
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+      'civicrm_participant_list',
+      'profile_list',
+    ]);
+    return $data;
+  }
+
+  /**
+   * Summarizes the first-time event registrant cohort and what became of it.
+   *
+   * "First time" means the contact had never had a counted registration at any
+   * MakeHaven event before this one — not merely their first registration
+   * inside the reporting window. That distinction is the whole point of the
+   * cohort: it isolates people meeting the organization for the first time
+   * from regulars who keep coming back.
+   *
+   * @param int $months
+   *   Number of trailing full months of first touches to include.
+   * @param int $conversionWindowDays
+   *   Days after the first event within which a join counts as a fast
+   *   conversion.
+   *
+   * @return array
+   *   Cohort data with keys: range, conversion_window_days, total_first_time,
+   *   already_members, eligible, returned, converted_window, converted_ever,
+   *   rate_window, rate_ever, return_rate, labels, month_keys, first_timers,
+   *   conversions, rates.
+   */
+  public function getFirstTimeParticipantCohort(int $months = self::WINDOW_MONTHS, int $conversionWindowDays = 90): array {
+    $months = max(1, $months);
+    $end = $this->now()
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->modify('-1 second');
+    $start = $end
+      ->modify('first day of this month')
+      ->setTime(0, 0, 0)
+      ->sub(new DateInterval(sprintf('P%dM', $months - 1)));
+
+    $cacheId = sprintf(
+      'makerspace_dashboard:funnel:first_time_cohort:%d:%s:%s',
+      $conversionWindowDays,
+      $start->format('Ymd'),
+      $end->format('Ymd')
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $cohort = $this->getFirstTimeEventContactMap($start, $end);
+
+    $windowSummary = $this->summarizeWindowedConversions($cohort, $conversionWindowDays);
+    $everSummary = $this->summarizeContactConversions($cohort);
+
+    // "Returned" is measured only across contacts still in the eligible pool,
+    // so people who were already members before their first event cannot
+    // inflate it.
+    $eligibleContactIds = $this->filterOutExistingMembers($cohort);
+    $returned = $this->countContactsWithRepeatParticipation($eligibleContactIds);
+
+    $labels = [];
+    $monthKeys = [];
+    $firstTimers = [];
+    $monthlyConversions = [];
+    $monthlyRates = [];
+
+    $cursor = $start;
+    for ($i = 0; $i < $months; $i++) {
+      $monthStart = $cursor;
+      $monthEnd = $cursor->modify('last day of this month')->setTime(23, 59, 59);
+
+      $monthCohort = [];
+      foreach ($cohort as $contactId => $touchDate) {
+        if ($touchDate >= $monthStart && $touchDate <= $monthEnd) {
+          $monthCohort[$contactId] = $touchDate;
+        }
+      }
+      $monthSummary = $this->summarizeWindowedConversions($monthCohort, $conversionWindowDays);
+
+      $labels[] = $monthStart->format('M Y');
+      $monthKeys[] = $monthStart->format('Y-m-01');
+      $firstTimers[] = $monthSummary['eligible'];
+      $monthlyConversions[] = $monthSummary['conversions'];
+      $monthlyRates[] = $monthSummary['eligible'] > 0
+        ? round(($monthSummary['conversions'] / $monthSummary['eligible']) * 100, 1)
+        : 0.0;
+
+      $cursor = $cursor->modify('+1 month');
+    }
+
+    $eligible = $windowSummary['eligible'];
+    $data = [
+      'range' => [
+        'start' => $start,
+        'end' => $end,
+        'months' => $months,
+      ],
+      'conversion_window_days' => $conversionWindowDays,
+      'total_first_time' => count($cohort),
+      'already_members' => $windowSummary['already_members'],
+      'eligible' => $eligible,
+      'returned' => $returned,
+      'converted_window' => $windowSummary['conversions'],
+      'converted_ever' => $everSummary['conversions'],
+      'rate_window' => $eligible > 0 ? ($windowSummary['conversions'] / $eligible) : NULL,
+      'rate_ever' => $eligible > 0 ? ($everSummary['conversions'] / $eligible) : NULL,
+      'return_rate' => $eligible > 0 ? ($returned / $eligible) : NULL,
+      'labels' => $labels,
+      'month_keys' => $monthKeys,
+      'first_timers' => $firstTimers,
+      'conversions' => $monthlyConversions,
+      'rates' => $monthlyRates,
+    ];
+
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+      'civicrm_participant_list',
+      'profile_list',
+    ]);
+    return $data;
+  }
+
+  /**
+   * Loads contacts whose first-ever counted registration falls in the window.
+   *
+   * @param \DateTimeImmutable $start
+   *   Start of the window the first touch must fall inside.
+   * @param \DateTimeImmutable $end
+   *   End of the window the first touch must fall inside.
+   *
+   * @return array
+   *   Map of contact_id => DateTimeImmutable first event date.
+   */
+  protected function getFirstTimeEventContactMap(DateTimeImmutable $start, DateTimeImmutable $end): array {
+    $cacheId = sprintf(
+      'makerspace_dashboard:funnel:first_time_map:%s:%s',
+      $start->format('Ymd'),
+      $end->format('Ymd')
+    );
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    // MIN() runs over the contact's entire history, not the window, so a
+    // contact whose earliest registration predates the window is excluded by
+    // the HAVING clause rather than counted as a newcomer.
+    $firstTouch = $this->database->select('civicrm_participant', 'p');
+    $firstTouch->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $firstTouch->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $firstTouch->fields('p', ['contact_id']);
+    $firstTouch->addExpression('MIN(e.start_date)', 'first_event_date');
+    $this->applyRealParticipantConditions($firstTouch);
+    $firstTouch->groupBy('p.contact_id');
+    $firstTouch->havingCondition('first_event_date', $start->format('Y-m-d H:i:s'), '>=');
+    $firstTouch->havingCondition('first_event_date', $end->format('Y-m-d H:i:s'), '<=');
+
+    $map = [];
+    foreach ($firstTouch->execute() as $record) {
+      $contactId = (int) ($record->contact_id ?? 0);
+      if ($contactId <= 0) {
+        continue;
+      }
+      $eventDate = $this->normalizeDate($record->first_event_date ?? NULL);
+      if (!$eventDate) {
+        continue;
+      }
+      $map[$contactId] = $eventDate;
+    }
+
+    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + 3600, ['civicrm_participant_list']);
+    return $map;
+  }
+
+  /**
+   * Returns the cohort contact ids that were not already members at first touch.
+   *
+   * @param array $contactDates
+   *   Map of contact_id => DateTimeImmutable touch date.
+   *
+   * @return int[]
+   *   Contact ids still eligible to convert.
+   */
+  protected function filterOutExistingMembers(array $contactDates): array {
+    if (empty($contactDates)) {
+      return [];
+    }
+    $contactToUid = $this->loadContactUserMap(array_keys($contactDates));
+    $joinDates = !empty($contactToUid) ? $this->loadJoinDates(array_values($contactToUid)) : [];
+
+    $eligible = [];
+    foreach ($contactDates as $contactId => $touchDate) {
+      $uid = $contactToUid[$contactId] ?? NULL;
+      $joinDate = $uid !== NULL ? ($joinDates[$uid] ?? NULL) : NULL;
+      if ($joinDate !== NULL && $joinDate < $touchDate) {
+        continue;
+      }
+      $eligible[] = (int) $contactId;
+    }
+    return $eligible;
+  }
+
+  /**
+   * Counts contacts with more than one counted event registration.
+   *
+   * @param int[] $contactIds
+   *   Contact ids to inspect.
+   *
+   * @return int
+   *   How many of them registered for at least two distinct events.
+   */
+  protected function countContactsWithRepeatParticipation(array $contactIds): int {
+    if (empty($contactIds)) {
+      return 0;
+    }
+
+    $inner = $this->database->select('civicrm_participant', 'p');
+    $inner->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
+    $inner->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $inner->fields('p', ['contact_id']);
+    $inner->addExpression('COUNT(DISTINCT p.event_id)', 'event_count');
+    $this->applyRealParticipantConditions($inner);
+    $inner->condition('p.contact_id', $contactIds, 'IN');
+    $inner->groupBy('p.contact_id');
+    $inner->havingCondition('event_count', 1, '>');
+
+    $outer = $this->database->select($inner, 'repeat_contacts');
+    $outer->addExpression('COUNT(*)', 'repeat_total');
+    return (int) $outer->execute()->fetchField();
   }
 
   /**
