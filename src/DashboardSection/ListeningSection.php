@@ -52,7 +52,7 @@ class ListeningSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Listening');
+    return $this->t('Listening health');
   }
 
   /**

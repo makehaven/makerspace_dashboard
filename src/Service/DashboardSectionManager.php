@@ -10,6 +10,17 @@ use Drupal\makerspace_dashboard\DashboardSectionInterface;
 class DashboardSectionManager {
 
   /**
+   * Sections that resolve by id but are not peer tabs on the dashboard.
+   *
+   * Listening health reports on the instrumentation rather than on the
+   * makerspace, so it does not belong alongside Finance and Retention. The
+   * listening *content* is distributed into those sections instead; this page
+   * is where you go to ask whether the channels feeding them are working.
+   * It stays resolvable so its own route and chart API keep functioning.
+   */
+  protected const HIDDEN_FROM_NAVIGATION = ['listening'];
+
+  /**
    * Dashboard sections keyed by machine name.
    *
    * @var \Drupal\makerspace_dashboard\DashboardSectionInterface[]
@@ -44,6 +55,13 @@ class DashboardSectionManager {
    */
   public function getSections(): array {
     return $this->sections;
+  }
+
+  /**
+   * Gets the sections that should appear as dashboard tabs.
+   */
+  public function getNavigableSections(): array {
+    return array_diff_key($this->sections, array_flip(self::HIDDEN_FROM_NAVIGATION));
   }
 
   /**

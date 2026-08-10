@@ -69,3 +69,11 @@ makerspace_dashboard.staff_store_stripe_invoices:
   parent: makerspace_dashboard.staff_tab
   url: 'internal:/admin/reports/store/stripe-invoices'
   weight: 60
+
+makerspace_dashboard.staff_listening_health:
+  title: 'Listening Health'
+  description: 'Are our feedback channels working? Coverage, who is actually talking, and which questions we have quietly stopped asking.'
+  menu_name: staff-tools
+  parent: makerspace_dashboard.staff_tab
+  url: 'internal:/makerspace-dashboard/listening'
+  weight: 70

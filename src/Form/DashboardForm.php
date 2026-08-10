@@ -151,7 +151,7 @@ class DashboardForm extends FormBase {
       $tabs['#links']['overview']['attributes']['class'][] = 'active';
     }
 
-    $sections = $this->sectionManager->getSections();
+    $sections = $this->sectionManager->getNavigableSections();
     foreach ($sections as $section) {
       $section_id = $section->getId();
       $tabs['#links'][$section_id] = [

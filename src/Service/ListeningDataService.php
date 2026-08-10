@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Cache\CacheBackendInterface;
+use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
@@ -114,6 +115,7 @@ class ListeningDataService {
   protected const SOURCES = [
     'website_feedback' => [
       'label' => 'Website feedback drawer',
+      'section' => 'development',
       'family' => 'website',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -121,6 +123,7 @@ class ListeningDataService {
     ],
     'member_page_feedback' => [
       'label' => 'Member page feedback',
+      'section' => 'development',
       'family' => 'website',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -128,6 +131,7 @@ class ListeningDataService {
     ],
     'chatbot' => [
       'label' => 'Tool chatbot "bad answer" reports',
+      'section' => 'development',
       'family' => 'ai',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -140,6 +144,7 @@ class ListeningDataService {
     ],
     'wishes' => [
       'label' => 'Wishes (member requests for tools and materials)',
+      'section' => 'operations',
       'family' => 'community',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -147,6 +152,7 @@ class ListeningDataService {
     ],
     'appointment_feedback' => [
       'label' => 'Facilitator appointment feedback',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -163,6 +169,7 @@ class ListeningDataService {
     ],
     'event_feedback' => [
       'label' => 'Event feedback',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -170,6 +177,7 @@ class ListeningDataService {
     ],
     'instructor_feedback' => [
       'label' => 'Post-class feedback',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -177,6 +185,7 @@ class ListeningDataService {
     ],
     'safety_accident' => [
       'label' => 'Safety concern and accident reports',
+      'section' => 'operations',
       'family' => 'safety',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -184,6 +193,7 @@ class ListeningDataService {
     ],
     'accessibility' => [
       'label' => 'Accessibility issue reports',
+      'section' => 'dei',
       'family' => 'access',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -191,6 +201,7 @@ class ListeningDataService {
     ],
     'member_survey_2026' => [
       'label' => 'Member survey (2026)',
+      'section' => 'overview',
       'family' => 'survey',
       'mode' => 'solicited',
       'cadence' => 'annual',
@@ -198,6 +209,7 @@ class ListeningDataService {
     ],
     'member_survey_2025' => [
       'label' => 'Member survey (2025)',
+      'section' => 'overview',
       'family' => 'survey',
       'mode' => 'solicited',
       'cadence' => 'retired',
@@ -205,6 +217,7 @@ class ListeningDataService {
     ],
     'meetup_evaluation' => [
       'label' => 'Meetup evaluation',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -217,6 +230,7 @@ class ListeningDataService {
     // and collapsing them would hide it.
     'gems_exit' => [
       'label' => 'GEMS program exit survey (never wired up)',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -224,6 +238,7 @@ class ListeningDataService {
     ],
     'gems_participant_evaluation' => [
       'label' => 'GEMS post-program participant evaluation',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -231,6 +246,7 @@ class ListeningDataService {
     ],
     'foundations_exit' => [
       'label' => 'Foundations of Fabrication exit survey (never wired up)',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -238,6 +254,7 @@ class ListeningDataService {
     ],
     'foundations_course_evaluation' => [
       'label' => 'Foundations course evaluation',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -245,6 +262,7 @@ class ListeningDataService {
     ],
     'pathway_post' => [
       'label' => 'Pathway to Trades post-program survey',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -263,6 +281,7 @@ class ListeningDataService {
     // from the organisation. Hence the 'entity_field' storage type.
     'membership_exit_reason' => [
       'label' => 'Membership end reason (Chargebee cancellation flow)',
+      'section' => 'retention',
       'family' => 'exit',
       'mode' => 'solicited',
       'cadence' => 'continuous',
@@ -284,6 +303,7 @@ class ListeningDataService {
     ],
     'membership_exit_notes' => [
       'label' => 'Membership end reason — free-text notes',
+      'section' => 'retention',
       'family' => 'exit',
       'mode' => 'solicited',
       'cadence' => 'continuous',
@@ -309,6 +329,7 @@ class ListeningDataService {
     // arrives unprompted from people who would never fill in a survey.
     'report_a_mess' => [
       'label' => 'Report a mess',
+      'section' => 'operations',
       'family' => 'facility',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -316,6 +337,7 @@ class ListeningDataService {
     ],
     'broken_equipment' => [
       'label' => 'Broken or malfunctioning equipment reports',
+      'section' => 'infrastructure',
       'family' => 'equipment',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -323,6 +345,7 @@ class ListeningDataService {
     ],
     'maintenance_request' => [
       'label' => 'Maintenance request',
+      'section' => 'operations',
       'family' => 'facility',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -330,6 +353,7 @@ class ListeningDataService {
     ],
     'agreement_violation' => [
       'label' => 'Membership agreement violation report',
+      'section' => 'governance',
       'family' => 'conduct',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -337,6 +361,7 @@ class ListeningDataService {
     ],
     'quiz_edit_suggestion' => [
       'label' => 'Quiz edit suggestion',
+      'section' => 'education',
       'family' => 'content',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -349,6 +374,7 @@ class ListeningDataService {
     // reason.
     'membership_pause_cancel' => [
       'label' => 'Pause or cancel membership (exit reasons)',
+      'section' => 'retention',
       'family' => 'exit',
       'mode' => 'passive',
       'cadence' => 'continuous',
@@ -360,6 +386,7 @@ class ListeningDataService {
     // still sending — a duplicate competing with the loop that works.
     'post_workshop_instructor_eval' => [
       'label' => 'Post-workshop instructor evaluation (superseded duplicate)',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
@@ -370,6 +397,7 @@ class ListeningDataService {
     // marked retired so they stop reading as a coverage failure.
     'mentor_feedback' => [
       'label' => 'Mentor feedback form (program retired)',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'retired',
@@ -377,6 +405,7 @@ class ListeningDataService {
     ],
     'mentee_feedback' => [
       'label' => 'Feedback about your mentor (program retired)',
+      'section' => 'education',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'retired',
@@ -442,12 +471,18 @@ class ListeningDataService {
   protected TimeInterface $time;
 
   /**
-   * Constructs the feedback data service.
+   * The config factory.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, TimeInterface $time, ?TranslationInterface $string_translation = NULL) {
+  protected ConfigFactoryInterface $configFactory;
+
+  /**
+   * Constructs the listening data service.
+   */
+  public function __construct(Connection $database, CacheBackendInterface $cache, TimeInterface $time, ConfigFactoryInterface $config_factory, ?TranslationInterface $string_translation = NULL) {
     $this->database = $database;
     $this->cache = $cache;
     $this->time = $time;
+    $this->configFactory = $config_factory;
     if ($string_translation) {
       $this->setStringTranslation($string_translation);
     }
@@ -850,6 +885,75 @@ class ListeningDataService {
       'last_created' => !empty($row['last_created']) ? (int) $row['last_created'] : NULL,
       'first_created' => !empty($row['first_created']) ? (int) $row['first_created'] : NULL,
     ];
+  }
+
+  /**
+   * Returns the channels belonging to one dashboard section.
+   *
+   * What members told us about workshops belongs next to the workshop numbers,
+   * and why members left belongs next to retention — not quarantined in a
+   * feedback tab that only the person who built it visits. Each registry entry
+   * declares the section where its decisions actually get made.
+   *
+   * @param string $sectionId
+   *   Dashboard section machine name.
+   * @param int $windowDays
+   *   Trailing window for the recent counts.
+   */
+  public function getSourcesForSection(string $sectionId, int $windowDays = 365): array {
+    $matching = [];
+    foreach ($this->getSources($windowDays) as $key => $row) {
+      if ((self::SOURCES[$key]['section'] ?? NULL) === $sectionId) {
+        $matching[$key] = $row;
+      }
+    }
+    return $matching;
+  }
+
+  /**
+   * Returns why members left, over the given window.
+   *
+   * Sourced from the Chargebee cancellation flow via chargebee_status_sync.
+   * Labels come from the field's own allowed-values config rather than being
+   * duplicated here, so the chart cannot drift from the form members answered.
+   *
+   * @return array
+   *   Rows of ['label' => string, 'count' => int], densest first.
+   */
+  public function getExitReasonBreakdown(int $windowDays = 365): array {
+    if (!$this->database->schema()->tableExists('profile__field_member_end_reason')) {
+      return [];
+    }
+
+    $since = $this->time->getRequestTime() - ($windowDays * 86400);
+
+    $query = $this->database->select('profile__field_member_end_reason', 'r');
+    $query->leftJoin('profile__field_member_end_date', 'd', 'd.entity_id = r.entity_id');
+    $query->addField('r', 'field_member_end_reason_value', 'reason');
+    $query->addExpression('COUNT(*)', 'n');
+    $query->where('UNIX_TIMESTAMP(d.field_member_end_date_value) >= :since', [':since' => $since]);
+    $query->groupBy('r.field_member_end_reason_value');
+    $counts = $query->execute()->fetchAllKeyed();
+
+    $allowed = [];
+    foreach ((array) $this->configFactory
+      ->get('field.storage.profile.field_member_end_reason')
+      ->get('settings.allowed_values') as $option) {
+      if (isset($option['value'])) {
+        $allowed[$option['value']] = $option['label'] ?? $option['value'];
+      }
+    }
+
+    $rows = [];
+    foreach ($counts as $value => $count) {
+      $rows[] = [
+        'label' => $allowed[$value] ?? ucfirst((string) $value),
+        'count' => (int) $count,
+      ];
+    }
+
+    usort($rows, static fn(array $a, array $b) => $b['count'] <=> $a['count']);
+    return $rows;
   }
 
   /**

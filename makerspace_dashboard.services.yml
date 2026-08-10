@@ -1369,6 +1369,7 @@ services:
       - '@database'
       - '@cache.default'
       - '@datetime.time'
+      - '@config.factory'
       - '@string_translation'
 
   makerspace_dashboard.section.listening:
@@ -1392,6 +1393,71 @@ services:
 
   makerspace_dashboard.chart_builder.listening_channel_liveness:
     class: Drupal\makerspace_dashboard\Chart\Builder\Listening\ListeningChannelLivenessChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  # Listening content lives in the section where its decisions get made, not in
+  # a tab of its own. One registration per section; the section id is injected.
+  makerspace_dashboard.chart_builder.listening_education:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Listening\SectionListeningChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - 'education'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.listening_operations:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Listening\SectionListeningChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - 'operations'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.listening_retention:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Listening\SectionListeningChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - 'retention'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.listening_development:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Listening\SectionListeningChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - 'development'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.listening_infrastructure:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Listening\SectionListeningChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - 'infrastructure'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.listening_dei:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Listening\SectionListeningChartBuilder
+    arguments:
+      - '@makerspace_dashboard.listening_data'
+      - 'dei'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  # Why members left, sitting beside the churn curve that says how many did.
+  makerspace_dashboard.chart_builder.retention_exit_reasons:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Retention\RetentionExitReasonsChartBuilder
     arguments:
       - '@makerspace_dashboard.listening_data'
       - '@string_translation'
