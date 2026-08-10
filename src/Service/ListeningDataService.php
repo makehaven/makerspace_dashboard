@@ -11,7 +11,7 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 /**
  * Aggregates every channel MakeHaven listens on into one view.
  *
- * The organisation hears from people through twenty-five different mechanisms
+ * The organisation hears from people through twenty-eight different mechanisms
  * spanning four storage classes: webforms, a node type, fields hung off nodes
  * and profiles, and a bespoke table written by the tool chatbot. Nothing
  * previously watched them as a set, which is how several went quiet without
