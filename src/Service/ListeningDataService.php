@@ -975,7 +975,8 @@ class ListeningDataService {
     $since = $now - ($windowDays * 86400);
 
     $activeMembers = $this->countActiveMembers();
-    $reach = $this->countDistinctSubmitters($since);
+    $reach = $this->countDistinctMemberSubmitters($since);
+    $allSubmitters = $this->countDistinctSubmitters($since);
     $concentration = $this->getConcentration($since);
 
     $claims = [];
@@ -986,15 +987,15 @@ class ListeningDataService {
       $activeMembers > 0 ? $reach / $activeMembers : NULL,
       [
         'format' => 'percent',
-        'detail' => sprintf('%d distinct accounts submitted through a counted channel in the last %d days, against %d accounts holding the member role.', $reach, $windowDays, $activeMembers),
+        'detail' => sprintf('%d of the %d accounts holding the member role submitted through a counted channel in the last %d days. A further %d submissions came from accounts that are no longer members — chiefly people stating a reason as they cancelled — and are excluded here so both sides of the ratio describe the same population.', $reach, $activeMembers, $windowDays, max(0, $allSubmitters - $reach)),
       ]
     );
 
     $claims['distinct_submitters'] = $this->claim(
       self::EVIDENCE_OBSERVED,
       'Distinct submitters',
-      $reach,
-      ['format' => 'integer', 'detail' => sprintf('Counted across all channels over %d days.', $windowDays)]
+      $allSubmitters,
+      ['format' => 'integer', 'detail' => sprintf('Every distinct account that submitted anything over %d days, including former members who stated a reason on cancelling.', $windowDays)]
     );
 
     $voice = $this->getVoiceComposition($windowDays);
@@ -1125,6 +1126,32 @@ class ListeningDataService {
   }
 
   /**
+   * Counts submitters who are still members.
+   *
+   * Reach is a share *of the membership*, so its numerator and denominator have
+   * to describe the same population. Registering the exit channels broke that
+   * silently: people who cancel state a reason on the way out, which counted
+   * them as submitters while they had already dropped out of the member-role
+   * denominator — reporting 73% reach against a true figure closer to 17%.
+   * Intersecting with current members keeps both sides of the ratio honest.
+   */
+  protected function countDistinctMemberSubmitters(int $since): int {
+    $uids = array_keys($this->getSubmissionCountsByUid($since));
+    if (!$uids) {
+      return 0;
+    }
+
+    $query = $this->database->select('user__roles', 'r');
+    $query->join('users_field_data', 'u', 'u.uid = r.entity_id');
+    $query->condition('r.roles_target_id', 'member');
+    $query->condition('u.status', 1);
+    $query->condition('r.entity_id', $uids, 'IN');
+    $query->addExpression('COUNT(DISTINCT r.entity_id)', 'n');
+
+    return (int) $query->execute()->fetchField();
+  }
+
+  /**
    * Splits feedback volume by whether the submitter runs the place or uses it.
    *
    * This is the single most load-bearing number in the section. Raw volume
@@ -1189,7 +1216,9 @@ class ListeningDataService {
             $windowDays
           ),
           'falsifier' => 'Member-held-role-free submissions rising above 60% of volume, or evidence that staff submissions are relaying member reports rather than originating them — which the submission tables cannot distinguish.',
-          'detail' => 'Staff feedback is not less valid, but it answers a different question. A theme sourced mostly from staff is a claim about what staff notice, which is not the same as what members experience.',
+          'detail' => 'Staff feedback is not less valid, but it answers a different question. A theme sourced mostly from staff is a claim about what staff notice, which is not the same as what members experience. '
+          . 'Read this alongside a known weighting problem: every submission counts as one, so a member picking a cancellation reason from a dropdown weighs the same as a member writing a paragraph about a broken machine. '
+          . 'Because the exit channel is both large and entirely member-sourced, including it lifts member share substantially — the number is honest but it is not a measure of considered member input.',
         ]
       ),
     ];
