@@ -143,7 +143,7 @@ class FeedbackSection extends DashboardSectionBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['feedback-tile-grid']],
     ];
-    foreach (['reach', 'member_share', 'distinct_submitters', 'concentration', 'channels_not_collecting'] as $key) {
+    foreach (['reach', 'member_share', 'distinct_submitters', 'concentration', 'channels_not_collecting', 'channels_thin'] as $key) {
       if (isset($coverage[$key])) {
         $tiles[$key] = $this->buildClaimTile($coverage[$key]);
       }
@@ -196,7 +196,7 @@ class FeedbackSection extends DashboardSectionBase {
         'data' => [
           ['data' => ['#markup' => '<strong>' . Html::escape($source['label']) . '</strong>']],
           Html::escape($this->describeMode($source)),
-          ['data' => $this->buildLivenessCell($liveness)],
+          ['data' => $this->buildLivenessCell($liveness, $source['thin'] ?? NULL)],
           $source['recent'] === NULL ? '—' : number_format($source['recent']),
           $source['total'] === NULL ? '—' : number_format($source['total']),
           $source['distinct_uids'] === NULL ? '—' : number_format($source['distinct_uids']),
@@ -243,7 +243,7 @@ class FeedbackSection extends DashboardSectionBase {
   /**
    * Renders a liveness verdict with its evidence badge and reasoning.
    */
-  protected function buildLivenessCell(array $claim): array {
+  protected function buildLivenessCell(array $claim, ?array $thin = NULL): array {
     $state = (string) $claim['value'];
     $markup = '<span class="feedback-state feedback-state--' . Html::getClass($state) . '">'
       . Html::escape(ucfirst($state)) . '</span> '
@@ -251,6 +251,14 @@ class FeedbackSection extends DashboardSectionBase {
 
     if ($claim['basis'] !== '') {
       $markup .= '<span class="feedback-basis" title="' . Html::escape($claim['basis']) . '">ⓘ</span>';
+    }
+
+    // A channel can pass the recency test and still be far too small to read a
+    // pattern from, so the two verdicts are shown side by side rather than one
+    // standing in for the other.
+    if ($thin) {
+      $markup .= '<div class="feedback-thin" title="' . Html::escape($thin['basis']) . '">'
+        . Html::escape((string) $this->t('too thin to generalise')) . '</div>';
     }
 
     return ['#markup' => Markup::create($markup)];

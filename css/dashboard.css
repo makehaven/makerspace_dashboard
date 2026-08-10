@@ -1529,3 +1529,15 @@
   margin-bottom: 0.35rem;
   font-size: 0.85rem;
 }
+
+.feedback-thin {
+  display: inline-block;
+  margin-top: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #b45309;
+  border: 1px dashed #b45309;
+  border-radius: 3px;
+  padding: 0.05rem 0.3rem;
+  cursor: help;
+}

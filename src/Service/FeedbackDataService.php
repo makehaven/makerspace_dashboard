@@ -86,6 +86,11 @@ class FeedbackDataService {
   protected const CACHE_TTL = 900;
 
   /**
+   * Lifetime submissions below which a channel cannot support a generalisation.
+   */
+  protected const THIN_LIFETIME_THRESHOLD = 10;
+
+  /**
    * Every feedback channel the organisation operates.
    *
    * Adding a new feedback form means adding one entry here; the counting,
@@ -195,19 +200,38 @@ class FeedbackDataService {
       'cadence' => 'per_event',
       'storage' => ['type' => 'webform', 'id' => 'evaluation'],
     ],
+    // Both GEMS and Foundations have two exit surveys apiece: one that was
+    // built and never wired up, and an older one that collected a handful of
+    // responses years ago. Registering all four is the point — duplicated,
+    // abandoned forms are exactly the sprawl this inventory exists to surface,
+    // and collapsing them would hide it.
     'gems_exit' => [
-      'label' => 'GEMS program exit survey',
+      'label' => 'GEMS program exit survey (never wired up)',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
       'storage' => ['type' => 'webform', 'id' => 'gems_program_exit_survey'],
     ],
+    'gems_participant_evaluation' => [
+      'label' => 'GEMS post-program participant evaluation',
+      'family' => 'program',
+      'mode' => 'solicited',
+      'cadence' => 'per_event',
+      'storage' => ['type' => 'webform', 'id' => 'webform_14335'],
+    ],
     'foundations_exit' => [
-      'label' => 'Foundations of Fabrication exit survey',
+      'label' => 'Foundations of Fabrication exit survey (never wired up)',
       'family' => 'program',
       'mode' => 'solicited',
       'cadence' => 'per_event',
       'storage' => ['type' => 'webform', 'id' => 'foundations_of_fabrication_exit'],
+    ],
+    'foundations_course_evaluation' => [
+      'label' => 'Foundations course evaluation',
+      'family' => 'program',
+      'mode' => 'solicited',
+      'cadence' => 'per_event',
+      'storage' => ['type' => 'webform', 'id' => 'webform_9283'],
     ],
     'pathway_post' => [
       'label' => 'Pathway to Trades post-program survey',
@@ -216,18 +240,21 @@ class FeedbackDataService {
       'cadence' => 'per_event',
       'storage' => ['type' => 'webform', 'id' => 'post_program_survey_pathway_to_t'],
     ],
+    // The mentor program ran as an experiment and was retired after it. These
+    // two forms are therefore closed questions, not neglected ones, and are
+    // marked retired so they stop reading as a coverage failure.
     'mentor_feedback' => [
-      'label' => 'Mentor feedback form',
+      'label' => 'Mentor feedback form (program retired)',
       'family' => 'program',
       'mode' => 'solicited',
-      'cadence' => 'per_event',
+      'cadence' => 'retired',
       'storage' => ['type' => 'webform', 'id' => 'webform_17972'],
     ],
     'mentee_feedback' => [
-      'label' => 'Feedback about your mentor',
+      'label' => 'Feedback about your mentor (program retired)',
       'family' => 'program',
       'mode' => 'solicited',
-      'cadence' => 'per_event',
+      'cadence' => 'retired',
       'storage' => ['type' => 'webform', 'id' => 'webform_17973'],
     ],
   ];
@@ -420,6 +447,7 @@ class FeedbackDataService {
         'last_created' => $stats['last_created'],
         'days_silent' => $daysSilent,
         'liveness' => $this->classifyLiveness($source, $daysSilent, $stats['total']),
+        'thin' => $this->classifyThinness($source, $stats['total']),
         'denominator' => $this->resolveDenominator($source, $since, $stats['recent']),
       ];
     }
@@ -470,6 +498,32 @@ class FeedbackDataService {
         $thresholds['dead']
       ),
       'falsifier' => 'A new submission on this channel, or evidence that the underlying activity (classes, appointments, events) stopped so the silence is expected.',
+    ]);
+  }
+
+  /**
+   * Flags channels that are technically alive but have never collected much.
+   *
+   * Liveness alone is a trap: post-class feedback and the accessibility form
+   * both received a submission within the last fortnight, so a
+   * time-since-last-submission test calls them healthy — while each holds five
+   * responses across its entire life. Recency and volume are separate
+   * questions, and a channel can pass one while failing the other badly enough
+   * that any theme drawn from it is anecdote.
+   */
+  protected function classifyThinness(array $source, int $total): ?array {
+    if ($source['cadence'] === 'retired' || $total >= self::THIN_LIFETIME_THRESHOLD) {
+      return NULL;
+    }
+
+    return $this->claim(self::EVIDENCE_INFERRED, 'Too thin to generalise from', TRUE, [
+      'format' => 'boolean',
+      'basis' => sprintf(
+        '%d submissions across the channel’s entire life, below the threshold of %d at which we are willing to read a pattern.',
+        $total,
+        self::THIN_LIFETIME_THRESHOLD
+      ),
+      'falsifier' => 'Volume rising past the threshold, or a reason this channel is expected to be low-volume by design — a safety form should be rare, and rarity there is good news rather than a gap.',
     ]);
   }
 
@@ -673,6 +727,31 @@ class FeedbackDataService {
         'basis' => sprintf('%d dormant, %d dead and %d never-used channels by the cadence-adjusted staleness thresholds.', $states['dormant'], $states['dead'], $states['never used']),
         'falsifier' => 'New submissions on those channels, or confirmation that the programs they served have ended, which would make the silence correct rather than a gap.',
         'detail' => sprintf('Live: %d. Fading: %d. Retired on purpose: %d.', $states['live'], $states['fading'], $states['retired']),
+      ]
+    );
+
+    $thin = 0;
+    $thinLive = [];
+    foreach ($sources as $row) {
+      if (!empty($row['thin'])) {
+        $thin++;
+        if (in_array((string) ($row['liveness']['value'] ?? ''), ['live', 'fading'], TRUE)) {
+          $thinLive[] = $row['label'];
+        }
+      }
+    }
+
+    $claims['channels_thin'] = $this->claim(
+      self::EVIDENCE_INFERRED,
+      'Channels too thin to generalise from',
+      $thin,
+      [
+        'format' => 'integer',
+        'basis' => sprintf('Channels with fewer than %d lifetime submissions.', self::THIN_LIFETIME_THRESHOLD),
+        'falsifier' => 'Volume rising past the threshold, or these channels being low-volume by design.',
+        'detail' => $thinLive
+          ? sprintf('Of these, %d currently read as live on recency alone: %s. Recency is not volume.', count($thinLive), implode('; ', $thinLive))
+          : 'None of these currently read as live, so recency and volume agree.',
       ]
     );
 
