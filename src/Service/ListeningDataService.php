@@ -9,15 +9,20 @@ use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
 
 /**
- * Aggregates every feedback channel MakeHaven operates into one view.
+ * Aggregates every channel MakeHaven listens on into one view.
  *
- * MakeHaven collects member and staff feedback through at least seventeen
- * different mechanisms — webforms, a node type, a field on appointments and a
- * bespoke table written by the tool chatbot. Nothing previously watched them
- * as a set, which is how nine of them went quiet without anyone noticing. This
- * service is the single place that knows what the channels are, how much each
- * one is actually collecting, and whether the listening system as a whole is
- * reaching anybody.
+ * The organisation hears from people through twenty-five different mechanisms
+ * spanning four storage classes: webforms, a node type, fields hung off nodes
+ * and profiles, and a bespoke table written by the tool chatbot. Nothing
+ * previously watched them as a set, which is how several went quiet without
+ * anyone noticing.
+ *
+ * It is called listening rather than feedback deliberately. "Feedback" reads
+ * as surveys and comment forms, and while the narrower word was in use the
+ * inventory quietly omitted mess reports, broken-equipment reports and — most
+ * damagingly — the membership cancellation reasons synced back from Chargebee,
+ * which turn out to be the best-covered channel in the whole organisation. The
+ * word we used was deciding what got counted.
  *
  * Every figure this service returns is wrapped by ::claim() and carries an
  * explicit evidence tier — the Observe / Substantiate / Think / Assume lens.
@@ -244,6 +249,59 @@ class ListeningDataService {
       'mode' => 'solicited',
       'cadence' => 'per_event',
       'storage' => ['type' => 'webform', 'id' => 'post_program_survey_pathway_to_t'],
+    ],
+    // Exit reasons, captured in Chargebee's cancellation flow and synced back
+    // by chargebee_status_sync into a structured field plus a free-text note.
+    //
+    // This is the best-covered listening channel the organisation has — 457 of
+    // the 461 memberships that ended in the last year carry a reason — and two
+    // earlier passes of this review declared we had no exit channel at all.
+    // The cause of that error is worth stating plainly, because it is the same
+    // failure the review exists to catch: the registry could only see
+    // webforms, nodes and bespoke tables, so a channel stored in an entity
+    // field was invisible, and its absence from the frame was read as absence
+    // from the organisation. Hence the 'entity_field' storage type.
+    'membership_exit_reason' => [
+      'label' => 'Membership end reason (Chargebee cancellation flow)',
+      'family' => 'exit',
+      'mode' => 'solicited',
+      'cadence' => 'continuous',
+      'storage' => [
+        'type' => 'entity_field',
+        'table' => 'profile__field_member_end_reason',
+        'column' => 'field_member_end_reason_value',
+        'date_table' => 'profile__field_member_end_date',
+        'date_column' => 'field_member_end_date_value',
+        'uid_table' => 'profile',
+        'uid_column' => 'uid',
+      ],
+      'denominator' => [
+        'type' => 'entity_field_rows',
+        'table' => 'profile__field_member_end_date',
+        'column' => 'field_member_end_date_value',
+        'label' => 'memberships ended',
+      ],
+    ],
+    'membership_exit_notes' => [
+      'label' => 'Membership end reason — free-text notes',
+      'family' => 'exit',
+      'mode' => 'solicited',
+      'cadence' => 'continuous',
+      'storage' => [
+        'type' => 'entity_field',
+        'table' => 'profile__field_member_end_reason_notes',
+        'column' => 'field_member_end_reason_notes_value',
+        'date_table' => 'profile__field_member_end_date',
+        'date_column' => 'field_member_end_date_value',
+        'uid_table' => 'profile',
+        'uid_column' => 'uid',
+      ],
+      'denominator' => [
+        'type' => 'entity_field_rows',
+        'table' => 'profile__field_member_end_date',
+        'column' => 'field_member_end_date_value',
+        'label' => 'memberships ended',
+      ],
     ],
     // Facility and equipment reports. These are listening channels every bit
     // as much as a survey is — a member telling us the shop is a mess or a
@@ -630,16 +688,29 @@ class ListeningDataService {
     }
 
     $definition = $source['denominator'];
-    if (($definition['type'] ?? '') !== 'node') {
-      return NULL;
-    }
 
-    $total = (int) $this->database->select('node_field_data', 'n')
-      ->condition('n.type', $definition['bundle'])
-      ->condition('n.created', $since, '>=')
-      ->countQuery()
-      ->execute()
-      ->fetchField();
+    switch ($definition['type'] ?? '') {
+      case 'node':
+        $total = (int) $this->database->select('node_field_data', 'n')
+          ->condition('n.type', $definition['bundle'])
+          ->condition('n.created', $since, '>=')
+          ->countQuery()
+          ->execute()
+          ->fetchField();
+        break;
+
+      case 'entity_field_rows':
+        if (!$this->database->schema()->tableExists($definition['table'])) {
+          return NULL;
+        }
+        $query = $this->database->select($definition['table'], 'd');
+        $query->where(sprintf('UNIX_TIMESTAMP(d.%s) >= :since', $definition['column']), [':since' => $since]);
+        $total = (int) $query->countQuery()->execute()->fetchField();
+        break;
+
+      default:
+        return NULL;
+    }
 
     if ($total === 0) {
       return NULL;
@@ -678,9 +749,53 @@ class ListeningDataService {
 
       case 'node_field':
         return $this->aggregateNodeField($storage, $since);
+
+      case 'entity_field':
+        return $this->aggregateEntityField($storage, $since);
     }
 
     return NULL;
+  }
+
+  /**
+   * Counts a listening channel stored as a field on a non-node entity.
+   *
+   * Recency comes from a sibling date field rather than an entity timestamp,
+   * because the thing being dated is the event the field describes (when the
+   * membership ended), not when a row happened to be written. Those dates are
+   * stored as 'Y-m-d' strings, hence the UNIX_TIMESTAMP conversion.
+   */
+  protected function aggregateEntityField(array $storage, int $since): ?array {
+    if (!$this->database->schema()->tableExists($storage['table'])
+      || !$this->database->schema()->tableExists($storage['date_table'])) {
+      return NULL;
+    }
+
+    $dateExpr = sprintf('UNIX_TIMESTAMP(d.%s)', $storage['date_column']);
+
+    $query = $this->database->select($storage['table'], 'f');
+    $query->leftJoin($storage['date_table'], 'd', 'd.entity_id = f.entity_id');
+    $query->isNotNull('f.' . $storage['column']);
+    $query->condition('f.' . $storage['column'], '', '<>');
+    $query->addExpression('COUNT(*)', 'total');
+    $query->addExpression("SUM(CASE WHEN $dateExpr >= :since THEN 1 ELSE 0 END)", 'recent', [':since' => $since]);
+    $query->addExpression("MAX($dateExpr)", 'last_created');
+    $query->addExpression("MIN($dateExpr)", 'first_created');
+
+    if (!empty($storage['uid_table'])) {
+      $query->leftJoin($storage['uid_table'], 'o', 'o.profile_id = f.entity_id');
+      $query->addExpression('COUNT(DISTINCT o.' . $storage['uid_column'] . ')', 'distinct_uids');
+    }
+
+    $row = $query->execute()->fetchAssoc() ?: [];
+
+    return [
+      'total' => (int) ($row['total'] ?? 0),
+      'recent' => (int) ($row['recent'] ?? 0),
+      'distinct_uids' => isset($row['distinct_uids']) ? (int) $row['distinct_uids'] : NULL,
+      'last_created' => !empty($row['last_created']) ? (int) $row['last_created'] : NULL,
+      'first_created' => !empty($row['first_created']) ? (int) $row['first_created'] : NULL,
+    ];
   }
 
   /**
@@ -1056,6 +1171,18 @@ class ListeningDataService {
           $query->condition('t.created', $since, '>=');
           break;
 
+        case 'entity_field':
+          if (empty($storage['uid_table']) || !$this->database->schema()->tableExists($storage['table'])) {
+            return [];
+          }
+          $query = $this->database->select($storage['table'], 'f');
+          $query->join($storage['uid_table'], 't', 't.profile_id = f.entity_id');
+          $query->join($storage['date_table'], 'd', 'd.entity_id = f.entity_id');
+          $query->isNotNull('f.' . $storage['column']);
+          $query->condition('f.' . $storage['column'], '', '<>');
+          $query->where(sprintf('UNIX_TIMESTAMP(d.%s) >= :since', $storage['date_column']), [':since' => $since]);
+          break;
+
         default:
           return [];
       }
@@ -1152,6 +1279,18 @@ class ListeningDataService {
           $query->condition('f.' . $storage['column'], '', '<>');
           $query->condition('t.created', $since, '>=');
           $column = 't.created';
+          break;
+
+        case 'entity_field':
+          if (!$this->database->schema()->tableExists($storage['table'])) {
+            return [];
+          }
+          $query = $this->database->select($storage['table'], 'f');
+          $query->join($storage['date_table'], 'd', 'd.entity_id = f.entity_id');
+          $query->isNotNull('f.' . $storage['column']);
+          $query->condition('f.' . $storage['column'], '', '<>');
+          $query->where(sprintf('UNIX_TIMESTAMP(d.%s) >= :since', $storage['date_column']), [':since' => $since]);
+          $column = sprintf('UNIX_TIMESTAMP(d.%s)', $storage['date_column']);
           break;
 
         default:
