@@ -29,7 +29,7 @@ use Drupal\Core\StringTranslation\TranslationInterface;
  * falsify it, or ::claim() downgrades it to unsupported and the section renders
  * it as a defect rather than a finding.
  */
-class FeedbackDataService {
+class ListeningDataService {
 
   use StringTranslationTrait;
 
@@ -244,6 +244,68 @@ class FeedbackDataService {
       'mode' => 'solicited',
       'cadence' => 'per_event',
       'storage' => ['type' => 'webform', 'id' => 'post_program_survey_pathway_to_t'],
+    ],
+    // Facility and equipment reports. These are listening channels every bit
+    // as much as a survey is — a member telling us the shop is a mess or a
+    // machine is broken is feedback about how the place is running, and it
+    // arrives unprompted from people who would never fill in a survey.
+    'report_a_mess' => [
+      'label' => 'Report a mess',
+      'family' => 'facility',
+      'mode' => 'passive',
+      'cadence' => 'continuous',
+      'storage' => ['type' => 'webform', 'id' => 'webform_28014'],
+    ],
+    'broken_equipment' => [
+      'label' => 'Broken or malfunctioning equipment reports',
+      'family' => 'equipment',
+      'mode' => 'passive',
+      'cadence' => 'continuous',
+      'storage' => ['type' => 'webform', 'id' => 'webform_9252'],
+    ],
+    'maintenance_request' => [
+      'label' => 'Maintenance request',
+      'family' => 'facility',
+      'mode' => 'passive',
+      'cadence' => 'continuous',
+      'storage' => ['type' => 'webform', 'id' => 'webform_22162'],
+    ],
+    'agreement_violation' => [
+      'label' => 'Membership agreement violation report',
+      'family' => 'conduct',
+      'mode' => 'passive',
+      'cadence' => 'continuous',
+      'storage' => ['type' => 'webform', 'id' => 'webform_27582'],
+    ],
+    'quiz_edit_suggestion' => [
+      'label' => 'Quiz edit suggestion',
+      'family' => 'content',
+      'mode' => 'passive',
+      'cadence' => 'continuous',
+      'storage' => ['type' => 'webform', 'id' => 'webform_25062'],
+    ],
+    // The single highest-information channel in this registry, and it went
+    // dark in February 2025: 387 submissions from 194 people telling us why
+    // they were leaving. Self-serve cancellation almost certainly routed
+    // around it. Nothing replaced it, so we now lose every departing member's
+    // reason.
+    'membership_pause_cancel' => [
+      'label' => 'Pause or cancel membership (exit reasons)',
+      'family' => 'exit',
+      'mode' => 'passive',
+      'cadence' => 'continuous',
+      'storage' => ['type' => 'webform', 'id' => 'webform_7578'],
+    ],
+    // Superseded by instructor_feedback but still actively emailed: 18 CiviCRM
+    // reminders point instructors here one hour after the class *starts*.
+    // Left in the registry rather than marked retired precisely because it is
+    // still sending — a duplicate competing with the loop that works.
+    'post_workshop_instructor_eval' => [
+      'label' => 'Post-workshop instructor evaluation (superseded duplicate)',
+      'family' => 'program',
+      'mode' => 'solicited',
+      'cadence' => 'per_event',
+      'storage' => ['type' => 'webform', 'id' => 'post_workshop_instructor_evaluat'],
     ],
     // The mentor program ran as an experiment and was retired after it. These
     // two forms are therefore closed questions, not neglected ones, and are
@@ -464,7 +526,7 @@ class FeedbackDataService {
       ];
     }
 
-    $this->cache->set($cid, $rows, $now + self::CACHE_TTL, ['makerspace_dashboard:section:feedback']);
+    $this->cache->set($cid, $rows, $now + self::CACHE_TTL, ['makerspace_dashboard:section:listening']);
     return $rows;
   }
 
@@ -1044,7 +1106,7 @@ class FeedbackDataService {
     }
 
     $result = ['periods' => $periods, 'families' => $families];
-    $this->cache->set($cid, $result, $now + self::CACHE_TTL, ['makerspace_dashboard:section:feedback']);
+    $this->cache->set($cid, $result, $now + self::CACHE_TTL, ['makerspace_dashboard:section:listening']);
     return $result;
   }
 

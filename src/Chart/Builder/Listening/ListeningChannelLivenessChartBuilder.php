@@ -1,11 +1,11 @@
 <?php
 
-namespace Drupal\makerspace_dashboard\Chart\Builder\Feedback;
+namespace Drupal\makerspace_dashboard\Chart\Builder\Listening;
 
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\Builder\ChartBuilderBase;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
-use Drupal\makerspace_dashboard\Service\FeedbackDataService;
+use Drupal\makerspace_dashboard\Service\ListeningDataService;
 
 /**
  * Charts how many days each feedback channel has been silent.
@@ -14,9 +14,9 @@ use Drupal\makerspace_dashboard\Service\FeedbackDataService;
  * organisation's feedback mechanisms have not collected anything in months,
  * and that fact is invisible when each form is only ever looked at alone.
  */
-class FeedbackChannelLivenessChartBuilder extends ChartBuilderBase {
+class ListeningChannelLivenessChartBuilder extends ChartBuilderBase {
 
-  protected const SECTION_ID = 'feedback';
+  protected const SECTION_ID = 'listening';
   protected const CHART_ID = 'channel_liveness';
   protected const WEIGHT = 20;
 
@@ -35,14 +35,14 @@ class FeedbackChannelLivenessChartBuilder extends ChartBuilderBase {
   /**
    * The feedback aggregator.
    */
-  protected FeedbackDataService $feedbackData;
+  protected ListeningDataService $listeningData;
 
   /**
    * Constructs the builder.
    */
-  public function __construct(FeedbackDataService $feedback_data, ?TranslationInterface $stringTranslation = NULL) {
+  public function __construct(ListeningDataService $listening_data, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($stringTranslation);
-    $this->feedbackData = $feedback_data;
+    $this->feedbackData = $listening_data;
   }
 
   /**

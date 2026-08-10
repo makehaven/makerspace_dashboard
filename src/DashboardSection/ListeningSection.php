@@ -7,7 +7,7 @@ use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
-use Drupal\makerspace_dashboard\Service\FeedbackDataService;
+use Drupal\makerspace_dashboard\Service\ListeningDataService;
 
 /**
  * Cross-cuts every feedback channel and the signals that corroborate them.
@@ -20,12 +20,12 @@ use Drupal\makerspace_dashboard\Service\FeedbackDataService;
  * Assume badge, and a claim that failed the evidence guard renders as a defect
  * rather than quietly reading like a fact.
  */
-class FeedbackSection extends DashboardSectionBase {
+class ListeningSection extends DashboardSectionBase {
 
   /**
    * The feedback aggregator.
    */
-  protected FeedbackDataService $feedbackData;
+  protected ListeningDataService $listeningData;
 
   /**
    * Date formatter.
@@ -35,9 +35,9 @@ class FeedbackSection extends DashboardSectionBase {
   /**
    * Constructs the feedback section.
    */
-  public function __construct(FeedbackDataService $feedback_data, DateFormatterInterface $date_formatter, ChartBuilderManager $chart_builder_manager) {
+  public function __construct(ListeningDataService $listening_data, DateFormatterInterface $date_formatter, ChartBuilderManager $chart_builder_manager) {
     parent::__construct(NULL, $chart_builder_manager);
-    $this->feedbackData = $feedback_data;
+    $this->feedbackData = $listening_data;
     $this->dateFormatter = $date_formatter;
   }
 
@@ -45,14 +45,14 @@ class FeedbackSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function getId(): string {
-    return 'feedback';
+    return 'listening';
   }
 
   /**
    * {@inheritdoc}
    */
   public function getLabel(): TranslatableMarkup {
-    return $this->t('Feedback');
+    return $this->t('Listening');
   }
 
   /**
@@ -92,7 +92,7 @@ class FeedbackSection extends DashboardSectionBase {
       'max-age' => 900,
       'contexts' => ['timezone'],
       'tags' => [
-        'makerspace_dashboard:section:feedback',
+        'makerspace_dashboard:section:listening',
         'webform_submission_list',
         'node_list',
         'user_list',
@@ -112,7 +112,7 @@ class FeedbackSection extends DashboardSectionBase {
     $items = [];
     foreach ($this->feedbackData->getEvidenceLegend() as $tier => $info) {
       $items[] = [
-        '#markup' => '<span class="feedback-evidence feedback-evidence--' . Html::escape($tier) . '">'
+        '#markup' => '<span class="listening-evidence listening-evidence--' . Html::escape($tier) . '">'
         . Html::escape($info['label']) . '</span> '
         . Html::escape($info['definition']),
       ];
@@ -122,7 +122,7 @@ class FeedbackSection extends DashboardSectionBase {
       '#type' => 'details',
       '#title' => $this->t('How to read these numbers (Observe / Substantiate / Think / Assume)'),
       '#open' => TRUE,
-      '#attributes' => ['class' => ['feedback-evidence-legend']],
+      '#attributes' => ['class' => ['listening-evidence-legend']],
       'intro' => [
         '#markup' => '<p>' . $this->t('Every figure below is badged with the kind of statement it is. Counts and judgements are not the same claim, and a dashboard that renders them identically invites false confidence. Anything above <em>Observed</em> has to state what it rests on and what would prove it wrong; if it does not, it is shown as <em>Unsupported</em> — a defect in our analysis, not a finding about the makerspace.') . '</p>',
       ],
@@ -141,7 +141,7 @@ class FeedbackSection extends DashboardSectionBase {
 
     $tiles = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['feedback-tile-grid']],
+      '#attributes' => ['class' => ['listening-tile-grid']],
     ];
     foreach (['reach', 'member_share', 'distinct_submitters', 'concentration', 'channels_not_collecting', 'channels_thin'] as $key) {
       if (isset($coverage[$key])) {
@@ -151,7 +151,7 @@ class FeedbackSection extends DashboardSectionBase {
 
     $build = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['feedback-band', 'feedback-band--coverage']],
+      '#attributes' => ['class' => ['listening-band', 'listening-band--coverage']],
       'heading' => ['#markup' => '<h2>' . $this->t('Coverage — how much of the membership is this?') . '</h2>'],
       'description' => [
         '#markup' => '<p>' . $this->t('Measured over the last 365 days across every channel in the inventory below.') . '</p>',
@@ -205,13 +205,13 @@ class FeedbackSection extends DashboardSectionBase {
             : $this->t('never'),
           ['data' => $this->buildDenominatorCell($source)],
         ],
-        'class' => ['feedback-source-row', 'feedback-source-row--' . Html::getClass($state)],
+        'class' => ['listening-source-row', 'listening-source-row--' . Html::getClass($state)],
       ];
     }
 
     return [
       '#type' => 'container',
-      '#attributes' => ['class' => ['feedback-band', 'feedback-band--sources']],
+      '#attributes' => ['class' => ['listening-band', 'listening-band--sources']],
       'heading' => ['#markup' => '<h2>' . $this->t('Channel inventory') . '</h2>'],
       'description' => [
         '#markup' => '<p>' . $this->t('Every feedback mechanism the organisation runs. A channel that collects nothing is not neutral — it is a question we stopped asking, and its silence is easily mistaken for contentment.') . '</p>',
@@ -221,10 +221,10 @@ class FeedbackSection extends DashboardSectionBase {
         '#header' => $header,
         '#rows' => $rows,
         '#empty' => $this->t('No feedback channels are registered.'),
-        '#attributes' => ['class' => ['feedback-source-table']],
+        '#attributes' => ['class' => ['listening-source-table']],
       ],
       'note' => [
-        '#markup' => '<p class="feedback-note">' . $this->t('State is an inference from time since the last submission, adjusted for what cadence the channel is supposed to have. An annual survey that has been quiet for six months is behaving normally; the website drawer doing the same is not.') . '</p>',
+        '#markup' => '<p class="listening-note">' . $this->t('State is an inference from time since the last submission, adjusted for what cadence the channel is supposed to have. An annual survey that has been quiet for six months is behaving normally; the website drawer doing the same is not.') . '</p>',
       ],
     ];
   }
@@ -245,19 +245,19 @@ class FeedbackSection extends DashboardSectionBase {
    */
   protected function buildLivenessCell(array $claim, ?array $thin = NULL): array {
     $state = (string) $claim['value'];
-    $markup = '<span class="feedback-state feedback-state--' . Html::getClass($state) . '">'
+    $markup = '<span class="listening-state listening-state--' . Html::getClass($state) . '">'
       . Html::escape(ucfirst($state)) . '</span> '
       . $this->renderEvidenceBadge($claim);
 
     if ($claim['basis'] !== '') {
-      $markup .= '<span class="feedback-basis" title="' . Html::escape($claim['basis']) . '">ⓘ</span>';
+      $markup .= '<span class="listening-basis" title="' . Html::escape($claim['basis']) . '">ⓘ</span>';
     }
 
     // A channel can pass the recency test and still be far too small to read a
     // pattern from, so the two verdicts are shown side by side rather than one
     // standing in for the other.
     if ($thin) {
-      $markup .= '<div class="feedback-thin" title="' . Html::escape($thin['basis']) . '">'
+      $markup .= '<div class="listening-thin" title="' . Html::escape($thin['basis']) . '">'
         . Html::escape((string) $this->t('too thin to generalise')) . '</div>';
     }
 
@@ -270,7 +270,7 @@ class FeedbackSection extends DashboardSectionBase {
   protected function buildDenominatorCell(array $source): array {
     if (empty($source['denominator'])) {
       return [
-        '#markup' => '<span class="feedback-unknown" title="'
+        '#markup' => '<span class="listening-unknown" title="'
         . Html::escape((string) $this->t('We cannot count how many people had the chance to respond, so the response rate is unknown rather than zero.'))
         . '">' . $this->t('unknown') . '</span>',
       ];
@@ -279,7 +279,7 @@ class FeedbackSection extends DashboardSectionBase {
     $denominator = $source['denominator'];
     return [
       '#markup' => '<strong>' . $this->feedbackData->formatPercent($denominator['rate']) . '</strong>'
-      . '<span class="feedback-denominator"> ' . $this->t('of @count @label', [
+      . '<span class="listening-denominator"> ' . $this->t('of @count @label', [
         '@count' => number_format($denominator['total']),
         '@label' => $denominator['label'],
       ]) . '</span>',
@@ -297,7 +297,7 @@ class FeedbackSection extends DashboardSectionBase {
       $rows[] = [
         'data' => [
           ['data' => ['#markup' => '<strong>' . Html::escape($claim['label']) . '</strong>']],
-          ['data' => ['#markup' => '<span class="feedback-value">' . Html::escape($this->formatClaimValue($claim)) . '</span>']],
+          ['data' => ['#markup' => '<span class="listening-value">' . Html::escape($this->formatClaimValue($claim)) . '</span>']],
           ['data' => $this->renderEvidenceCell($claim)],
           Html::escape($claim['detail'] !== '' ? $claim['detail'] : $claim['basis']),
         ],
@@ -306,7 +306,7 @@ class FeedbackSection extends DashboardSectionBase {
 
     return [
       '#type' => 'container',
-      '#attributes' => ['class' => ['feedback-band', 'feedback-band--signals']],
+      '#attributes' => ['class' => ['listening-band', 'listening-band--signals']],
       'heading' => ['#markup' => '<h2>' . $this->t('Paired signals — what moves without anyone filing feedback') . '</h2>'],
       'description' => [
         '#markup' => '<p>' . $this->t('Behavioural numbers that would shift if a reported theme is real. Pair every theme with one of these before acting on it: a theme with no paired signal is a hypothesis, and should be labelled as one rather than promoted to a finding because it was stated confidently.') . '</p>',
@@ -321,7 +321,7 @@ class FeedbackSection extends DashboardSectionBase {
         ],
         '#rows' => $rows,
         '#empty' => $this->t('No paired signals are available in this environment.'),
-        '#attributes' => ['class' => ['feedback-signal-table']],
+        '#attributes' => ['class' => ['listening-signal-table']],
       ],
     ];
   }
@@ -340,7 +340,7 @@ class FeedbackSection extends DashboardSectionBase {
 
     $tiles = [
       '#type' => 'container',
-      '#attributes' => ['class' => ['feedback-tile-grid']],
+      '#attributes' => ['class' => ['listening-tile-grid']],
       'total' => $this->buildClaimTile($ledger['total']),
       'closed' => $this->buildClaimTile($ledger['closed_rate']),
     ];
@@ -355,7 +355,7 @@ class FeedbackSection extends DashboardSectionBase {
 
     return [
       '#type' => 'container',
-      '#attributes' => ['class' => ['feedback-band', 'feedback-band--ledger']],
+      '#attributes' => ['class' => ['listening-band', 'listening-band--ledger']],
       'heading' => ['#markup' => '<h2>' . $this->t('Loop closure — does submitting feedback get you an answer?') . '</h2>'],
       'description' => [
         '#markup' => '<p>' . $this->t('Drawn from the member-visible ledger at /feedback-status. This is the closest measurable proxy we have for feedback culture: people who get an answer submit again, and people who do not, stop.') . '</p>',
@@ -377,19 +377,19 @@ class FeedbackSection extends DashboardSectionBase {
     return [
       '#type' => 'container',
       '#attributes' => [
-        'class' => ['feedback-tile', 'feedback-tile--' . Html::getClass($claim['tier'])],
+        'class' => ['listening-tile', 'listening-tile--' . Html::getClass($claim['tier'])],
       ],
       'value' => [
-        '#markup' => '<div class="feedback-tile__value">' . Html::escape($this->formatClaimValue($claim)) . '</div>',
+        '#markup' => '<div class="listening-tile__value">' . Html::escape($this->formatClaimValue($claim)) . '</div>',
       ],
       'label' => [
-        '#markup' => '<div class="feedback-tile__label">' . Html::escape($claim['label']) . '</div>',
+        '#markup' => '<div class="listening-tile__label">' . Html::escape($claim['label']) . '</div>',
       ],
       'badge' => [
-        '#markup' => '<div class="feedback-tile__badge">' . $this->renderEvidenceBadge($claim) . '</div>',
+        '#markup' => '<div class="listening-tile__badge">' . $this->renderEvidenceBadge($claim) . '</div>',
       ],
       'detail' => $claim['detail'] !== ''
-        ? ['#markup' => '<div class="feedback-tile__detail">' . Html::escape($claim['detail']) . '</div>']
+        ? ['#markup' => '<div class="listening-tile__detail">' . Html::escape($claim['detail']) . '</div>']
         : [],
     ];
   }
@@ -418,10 +418,10 @@ class FeedbackSection extends DashboardSectionBase {
     return [
       '#type' => 'container',
       '#attributes' => [
-        'class' => ['feedback-callout', 'feedback-callout--' . Html::getClass($claim['tier'])],
+        'class' => ['listening-callout', 'listening-callout--' . Html::getClass($claim['tier'])],
       ],
       'heading' => [
-        '#markup' => '<div class="feedback-callout__heading">'
+        '#markup' => '<div class="listening-callout__heading">'
         . $this->renderEvidenceBadge($claim) . ' '
         . Html::escape($claim['label'])
         . '</div>',
@@ -437,7 +437,7 @@ class FeedbackSection extends DashboardSectionBase {
    * Renders the evidence tier as an inline badge.
    */
   protected function renderEvidenceBadge(array $claim): string {
-    return '<span class="feedback-evidence feedback-evidence--' . Html::getClass($claim['tier']) . '">'
+    return '<span class="listening-evidence listening-evidence--' . Html::getClass($claim['tier']) . '">'
       . Html::escape($claim['tier_label'])
       . '</span>';
   }
@@ -448,7 +448,7 @@ class FeedbackSection extends DashboardSectionBase {
   protected function renderEvidenceCell(array $claim): array {
     $markup = $this->renderEvidenceBadge($claim);
     if ($claim['falsifier'] !== '') {
-      $markup .= '<div class="feedback-falsifier">' . $this->t('Wrong if: @falsifier', [
+      $markup .= '<div class="listening-falsifier">' . $this->t('Wrong if: @falsifier', [
         '@falsifier' => $claim['falsifier'],
       ]) . '</div>';
     }
