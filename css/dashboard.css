@@ -1350,3 +1350,182 @@
     text-decoration: none !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Feedback section — cross-cutting feedback coverage.
+ *
+ * Evidence badges are colour-coded by how much interpretation a figure carries,
+ * from a plain count through to a registered assumption. The colours escalate
+ * deliberately: a reader skimming should be able to see at a glance how much of
+ * what they are looking at is measurement and how much is argument.
+ * ------------------------------------------------------------------------- */
+
+.feedback-band {
+  margin: 1.5rem 0 2rem;
+}
+
+.feedback-band h2 {
+  margin-bottom: 0.25rem;
+}
+
+.feedback-band > p {
+  margin-top: 0;
+  color: #475569;
+  max-width: 70ch;
+}
+
+.feedback-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.feedback-tile {
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  background: #fff;
+}
+
+.feedback-tile--observed { border-left-color: #16a34a; }
+.feedback-tile--substantiated { border-left-color: #0d9488; }
+.feedback-tile--inferred { border-left-color: #f59e0b; }
+.feedback-tile--assumed { border-left-color: #dc2626; }
+.feedback-tile--unsupported { border-left-color: #7f1d1d; background: #fef2f2; }
+
+.feedback-tile__value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.feedback-tile__label {
+  font-size: 0.85rem;
+  color: #334155;
+  margin-top: 0.15rem;
+}
+
+.feedback-tile__detail {
+  font-size: 0.78rem;
+  color: #64748b;
+  margin-top: 0.4rem;
+}
+
+.feedback-tile__badge {
+  margin-top: 0.5rem;
+}
+
+.feedback-evidence {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  color: #fff;
+  white-space: nowrap;
+}
+
+.feedback-evidence--observed { background: #16a34a; }
+.feedback-evidence--substantiated { background: #0d9488; }
+.feedback-evidence--inferred { background: #b45309; }
+.feedback-evidence--assumed { background: #dc2626; }
+.feedback-evidence--unsupported { background: #7f1d1d; }
+
+.feedback-callout {
+  border: 1px solid #e2e8f0;
+  border-left-width: 4px;
+  border-radius: 6px;
+  padding: 0.9rem 1rem;
+  background: #f8fafc;
+  margin-top: 1rem;
+}
+
+.feedback-callout--inferred { border-left-color: #b45309; }
+.feedback-callout--assumed { border-left-color: #dc2626; }
+.feedback-callout--substantiated { border-left-color: #0d9488; }
+.feedback-callout--unsupported { border-left-color: #7f1d1d; background: #fef2f2; }
+
+.feedback-callout__heading {
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}
+
+.feedback-callout ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.feedback-callout li {
+  font-size: 0.85rem;
+  margin-bottom: 0.2rem;
+}
+
+.feedback-source-table,
+.feedback-signal-table {
+  width: 100%;
+  font-size: 0.87rem;
+}
+
+.feedback-source-table td {
+  vertical-align: top;
+}
+
+.feedback-state {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  color: #fff;
+}
+
+.feedback-state--live { background: #16a34a; }
+.feedback-state--fading { background: #f59e0b; }
+.feedback-state--dormant { background: #f97316; }
+.feedback-state--dead { background: #dc2626; }
+.feedback-state--never-used { background: #7f1d1d; }
+.feedback-state--retired { background: #94a3b8; }
+
+.feedback-source-row--dead,
+.feedback-source-row--never-used {
+  background: #fef2f2;
+}
+
+.feedback-basis {
+  margin-left: 0.3rem;
+  color: #64748b;
+  cursor: help;
+}
+
+.feedback-unknown {
+  color: #64748b;
+  font-style: italic;
+  cursor: help;
+}
+
+.feedback-denominator {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.feedback-falsifier {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+  max-width: 40ch;
+}
+
+.feedback-note {
+  font-size: 0.8rem;
+  color: #64748b;
+  max-width: 80ch;
+}
+
+.feedback-evidence-legend .item-list li {
+  margin-bottom: 0.35rem;
+  font-size: 0.85rem;
+}

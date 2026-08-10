@@ -1360,3 +1360,40 @@ services:
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
+
+  # Cross-cutting feedback view: every channel, its coverage, and the
+  # behavioural signals that corroborate (or fail to corroborate) a theme.
+  makerspace_dashboard.feedback_data:
+    class: Drupal\makerspace_dashboard\Service\FeedbackDataService
+    arguments:
+      - '@database'
+      - '@cache.default'
+      - '@datetime.time'
+      - '@string_translation'
+
+  makerspace_dashboard.section.feedback:
+    class: Drupal\makerspace_dashboard\DashboardSection\FeedbackSection
+    arguments:
+      - '@makerspace_dashboard.feedback_data'
+      - '@date.formatter'
+      - '@makerspace_dashboard.chart_builder_manager'
+    tags:
+      - { name: makerspace_dashboard.section }
+    calls:
+      - [setStringTranslation, ['@string_translation']]
+
+  makerspace_dashboard.chart_builder.feedback_volume_by_channel:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Feedback\FeedbackVolumeByChannelChartBuilder
+    arguments:
+      - '@makerspace_dashboard.feedback_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.feedback_channel_liveness:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Feedback\FeedbackChannelLivenessChartBuilder
+    arguments:
+      - '@makerspace_dashboard.feedback_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
