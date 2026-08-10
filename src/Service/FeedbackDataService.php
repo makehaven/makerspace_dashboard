@@ -91,6 +91,11 @@ class FeedbackDataService {
   protected const THIN_LIFETIME_THRESHOLD = 10;
 
   /**
+   * A channel younger than this is judged on response rate, not lifetime total.
+   */
+  protected const YOUNG_CHANNEL_DAYS = 180;
+
+  /**
    * Every feedback channel the organisation operates.
    *
    * Adding a new feedback form means adding one entry here; the counting,
@@ -447,7 +452,14 @@ class FeedbackDataService {
         'last_created' => $stats['last_created'],
         'days_silent' => $daysSilent,
         'liveness' => $this->classifyLiveness($source, $daysSilent, $stats['total']),
-        'thin' => $this->classifyThinness($source, $stats['total']),
+        'age_days' => $stats['first_created']
+          ? (int) floor(($now - $stats['first_created']) / 86400)
+          : NULL,
+        'thin' => $this->classifyThinness(
+          $source,
+          $stats['total'],
+          $stats['first_created'] ? (int) floor(($now - $stats['first_created']) / 86400) : NULL
+        ),
         'denominator' => $this->resolveDenominator($source, $since, $stats['recent']),
       ];
     }
@@ -511,16 +523,32 @@ class FeedbackDataService {
    * questions, and a channel can pass one while failing the other badly enough
    * that any theme drawn from it is anecdote.
    */
-  protected function classifyThinness(array $source, int $total): ?array {
+  protected function classifyThinness(array $source, int $total, ?int $ageDays): ?array {
     if ($source['cadence'] === 'retired' || $total >= self::THIN_LIFETIME_THRESHOLD) {
       return NULL;
+    }
+
+    // Age is the difference between a channel nobody uses and one that has
+    // barely started. Post-class feedback opened in June 2026 and had five
+    // responses within two months; reading that as neglect — as an earlier
+    // pass of this analysis did — inverts the conclusion about a channel that
+    // is in fact converting well.
+    if ($ageDays !== NULL && $ageDays < self::YOUNG_CHANNEL_DAYS) {
+      return $this->claim(self::EVIDENCE_OBSERVED, 'Too new to judge', TRUE, [
+        'format' => 'boolean',
+        'detail' => sprintf(
+          'First submission %d days ago. Low lifetime volume here is age, not neglect — judge it on its response rate, not its total.',
+          $ageDays
+        ),
+      ]);
     }
 
     return $this->claim(self::EVIDENCE_INFERRED, 'Too thin to generalise from', TRUE, [
       'format' => 'boolean',
       'basis' => sprintf(
-        '%d submissions across the channel’s entire life, below the threshold of %d at which we are willing to read a pattern.',
+        '%d submissions across %s, below the threshold of %d at which we are willing to read a pattern.',
         $total,
+        $ageDays !== NULL ? sprintf('the %d days since the channel opened', $ageDays) : 'the channel’s entire life',
         self::THIN_LIFETIME_THRESHOLD
       ),
       'falsifier' => 'Volume rising past the threshold, or a reason this channel is expected to be low-volume by design — a safety form should be rare, and rarity there is good news rather than a gap.',
@@ -601,6 +629,7 @@ class FeedbackDataService {
     $query->addExpression('COUNT(*)', 'total');
     $query->addExpression("SUM(CASE WHEN t.$createdColumn >= :since THEN 1 ELSE 0 END)", 'recent', [':since' => $since]);
     $query->addExpression("MAX(t.$createdColumn)", 'last_created');
+    $query->addExpression("MIN(t.$createdColumn)", 'first_created');
     if ($uidColumn) {
       $query->addExpression("COUNT(DISTINCT t.$uidColumn)", 'distinct_uids');
     }
@@ -614,6 +643,7 @@ class FeedbackDataService {
       'recent' => (int) ($row['recent'] ?? 0),
       'distinct_uids' => isset($row['distinct_uids']) ? (int) $row['distinct_uids'] : NULL,
       'last_created' => !empty($row['last_created']) ? (int) $row['last_created'] : NULL,
+      'first_created' => !empty($row['first_created']) ? (int) $row['first_created'] : NULL,
     ];
   }
 
@@ -632,6 +662,7 @@ class FeedbackDataService {
     $query->addExpression('COUNT(*)', 'total');
     $query->addExpression('SUM(CASE WHEN n.created >= :since THEN 1 ELSE 0 END)', 'recent', [':since' => $since]);
     $query->addExpression('MAX(n.created)', 'last_created');
+    $query->addExpression('MIN(n.created)', 'first_created');
     $query->addExpression('COUNT(DISTINCT n.uid)', 'distinct_uids');
     $row = $query->execute()->fetchAssoc() ?: [];
 
@@ -640,6 +671,7 @@ class FeedbackDataService {
       'recent' => (int) ($row['recent'] ?? 0),
       'distinct_uids' => isset($row['distinct_uids']) ? (int) $row['distinct_uids'] : NULL,
       'last_created' => !empty($row['last_created']) ? (int) $row['last_created'] : NULL,
+      'first_created' => !empty($row['first_created']) ? (int) $row['first_created'] : NULL,
     ];
   }
 
