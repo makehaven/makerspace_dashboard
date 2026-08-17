@@ -10,6 +10,15 @@ use Drupal\Core\Database\Connection;
  */
 class ActivityDataService {
 
+  /**
+   * Cache lifetime for computed aggregates, in seconds.
+   *
+   * The monthly DATE_FORMAT aggregate over civicrm_activity runs 20s+ on
+   * live; at a 1-hour TTL the hourly cron prewarm re-ran it around the
+   * clock. Monthly counts don't need better than day-old freshness.
+   */
+  protected const CACHE_TTL = 86400;
+
   protected Connection $database;
 
   protected CacheBackendInterface $cache;
@@ -129,7 +138,7 @@ class ActivityDataService {
       ],
     ];
 
-    $this->cache->set($cacheId, $result, $this->now()->getTimestamp() + 3600);
+    $this->cache->set($cacheId, $result, $this->now()->getTimestamp() + self::CACHE_TTL);
     return $result;
   }
 

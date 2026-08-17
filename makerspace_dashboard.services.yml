@@ -1184,7 +1184,11 @@ services:
       - '@makerspace_dashboard.infrastructure_data'
       - '@keyvalue'
       - '@datetime.time'
-      - 1800
+      # Section payload TTL. Pages serve stale payloads while cron re-warms,
+      # so this only bounds freshness. 6h (was 30min) keeps the hourly cron
+      # from recomputing every section — and its heavy CiviCRM/Sheets fetches
+      # — around the clock.
+      - 21600
 
   makerspace_dashboard.section_manager:
     class: Drupal\makerspace_dashboard\Service\DashboardSectionManager

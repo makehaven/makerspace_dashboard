@@ -20,6 +20,18 @@ class FunnelDataService {
   protected const WINDOW_MONTHS = 12;
 
   /**
+   * Cache lifetime for computed funnel data, in seconds.
+   *
+   * These queries scan civicrm_activity/_contact and take 2–13s each (one
+   * aggregate exceeds 20s). At the old 1-hour TTL the hourly cron prewarm
+   * recomputed the full set around the clock, which showed up as sustained
+   * DB load on live. The charts aggregate by month, so day-old data is
+   * indistinguishable in practice: cache for 24 hours and let the cron
+   * prewarm refresh roughly once a day.
+   */
+  protected const CACHE_TTL = 86400;
+
+  /**
    * Minimum percentage width to display for funnel bars.
    */
   protected const MIN_WIDTH_PERCENT = 8;
@@ -66,7 +78,7 @@ class FunnelDataService {
       'member_joins' => $this->countMembersJoinedBetween($window['start'], $window['end']),
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_contact_list',
       'civicrm_participant_list',
       'profile_list',
@@ -108,7 +120,7 @@ class FunnelDataService {
       'conversion_rate' => $summary['conversion_rate'],
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'civicrm_activity_list',
       'profile_list',
@@ -140,7 +152,7 @@ class FunnelDataService {
       'conversion_rate' => $summary['conversion_rate'],
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'profile_list',
     ]);
@@ -196,7 +208,7 @@ class FunnelDataService {
       'label_match' => $labelMatch,
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_activity_list',
       'profile_list',
     ]);
@@ -259,7 +271,7 @@ class FunnelDataService {
       $map[$contactId] = $eventDate;
     }
 
-    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + 3600, ['civicrm_participant_list']);
+    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + self::CACHE_TTL, ['civicrm_participant_list']);
     return $map;
   }
 
@@ -377,7 +389,7 @@ class FunnelDataService {
       $map[$contactId] = $activityDate;
     }
 
-    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + 3600, ['civicrm_activity_list']);
+    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + self::CACHE_TTL, ['civicrm_activity_list']);
     return $map;
   }
 
@@ -404,7 +416,7 @@ class FunnelDataService {
     ], 'BETWEEN');
 
     $count = (int) $query->execute()->fetchField();
-    $this->cache->set($cacheId, $count, $this->time->getRequestTime() + 3600, ['profile_list', 'user_list']);
+    $this->cache->set($cacheId, $count, $this->time->getRequestTime() + self::CACHE_TTL, ['profile_list', 'user_list']);
     return $count;
   }
 
@@ -585,7 +597,7 @@ class FunnelDataService {
       $trend[] = $eligible > 0 ? round($summary['conversions'] / $eligible, 4) : 0.0;
     }
 
-    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'civicrm_activity_list',
       'profile_list',
@@ -618,7 +630,7 @@ class FunnelDataService {
       $trend[] = $eligible > 0 ? round($summary['conversions'] / $eligible, 4) : 0.0;
     }
 
-    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'profile_list',
     ]);
@@ -649,7 +661,7 @@ class FunnelDataService {
       $trend[] = $eligible > 0 ? round($summary['conversions'] / $eligible, 4) : 0.0;
     }
 
-    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $trend, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_activity_list',
       'profile_list',
     ]);
@@ -710,7 +722,7 @@ class FunnelDataService {
       $cursor = $cursor->modify('+1 month');
     }
 
-    $this->cache->set($cacheId, $series, $this->time->getRequestTime() + 3600, ['civicrm_activity_list']);
+    $this->cache->set($cacheId, $series, $this->time->getRequestTime() + self::CACHE_TTL, ['civicrm_activity_list']);
     return $series;
   }
 
@@ -801,7 +813,7 @@ class FunnelDataService {
       'rates' => $rates,
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'civicrm_activity_list',
       'profile_list',
@@ -886,7 +898,7 @@ class FunnelDataService {
       'rates' => $rates,
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'profile_list',
     ]);
@@ -1000,7 +1012,7 @@ class FunnelDataService {
       'rates' => $monthlyRates,
     ];
 
-    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + 3600, [
+    $this->cache->set($cacheId, $data, $this->time->getRequestTime() + self::CACHE_TTL, [
       'civicrm_participant_list',
       'profile_list',
     ]);
@@ -1054,7 +1066,7 @@ class FunnelDataService {
       $map[$contactId] = $eventDate;
     }
 
-    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + 3600, ['civicrm_participant_list']);
+    $this->cache->set($cacheId, $map, $this->time->getRequestTime() + self::CACHE_TTL, ['civicrm_participant_list']);
     return $map;
   }
 
