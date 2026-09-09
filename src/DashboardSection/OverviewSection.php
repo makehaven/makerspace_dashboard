@@ -172,14 +172,14 @@ class OverviewSection extends DashboardSectionBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['overview-stoplight']],
       'heading' => [
-        '#markup' => '<h2>' . $this->t('KPI Overview') . '</h2><p>' . $this->t('Performance against annual goals. Use the More link under each KPI for deeper context.') . '</p>',
+        '#markup' => '<h2>' . $this->t('KPI Overview') . '</h2><p>' . $this->t('Performance against annual goals. Check the reporting date before comparing values. Calculation time shows when a figure was refreshed; it does not establish how recently its source was updated. Use More to inspect the source and supporting charts.') . '</p>',
       ],
       'legend' => [
         '#markup' => '<div class="kpi-legend">
           <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--good"></span> ' . $this->t('On track') . '</span>
           <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--warning"></span> ' . $this->t('Watch') . '</span>
           <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--poor"></span> ' . $this->t('Off track') . '</span>
-          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--na"></span> ' . $this->t('No goal / In development') . '</span>
+          <span class="kpi-legend-item"><span class="kpi-progress kpi-progress--na"></span> ' . $this->t('No comparison: missing goal, old data or unavailable value') . '</span>
         </div>',
       ],
     ];
@@ -213,7 +213,7 @@ class OverviewSection extends DashboardSectionBase {
         ],
         'table_wrap' => [
           '#type' => 'container',
-          '#attributes' => ['class' => ['overview-kpi-table-wrap']],
+          '#attributes' => ['class' => ['overview-kpi-table-wrap'], 'tabindex' => '0', 'role' => 'region', 'aria-label' => $sectionTable['label'] . ' KPIs'],
           'table' => [
             '#type' => 'table',
             '#attributes' => ['class' => ['kpi-stoplight-table', 'kpi-stoplight-table--sectioned']],

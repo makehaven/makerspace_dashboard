@@ -66,3 +66,27 @@ The resulting `dist/dashboard.js` file is referenced by the `makerspace_dashboar
 - `drush makerspace-dashboard:import-kpi-goals /path/to/file.csv` – Bulk update KPI baseline, goal, and annual values from a spreadsheet export. See `docs/kpi-goal-import.md` for the CSV format.
 - `makerspace_snapshot` captures live KPI metrics via `hook_makerspace_snapshot_collect_kpi()` and persists them in `ms_fact_kpi_snapshot`, which the dashboard pulls into each KPI table.
 - `drush makerspace-dashboard:backfill-kpi-snapshots ...` – Backfill annual KPI facts into existing annual snapshots using a conservative default KPI set. See `docs/backfill-kpi-snapshots.md` for safe/risky scope and dev/live run steps.
+
+## Value quality and exports
+
+KPI cells show calculation time separately from the source/period reporting date.
+Expired section payloads stay readable with a refresh-overdue note; they do not
+receive performance coloring. Missing current values that fall back to snapshots
+show the snapshot date and lose the failed calculation's current-period label.
+Alternative fallback estimates, unavailable values and pre-upgrade payloads are
+also neutral. These labels do not prove upstream freshness or reconcile billing.
+
+Known definition gaps are listed in `Support/KpiFreshness::REVIEW_NOTES`; remove a
+note only after the source reconciliation is complete. First-year retention and
+new recurring dues currently need that work. Workshop counts are explicitly
+counted registrations, including records not yet marked attended. Outreach
+charts describe annualized associated dues rather than asserting savings.
+
+CSV links are rendered with the loaded chart response's range. Scalar chart
+series also have an accessible data table. Both controls disappear while a new
+range is loading so a pending selection cannot export the previous view.
+
+No schema/config migration is required. After deployment, normal cron queues
+pre-upgrade KPI payloads for refresh. `drush msd:kpi-warm` can refresh immediately;
+clear render caches afterward. Do not run a full-site cron just to refresh KPIs
+because other modules can send notifications.

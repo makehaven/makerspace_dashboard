@@ -55,7 +55,7 @@ class RetentionInterventionROIChartBuilder extends ChartBuilderBase {
       ],
       'rows' => [
         [
-          (string) $this->t('Annual Value Saved'),
+          (string) $this->t('Annualized Dues of Resolved Members'),
           '$' . number_format($value_saved, 0),
         ],
         [
@@ -63,7 +63,7 @@ class RetentionInterventionROIChartBuilder extends ChartBuilderBase {
           number_format((float) $resolution_rate, 1) . '%',
         ],
         [
-          (string) $this->t('Members at Risk'),
+          (string) $this->t('Members Contacted'),
           number_format($members_at_risk, 0),
         ],
         [
@@ -71,16 +71,16 @@ class RetentionInterventionROIChartBuilder extends ChartBuilderBase {
           number_format((float) $avg_days, 1),
         ],
       ],
-      'empty' => (string) $this->t('Intervention ROI metrics are not available yet.'),
+      'empty' => (string) $this->t('Member outreach outcomes are not available yet.'),
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Intervention ROI Summary'),
-      (string) $this->t('Key performance indicators for member outreach program.'),
+      (string) $this->t('Member Outreach Outcomes'),
+      (string) $this->t('Outreach dispositions and associated dues across recorded contacts.'),
       $visualization,
       [
-        (string) $this->t('Annual Value Saved: Sum of monthly payments × 12 for resolved members.'),
-        (string) $this->t('Resolution Rate: (Resolved ÷ Contacted) × 100.'),
+        (string) $this->t('Annualized dues: current recorded monthly dues × 12 for members with a resolved outreach outcome. This estimates associated dues, not collected revenue or savings attributable to outreach.'),
+        (string) $this->t('Resolution Rate: (Resolved ÷ Contacted) × 100. A resolved case does not establish continued membership or a successful payment.'),
         (string) $this->t('Avg Days: Time from first contact to resolution.'),
       ],
     );

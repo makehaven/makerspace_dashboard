@@ -3,6 +3,7 @@ import { useChartData } from '../hooks/useChartData';
 import type { PlaceholderConfig } from '../types';
 import { ChartRenderer } from './ChartRenderer';
 import { RangeSelector } from './RangeSelector';
+import { ChartDataTable } from './ChartDataTable';
 
 interface DashboardChartProps extends PlaceholderConfig {
   reactId: string;
@@ -62,6 +63,13 @@ export const DashboardChart = ({ sectionId, chartId, ranges, reactId }: Dashboar
       )}
 
       {!error && data && <ChartRenderer visualization={data.visualization} />}
+      {loading && data && <p role="status">{translate('Updating chart…')}</p>}
+      {!loading && !error && data && (
+        <>
+          <ChartDataTable visualization={data.visualization} title={data.title} />
+          {data.downloadUrl && <p><a href={data.downloadUrl}>{translate('Download CSV for this view')}</a></p>}
+        </>
+      )}
     </div>
   );
 };

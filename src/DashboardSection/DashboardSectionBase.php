@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
+use Drupal\makerspace_dashboard\Support\KpiFreshness;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
@@ -227,6 +228,8 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       ],
       'wired_table' => [
         '#type' => 'table',
+        '#prefix' => '<div class="kpi-table-scroll" tabindex="0" role="region" aria-label="' . Html::escape((string) $this->t('Key performance indicators')) . '">',
+        '#suffix' => '</div>',
         '#header' => $header,
         '#rows' => $wiredRows,
         '#empty' => $this->t('No wired KPIs available for this section yet.'),
@@ -237,6 +240,8 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
       ],
       'in_development_table' => [
         '#type' => 'table',
+        '#prefix' => '<div class="kpi-table-scroll" tabindex="0" role="region" aria-label="' . Html::escape((string) $this->t('KPIs in development')) . '">',
+        '#suffix' => '</div>',
         '#header' => $header,
         '#rows' => $inDevelopmentRows,
         '#empty' => $this->t('No in-development KPIs currently listed.'),
@@ -584,6 +589,10 @@ SVG;
       $periodFraction
     );
 
+    if (!KpiFreshness::canCompare($kpi)) {
+      $class = NULL;
+    }
+
     // The colored badge contains only the number.
     $valueHtml = Html::escape($formatted);
     if ($class) {
@@ -604,7 +613,8 @@ SVG;
       $title = Html::escape("Year in progress ($pct% elapsed) — goal comparison scaled proportionally");
       $below .= '<span class="kpi-period-badge kpi-period-badge--ytd" title="' . $title . '">↑ YTD</span>';
     }
-    if ($showProgressBar) {
+    $below .= $this->buildFreshnessNote($kpi);
+    if ($showProgressBar && KpiFreshness::canCompare($kpi)) {
       $below .= $this->buildGoalProgressBar($kpi, $format, $periodFraction);
     }
     return [
@@ -613,10 +623,52 @@ SVG;
   }
 
   /**
+   * Shows the age of the calculation separately from the reporting date.
+   */
+  protected function buildFreshnessNote(array $kpi): string {
+    $notes = [];
+    if (!empty($kpi['quality_note'])) {
+      $notes[] = $kpi['quality_note'];
+    }
+    if (!empty($kpi['interpretation_note'])) {
+      $notes[] = $kpi['interpretation_note'];
+    }
+    $source = $kpi['value_source'] ?? 'unverified';
+    if ($source === 'snapshot_fallback') {
+      $notes[] = !empty($kpi['snapshot_date'])
+        ? $this->t('Last known value: snapshot @date.', ['@date' => $kpi['snapshot_date']])
+        : $this->t('Last known value: snapshot date unknown.');
+      $notes[] = $this->t('Current value unavailable. Check the source before using this figure.');
+    }
+    elseif ($source === 'unavailable') {
+      $notes[] = $this->t('Current value unavailable.');
+    }
+    elseif ($source === 'unverified') {
+      $notes[] = $this->t('Awaiting refresh to verify the value source.');
+    }
+    elseif ($source === 'estimate') {
+      $notes[] = $this->t('Alternative estimate. See the source note for its definition.');
+    }
+    elseif (!empty($kpi['last_updated'])) {
+      $notes[] = $this->t('Reporting date: @date.', ['@date' => $kpi['last_updated']]);
+    }
+    if (!empty($kpi['computed_at'])) {
+      $notes[] = $this->t('Calculated @date.', ['@date' => gmdate('Y-m-d H:i', (int) $kpi['computed_at']) . ' UTC']);
+    }
+    if (($kpi['refresh_status'] ?? 'unknown') === 'stale') {
+      $notes[] = $this->t('Refresh overdue. Check the source before using this figure.');
+    }
+    elseif (($kpi['refresh_status'] ?? 'unknown') === 'unknown') {
+      $notes[] = $this->t('Calculation time unknown.');
+    }
+    return '<div class="kpi-freshness">' . implode(' ', array_map(static fn($note) => Html::escape((string) $note), $notes)) . '</div>';
+  }
+
+  /**
    * Builds KPI details cell content from optional segment chips.
    */
   protected function buildKpiDetailsCell(array $kpi, ?string $format = NULL): array {
-    if (empty($kpi['segments']) || !is_array($kpi['segments'])) {
+    if (($kpi['value_source'] ?? '') === 'snapshot_fallback' || empty($kpi['segments']) || !is_array($kpi['segments'])) {
       return ['#markup' => '<span class="kpi-details-empty">' . Html::escape((string) $this->t('—')) . '</span>'];
     }
 
@@ -833,9 +885,7 @@ SVG;
       'chartId' => $chart_id,
     ];
 
-    if ($supportsDownload) {
-      $container['download'] = $this->buildCsvDownloadLink($this->getId(), $chart_id);
-    }
+    // React renders the download link from the response for the active range.
 
     return $container;
   }
@@ -881,9 +931,7 @@ SVG;
     ];
 
     $container['#cache'] = $this->buildChartCacheMetadata($definition, $tier);
-    if ($downloadable) {
-      $container['download'] = $this->buildCsvDownloadLink($definition->getSectionId(), $chart_id);
-    }
+    // React renders the download link from the response for the active range.
 
     $container['#attached']['library'][] = 'makerspace_dashboard/react_app';
     $settings = [

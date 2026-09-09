@@ -1541,3 +1541,44 @@
   padding: 0.05rem 0.3rem;
   cursor: help;
 }
+.kpi-freshness {
+  margin-block-start: 0.5rem;
+  max-width: 28rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--mh-color-neutral-700, inherit);
+}
+
+/* Keep dates and qualification notes readable; narrow screens scroll the table. */
+.makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap .gin-table-scroll-wrapper table.kpi-stoplight-table.kpi-stoplight-table--sectioned {
+  min-width: 60rem !important;
+  max-width: none !important;
+}
+
+.makerspace-dashboard-section .overview-stoplight .gin-table-scroll-wrapper .kpi-stoplight-table--sectioned th:nth-child(1),
+.makerspace-dashboard-section .overview-stoplight .gin-table-scroll-wrapper .kpi-stoplight-table--sectioned td:nth-child(1) {
+  width: 28% !important;
+}
+
+.makerspace-dashboard-section .overview-stoplight .gin-table-scroll-wrapper .kpi-stoplight-table--sectioned th:nth-child(2),
+.makerspace-dashboard-section .overview-stoplight .gin-table-scroll-wrapper .kpi-stoplight-table--sectioned td:nth-child(2) {
+  width: 32% !important;
+}
+
+.kpi-table-scroll {
+  overflow-x: auto;
+}
+
+.makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table {
+  min-width: 64rem !important;
+}
+
+.makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table th:nth-child(1),
+.makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table td:nth-child(1) {
+  width: 28% !important;
+}
+
+.makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table th:nth-child(2),
+.makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table td:nth-child(2) {
+  width: 26% !important;
+}

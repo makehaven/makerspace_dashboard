@@ -10,6 +10,23 @@
 (function (Drupal, once) {
   'use strict';
 
+  Drupal.behaviors.makerspaceDashboardScrollRegions = {
+    attach(context) {
+      once('makerspace-dashboard-scroll', '.overview-kpi-table-wrap, .kpi-table-scroll', context).forEach((region) => {
+        // Gin supplies an inner scroller; other themes use our outer wrapper.
+        const scroller = region.querySelector('.gin-table-scroll-wrapper') || region;
+        scroller.setAttribute('tabindex', '0');
+        scroller.setAttribute('role', 'region');
+        scroller.setAttribute('aria-label', region.getAttribute('aria-label') || Drupal.t('KPI data'));
+        if (scroller !== region) {
+          region.removeAttribute('tabindex');
+          region.removeAttribute('role');
+          region.removeAttribute('aria-label');
+        }
+      });
+    },
+  };
+
   Drupal.behaviors.makerspaceDashboardTabs = {
     attach(context) {
       once('makerspace-dashboard-tabs', '.makerspace-dashboard-tabs', context).forEach((nav) => {

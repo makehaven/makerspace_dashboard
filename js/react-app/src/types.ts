@@ -57,7 +57,7 @@ export interface ChartDefinition {
   title: string;
   description: string;
   notes: string[];
-  downloadUrl: string;
+  downloadUrl: string | null;
   range?: RangeConfig | null;
   visualization: ChartVisualization;
 }

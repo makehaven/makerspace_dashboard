@@ -68,6 +68,14 @@ class DashboardDataController extends ControllerBase {
       return new JsonResponse(['error' => 'Chart not found.'], 404);
     }
 
+    $visualization = $definition['visualization'] ?? [];
+    $definition['downloadUrl'] = ($visualization['type'] ?? '') === 'chart' && !empty($visualization['data']['datasets'])
+      ? Url::fromRoute('makerspace_dashboard.download_chart_csv', [
+        'sid' => $section,
+        'chart_id' => $chart,
+      ], ['query' => isset($filters['range']) ? ['range' => $filters['range']] : []])->toString()
+      : NULL;
+
     $response = new CacheableJsonResponse($definition);
     $cacheability = (new CacheableMetadata())
       ->addCacheContexts(['url.query_args:range'])

@@ -7,6 +7,7 @@ use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
 use Drupal\makerspace_dashboard\Service\DashboardSectionManager;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
 /**
@@ -38,6 +39,8 @@ class CsvDownloadController extends ControllerBase {
    *
    * @param \Drupal\makerspace_dashboard\Service\DashboardSectionManager $dashboard_section_manager
    *   The dashboard section manager.
+   * @param \Drupal\makerspace_dashboard\Service\ChartBuilderManager $chart_builder_manager
+   *   The chart builder manager.
    */
   public function __construct(DashboardSectionManager $dashboard_section_manager, ChartBuilderManager $chart_builder_manager) {
     $this->dashboardSectionManager = $dashboard_section_manager;
@@ -58,6 +61,8 @@ class CsvDownloadController extends ControllerBase {
   /**
    * Downloads the chart data as a CSV file.
    *
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The request with the selected chart range.
    * @param string $sid
    *   The ID of the dashboard section.
    * @param string $chart_id
@@ -66,8 +71,13 @@ class CsvDownloadController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\StreamedResponse
    *   A streamed response containing the CSV file.
    */
-  public function downloadCsv(string $sid, string $chart_id): StreamedResponse {
-    $definition = $this->buildChartDefinition($sid, $chart_id);
+  public function downloadCsv(Request $request, string $sid, string $chart_id): StreamedResponse {
+    $filters = [];
+    $range = $request->query->get('range');
+    if (is_string($range) && $range !== '') {
+      $filters = ['range' => $range, 'ranges' => [$chart_id => $range]];
+    }
+    $definition = $this->buildChartDefinition($sid, $chart_id, $filters);
     if (!$definition) {
       throw new NotFoundHttpException();
     }
@@ -126,15 +136,15 @@ class CsvDownloadController extends ControllerBase {
   /**
    * Builds chart metadata either from a builder or legacy render array.
    */
-  protected function buildChartDefinition(string $sectionId, string $chartId): ?array {
+  protected function buildChartDefinition(string $sectionId, string $chartId, array $filters = []): ?array {
     if ($builder = $this->chartBuilderManager->getBuilder($sectionId, $chartId)) {
-      $definition = $builder->build();
+      $definition = $builder->build($filters);
       if ($definition) {
         return $definition->toMetadata();
       }
     }
 
-    return $this->dashboardSectionManager->getChartDefinition($sectionId, $chartId);
+    return $this->dashboardSectionManager->getChartDefinition($sectionId, $chartId, $filters);
   }
 
 }

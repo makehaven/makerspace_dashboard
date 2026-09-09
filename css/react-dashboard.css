@@ -221,3 +221,16 @@
     transform: rotate(360deg);
   }
 }
+/* Data stays readable alongside charts, including on narrow screens. */
+.makerspace-dashboard-data-table {
+  margin-block: 1rem;
+}
+
+.makerspace-dashboard-data-table__scroll {
+  overflow-x: auto;
+}
+
+.makerspace-dashboard-data-table caption {
+  color: inherit;
+  text-align: start;
+}

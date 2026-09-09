@@ -38,7 +38,7 @@ class FinanceDunningRecoveryChartBuilder extends ChartBuilderBase {
 
     $datasets = [
       [
-        'label' => (string) $this->t('Recovered'),
+        'label' => (string) $this->t('Positive outreach outcome'),
         'data' => $trend['recovered'],
         'backgroundColor' => 'rgba(22, 163, 74, 0.75)',
         'borderColor' => '#16a34a',
@@ -52,7 +52,7 @@ class FinanceDunningRecoveryChartBuilder extends ChartBuilderBase {
         'stack' => 'dunning',
       ],
       [
-        'label' => (string) $this->t('Confirmed lost'),
+        'label' => (string) $this->t('Confirmed cancellation'),
         'data' => $trend['lost'],
         'backgroundColor' => 'rgba(220, 38, 38, 0.75)',
         'borderColor' => '#dc2626',
@@ -101,12 +101,12 @@ class FinanceDunningRecoveryChartBuilder extends ChartBuilderBase {
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Dunning recovery: $ at risk, recovered, and lost'),
-      (string) $this->t('Annualized dollars from members in active payment recovery, by month. Total stack height = total revenue touched by dunning that month; green = saved, red = confirmed cancelled, gray = still in flight at month end.'),
+      (string) $this->t('Payment outreach outcomes: associated annualized dues'),
+      (string) $this->t('Current recorded monthly dues × 12 for members contacted each month, grouped by outreach outcome. Positive outcomes include payment updated, will return, and no action needed; they do not establish cash collected or revenue saved.'),
       $visualization,
       [
-        (string) $this->t('Source: ms_member_outreach_log joined to per-member field_member_payment_monthly_value, annualized (× 12) to match the "Monthly Revenue at Risk" KPI.'),
-        (string) $this->t('Processing: Distinct member per (uid, month). Outcome priority is lost > recovered > in-flight, so a member appears once per month in the highest-priority bucket they hit.'),
+        (string) $this->t('Source: member outreach records and current recorded monthly dues, annualized (× 12). Historical bars can change when recorded dues change.'),
+        (string) $this->t('Processing: Each member appears once per month. Confirmed cancellation takes priority over a positive outcome, followed by unresolved contacts. A member can appear in several months; do not sum the bars as unique savings.'),
         (string) $this->t('Note: For per-channel and resolution-rate breakdowns of the same activity, see the intervention charts in the Retention section.'),
       ],
     );

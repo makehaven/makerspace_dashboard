@@ -8,6 +8,7 @@ use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
 use Drupal\Component\Datetime\TimeInterface;
 use DateTimeImmutable;
 use DateTimeZone;
+use Drupal\makerspace_dashboard\Support\KpiFreshness;
 
 /**
  * Service for fetching and calculating Key Performance Indicator (KPI) data.
@@ -261,13 +262,14 @@ class KpiDataService {
     if (is_array($stored)
       && isset($stored['data'], $stored['config_hash'])
       && $stored['config_hash'] === $configHash) {
-      $this->sectionKpiDataCache[$section_id] = $stored['data'];
-      return $stored['data'];
+      $data = KpiFreshness::annotate($stored['data'], $stored, $this->time->getRequestTime());
+      $this->sectionKpiDataCache[$section_id] = $data;
+      return $data;
     }
 
     $kpi_data = $this->computeSectionKpis($section_id);
     $this->persistSectionKpis($section_id, $kpi_data, $configHash);
-    return $kpi_data;
+    return $this->sectionKpiDataCache[$section_id];
   }
 
   /**
@@ -307,13 +309,15 @@ class KpiDataService {
    * Stores a freshly computed section payload in the persistent key-value store.
    */
   protected function persistSectionKpis(string $section_id, array $kpi_data, string $configHash): void {
-    $this->sectionKpiDataCache[$section_id] = $kpi_data;
-    $this->store->set($this->buildSectionKpiCacheId($section_id), [
+    $stored = [
+      'payload_version' => 1,
       'data' => $kpi_data,
       'expires_at' => $this->time->getRequestTime() + $this->sectionCacheTtl,
       'config_hash' => $configHash,
       'computed_at' => $this->time->getRequestTime(),
-    ]);
+    ];
+    $this->store->set($this->buildSectionKpiCacheId($section_id), $stored);
+    $this->sectionKpiDataCache[$section_id] = KpiFreshness::annotate($kpi_data, $stored, $this->time->getRequestTime());
   }
 
   /**
@@ -355,6 +359,7 @@ class KpiDataService {
       $stored = $this->store->get($this->buildSectionKpiCacheId($sectionId));
       if (!is_array($stored)
         || !isset($stored['data'], $stored['config_hash'], $stored['expires_at'])
+        || ($stored['payload_version'] ?? 0) < 1
         || $stored['config_hash'] !== $this->getSectionConfigHash($sectionId)
         || $stored['expires_at'] < $now) {
         $needs[] = $sectionId;
@@ -652,6 +657,11 @@ class KpiDataService {
    *   A normalized KPI payload.
    */
   private function buildKpiResult(array $kpi_info, array $annualOverrides = [], array $trend = [], ?float $ttm12 = NULL, ?float $ttm3 = NULL, ?string $lastUpdated = NULL, $current = NULL, ?string $kpiId = NULL, ?string $displayFormat = NULL, ?string $sourceNote = NULL, ?string $trendLabel = NULL, ?string $currentPeriodLabel = NULL, ?float $periodFraction = NULL): array {
+    $valueSource = is_numeric($current) ? 'calculated' : 'unavailable';
+    if ($valueSource === 'calculated' && str_starts_with($sourceNote ?? '', 'Fallback:')) {
+      $valueSource = 'estimate';
+    }
+    $snapshotDate = NULL;
     if ($kpiId) {
       $snapshotDefaults = $this->buildSnapshotTrendDefaults($kpiId);
       if (!empty($snapshotDefaults['annual'])) {
@@ -678,6 +688,12 @@ class KpiDataService {
         || (is_string($current) && in_array(strtolower(trim($current)), ['', 'tbd', 'n/a'], TRUE));
       if ($isMissingCurrent && array_key_exists('current', $snapshotDefaults) && $snapshotDefaults['current'] !== NULL) {
         $current = $snapshotDefaults['current'];
+        $valueSource = 'snapshot_fallback';
+        $snapshotDate = $snapshotDefaults['last_updated'] ?? NULL;
+        $lastUpdated = $snapshotDate;
+        // The caller's current-period label describes the failed calculation,
+        // not the historical value substituted here.
+        $currentPeriodLabel = NULL;
       }
     }
 
@@ -740,6 +756,8 @@ class KpiDataService {
       'trend' => $trend,
       'description' => $kpi_info['description'] ?? '',
       'last_updated' => $lastUpdated,
+      'value_source' => $valueSource,
+      'snapshot_date' => $snapshotDate,
       'current' => $current ?? 'TBD',
       'display_format' => $displayFormat,
       'source_note' => $sourceNote,
