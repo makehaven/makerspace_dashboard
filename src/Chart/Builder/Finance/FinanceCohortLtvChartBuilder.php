@@ -103,7 +103,7 @@ class FinanceCohortLtvChartBuilder extends ChartBuilderBase {
       (string) $this->t('Cumulative monthly dues paid per joiner, plotted by months since their join date, one line per quarterly cohort. A newer cohort tracking below older ones is an early signal that the projected LTV KPI is overstating future revenue.'),
       $visualization,
       [
-        (string) $this->t('Source: profile join_date / end_date / field_member_payment_monthly_value.'),
+        (string) $this->t('Source: canonical profile creation timestamp (or a later recorded reactivation), end date, and recorded monthly payment value.'),
         (string) $this->t('Processing: For each member we compute tenure as (end_date or today) − join_date in whole months. Cumulative dues at month N = min(N, tenure) × monthly_value. The cohort line is the per-member average; cohort size shown in legend.'),
         (string) $this->t('Caveat: This is an expected-collection proxy, not a payment-ledger. It assumes everyone paid their stated monthly dues for every active month — failed payments and partial collections aren\'t deducted. Newer cohorts naturally show shorter curves until they age into the horizon.'),
       ],

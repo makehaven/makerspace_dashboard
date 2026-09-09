@@ -105,7 +105,7 @@ class FinanceMrrTrendChartBuilder extends ChartBuilderBase {
       (string) $this->t('Aggregate by billing source to highlight sustainability of recruitment and retention efforts.'),
       $visualization,
       [
-        (string) $this->t('Source: Member join dates (profile__field_member_join_date) paired with membership type taxonomy terms.'),
+        (string) $this->t('Source: Canonical member profile creation timestamps paired with recorded monthly payment values.'),
         (string) $this->t('Processing: Includes joins within the selected six-month window and applies assumed monthly values ($50 individual, $75 family, others default to $0).'),
         (string) $this->t('Definitions: Additional membership types require configured pricing before contributing to this model.'),
       ],

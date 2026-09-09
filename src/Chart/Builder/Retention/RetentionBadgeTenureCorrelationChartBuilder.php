@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
  */
 class RetentionBadgeTenureCorrelationChartBuilder extends ChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'badge_tenure_correlation';
   protected const WEIGHT = 94;

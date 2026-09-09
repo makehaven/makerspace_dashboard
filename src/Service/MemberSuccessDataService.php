@@ -100,65 +100,69 @@ class MemberSuccessDataService {
    * Returns monthly 28-day activation snapshots at the latest date each month.
    */
   public function getMonthlyActivationSeries(int $months = 18, int $activationDays = 28, int $cohortWindowDays = 30): array {
-    if (!$this->isAvailable()) {
-      return [];
-    }
-
     $months = max(1, $months);
     $activationDays = max(1, $activationDays);
-    $cohortWindowDays = max(7, $cohortWindowDays);
 
     $cacheId = sprintf(
-      'makerspace_dashboard:member_success:activation:%d:%d:%d',
+      'makerspace_dashboard:member_success:activation:v2:%d:%d',
       $months,
-      $activationDays,
-      $cohortWindowDays
+      $activationDays
     );
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
-    $start = (new DateTimeImmutable('first day of this month'))
-      ->modify('-' . ($months + 2) . ' months')
-      ->format('Y-m-d');
-    $minAge = $activationDays;
-    $maxAge = $activationDays + $cohortWindowDays;
+    $now = new DateTimeImmutable('now');
+    $start = $now->modify('first day of this month')->setTime(0, 0)->modify('-' . ($months - 1) . ' months');
+    $maturityCutoff = $now->modify('-' . $activationDays . ' days');
 
-    $query = $this->database->select('ms_member_success_snapshot', 's');
-    $query->fields('s', ['snapshot_date']);
+    // Find each member's first earned badge. An earned badge is a published
+    // badge_request with the canonical active status; pending and duplicate
+    // requests are not achievements.
+    $firstBadge = $this->database->select('node_field_data', 'badge_node');
+    $firstBadge->innerJoin('node__field_member_to_badge', 'badge_member', 'badge_member.entity_id = badge_node.nid AND badge_member.deleted = 0');
+    $firstBadge->innerJoin('node__field_badge_status', 'badge_status', 'badge_status.entity_id = badge_node.nid AND badge_status.deleted = 0');
+    $firstBadge->addField('badge_member', 'field_member_to_badge_target_id', 'uid');
+    $firstBadge->addExpression('MIN(badge_node.created)', 'first_badge_ts');
+    $firstBadge->condition('badge_node.type', 'badge_request');
+    $firstBadge->condition('badge_node.status', 1);
+    $firstBadge->condition('badge_status.field_badge_status_value', 'active');
+    $firstBadge->groupBy('badge_member.field_member_to_badge_target_id');
+
+    $query = $this->database->select('profile', 'p');
+    $query->leftJoin($firstBadge, 'first_badge', 'first_badge.uid = p.uid');
+    $query->leftJoin('user__roles', 'member_role', "member_role.entity_id = p.uid AND member_role.roles_target_id IN ('current_member', 'member')");
+    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
+    $query->addExpression("DATE_FORMAT(FROM_UNIXTIME(p.created), '%Y-%m')", 'period_key');
+    $query->addExpression('COUNT(DISTINCT p.uid)', 'cohort_total');
     $query->addExpression(
-      'SUM(CASE WHEN join_date IS NOT NULL AND DATEDIFF(snapshot_date, join_date) BETWEEN :min_age AND :max_age THEN 1 ELSE 0 END)',
-      'cohort_total',
-      [
-        ':min_age' => $minAge,
-        ':max_age' => $maxAge,
-      ]
-    );
-    $query->addExpression(
-      'SUM(CASE WHEN join_date IS NOT NULL AND DATEDIFF(snapshot_date, join_date) BETWEEN :min_age_2 AND :max_age_2 AND badge_count_total >= 1 THEN 1 ELSE 0 END)',
+      'COUNT(DISTINCT CASE WHEN first_badge.first_badge_ts BETWEEN p.created AND p.created + :activation_seconds THEN p.uid END)',
       'activated_total',
-      [
-        ':min_age_2' => $minAge,
-        ':max_age_2' => $maxAge,
-      ]
+      [':activation_seconds' => $activationDays * 86400]
     );
-    $query->condition('s.snapshot_type', 'daily');
-    $query->condition('s.snapshot_date', $start, '>=');
-    $query->groupBy('s.snapshot_date');
-    $query->orderBy('s.snapshot_date', 'ASC');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->condition('p.created', [$start->getTimestamp(), $maturityCutoff->getTimestamp()], 'BETWEEN');
+    $membership = $query->orConditionGroup()
+      ->isNotNull('member_role.entity_id')
+      ->isNotNull('end_date.field_member_end_date_value');
+    $query->condition($membership);
+    $query->groupBy('period_key');
+    $query->orderBy('period_key', 'ASC');
 
-    $daily = $query->execute()->fetchAllAssoc('snapshot_date');
-    if (!$daily) {
+    $rows = $query->execute();
+    if (!$rows) {
       return [];
     }
 
-    $monthly = $this->takeLatestSnapshotPerMonth($daily);
     $series = [];
-    foreach ($monthly as $row) {
-      $snapshotDate = DateTimeImmutable::createFromFormat('Y-m-d', (string) ($row->snapshot_date ?? ''));
+    foreach ($rows as $row) {
+      $snapshotDate = DateTimeImmutable::createFromFormat('!Y-m-d', (string) ($row->period_key ?? '') . '-01');
       if (!$snapshotDate) {
         continue;
       }
+      $snapshotDate = $snapshotDate->modify('last day of this month');
       $cohortTotal = (int) ($row->cohort_total ?? 0);
       $activatedTotal = (int) ($row->activated_total ?? 0);
       $series[] = [
@@ -170,8 +174,7 @@ class MemberSuccessDataService {
       ];
     }
 
-    $series = array_slice($series, -$months);
-    $this->cache->set($cacheId, $series, $this->time->getRequestTime() + 3600, ['civicrm_activity_list', 'user_list']);
+    $this->cache->set($cacheId, $series, $this->time->getRequestTime() + 3600, ['node_list:badge_request', 'profile_list', 'user_list']);
     return $series;
   }
 

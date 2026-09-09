@@ -67,7 +67,7 @@ class EducationEventTimeToJoinChartBuilder extends EducationEventsChartBuilderBa
       (string) $this->t('Visualizes the rolling average time it takes a counted participant to activate a membership.'),
       $visualization,
       [
-        (string) $this->t('Source: Same participant dataset as the conversion funnel with membership join dates from profile__field_member_join_date.'),
+        (string) $this->t('Source: Same participant dataset as the conversion funnel with canonical member profile creation timestamps.'),
         (string) $this->t('Processing: Calculates the average days between an attended event and the member\'s recorded join date, grouped by event month.'),
         (string) $this->t('Definitions: Only participants with a join date contribute to the average; events without downstream joins plot as zero.'),
       ],

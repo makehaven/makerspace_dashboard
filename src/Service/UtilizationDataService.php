@@ -809,18 +809,16 @@ class UtilizationDataService {
     $map = [];
     foreach (array_chunk($uids, 500) as $chunk) {
       $query = $this->database->select('profile', 'p');
-      $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
-      $query->fields('p', ['uid']);
-      $query->addField('join_date', 'field_member_join_date_value', 'join_value');
+      $query->fields('p', ['uid', 'created']);
       $query->condition('p.type', 'main');
       $query->condition('p.status', 1);
       $query->condition('p.is_default', 1);
       $query->condition('p.uid', $chunk, 'IN');
 
       foreach ($query->execute() as $row) {
-        $timestamp = $row->join_value ? strtotime($row->join_value) : FALSE;
-        if ($timestamp) {
-          $map[(int) $row->uid] = (int) $timestamp;
+        $timestamp = (int) ($row->created ?? 0);
+        if ($timestamp > 0) {
+          $map[(int) $row->uid] = $timestamp;
         }
       }
     }

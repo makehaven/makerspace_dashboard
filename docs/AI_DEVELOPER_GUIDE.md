@@ -17,6 +17,16 @@ An AI cannot guess where data comes from. You must update the "menus" so the AI 
 - **Is the data from an external source (e.g., Google Sheet, external API)?**
     - **File:** `docs/data-sources.md`
     - **Action:** Add a new section for the external source. Document the resource (e.g., sheet name, API endpoint) and the expected columns or fields.
+- **Are you computing a derived metric** (badge velocity, activation, retention, visit-days,
+  a demographic breakdown)?
+    - **File:** `docs/metric-definitions.md`
+    - **Action:** **Read it before writing the query, and reuse the definition given there.**
+      It records which badge statuses count, why retention must be measured by join cohort
+      rather than across current members, which roles and membership types to exclude from
+      behavioural averages, how the multi-select ethnicity field is conventionally summarised,
+      and which metrics are deliberately not used. Several of these encode mistakes that have
+      already been made once. If you need a genuinely new metric, define it there first.
+
 - **Is this a brand new data source?**
     - **Action:** Create a new `*DataService.php` file in `src/Service/`. Follow the existing services as a template (e.g., use caching, inject dependencies).
     - **Action:** Add your new service to `docs/services.md`.

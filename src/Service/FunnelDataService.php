@@ -20,6 +20,16 @@ class FunnelDataService {
   protected const WINDOW_MONTHS = 12;
 
   /**
+   * Days allowed between a qualifying touch and a membership conversion.
+   */
+  protected const CONVERSION_WINDOW_DAYS = 90;
+
+  /**
+   * Drupal roles that prove a profile belongs to a current member.
+   */
+  protected const MEMBER_ROLES = ['current_member', 'member'];
+
+  /**
    * Cache lifetime for computed funnel data, in seconds.
    *
    * These queries scan civicrm_activity/_contact and take 2–13s each (one
@@ -403,17 +413,17 @@ class FunnelDataService {
     }
 
     $query = $this->database->select('profile', 'p');
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
-    $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
+    $query->leftJoin('user__roles', 'member_role', 'member_role.entity_id = p.uid AND member_role.roles_target_id IN (:member_roles[])', [':member_roles[]' => self::MEMBER_ROLES]);
+    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
     $query->addExpression('COUNT(DISTINCT p.uid)', 'join_count');
     $query->condition('p.type', 'main');
     $query->condition('p.is_default', 1);
     $query->condition('p.status', 1);
-    $query->condition('u.status', 1);
-    $query->condition('join_date.field_member_join_date_value', [
-      $start->format('Y-m-d'),
-      $end->format('Y-m-d'),
-    ], 'BETWEEN');
+    $membership = $query->orConditionGroup()
+      ->isNotNull('member_role.entity_id')
+      ->isNotNull('end_date.field_member_end_date_value');
+    $query->condition($membership);
+    $query->condition('p.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
 
     $count = (int) $query->execute()->fetchField();
     $this->cache->set($cacheId, $count, $this->time->getRequestTime() + self::CACHE_TTL, ['profile_list', 'user_list']);
@@ -445,7 +455,13 @@ class FunnelDataService {
     $eligible = 0;
     $alreadyMembers = 0;
     $converted = 0;
+    $maturityCutoff = $this->now()->sub(new DateInterval(sprintf('P%dD', self::CONVERSION_WINDOW_DAYS)));
     foreach ($contactDates as $contactId => $touchDate) {
+      // A recent touch has not yet had the full opportunity to convert. Keep it
+      // out of both numerator and denominator until its window matures.
+      if ($touchDate > $maturityCutoff) {
+        continue;
+      }
       $uid = $contactToUid[$contactId] ?? NULL;
       if (!$uid) {
         $eligible++;
@@ -463,7 +479,10 @@ class FunnelDataService {
       }
 
       $eligible++;
-      $converted++;
+      $deadline = $touchDate->add(new DateInterval(sprintf('P%dD', self::CONVERSION_WINDOW_DAYS)));
+      if ($joinDate <= $deadline) {
+        $converted++;
+      }
     }
 
     return $build(count($contactDates), $eligible, $alreadyMembers, $converted);
@@ -495,8 +514,13 @@ class FunnelDataService {
   /**
    * Loads inferred join dates indexed by user ID.
    *
-   * Join date source: earliest `profile.created` timestamp for the user's
-   * default main profile. This replaces the legacy member join date field.
+   * Join date source: `profile.created` for a qualifying member profile.
+   *
+   * A default main profile alone is not proof of membership: it is created
+   * while a person completes the join workflow. Current member roles prove an
+   * active membership; a recorded end date preserves former members after
+   * their role has been removed. The legacy field_member_join_date is
+   * intentionally not used because it stopped being populated in 2024.
    */
   protected function loadJoinDates(array $uids): array {
     if (empty($uids)) {
@@ -504,10 +528,17 @@ class FunnelDataService {
     }
     $query = $this->database->select('profile', 'p');
     $query->fields('p', ['uid']);
+    $query->leftJoin('user__roles', 'member_role', 'member_role.entity_id = p.uid AND member_role.roles_target_id IN (:member_roles[])', [':member_roles[]' => self::MEMBER_ROLES]);
+    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
     $query->addExpression('MIN(p.created)', 'join_value');
     $query->condition('p.uid', $uids, 'IN');
     $query->condition('p.type', 'main');
     $query->condition('p.is_default', 1);
+    $query->condition('p.status', 1);
+    $membership = $query->orConditionGroup()
+      ->isNotNull('member_role.entity_id')
+      ->isNotNull('end_date.field_member_end_date_value');
+    $query->condition($membership);
     $query->groupBy('p.uid');
 
     $map = [];

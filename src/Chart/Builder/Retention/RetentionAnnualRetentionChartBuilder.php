@@ -129,7 +129,7 @@ class RetentionAnnualRetentionChartBuilder extends RetentionCohortChartBuilderBa
       (string) $this->t('Annualized retention rate estimating the average share of members retained each year since joining.'),
       $visualization,
       [
-        (string) $this->t('Source: Same cohort dataset as the composition chart, using join dates from profile__field_member_join_date.'),
+        (string) $this->t('Source: Same cohort dataset as the composition chart, using canonical profile creation timestamps.'),
         (string) $this->t('Processing: Geometric mean of active/total per cohort, normalised for cohort age. Line shows 3-year centered rolling average; hover for per-cohort value.'),
         (string) $this->t('Definitions: Active roles default to current_member/member; cohorts without active members report 0% annualized retention.'),
       ],

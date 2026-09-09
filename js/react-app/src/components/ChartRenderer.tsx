@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Bar, Line, Pie } from 'react-chartjs-2';
 import type { ChartVisualization } from '../types';
+import type { ChartData, ChartOptions } from 'chart.js';
 import { FunnelChart } from './FunnelChart';
 
 ChartJS.register(ArcElement, BarElement, CategoryScale, Filler, Legend, LineElement, LinearScale, PointElement, Tooltip);
@@ -39,17 +40,23 @@ interface SeriesFormatOptions extends BaseFormatOptions {
   perDataset?: Record<string, BaseFormatOptions>;
 }
 
-type CallbackFactory = (options: Record<string, unknown>) => (...args: unknown[]) => unknown;
+type CallbackFactory = (options: Record<string, unknown>) => (...args: never[]) => unknown;
+type UnknownRecord = Record<string, unknown>;
 
-function ensureNumber(value: unknown): number | null {
+function asRecord(value: unknown): UnknownRecord {
+  return value !== null && typeof value === 'object' ? value as UnknownRecord : {};
+}
+
+export function ensureNumber(value: unknown): number | null {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return null;
   }
   return Number(value);
 }
 
-function extractContextValue(context: any): number | null {
-  if (context?.raw !== undefined) {
+function extractContextValue(contextInput: unknown): number | null {
+  const context = asRecord(contextInput);
+  if (context.raw !== undefined) {
     return ensureNumber(context.raw);
   }
   if (context?.value !== undefined) {
@@ -58,16 +65,17 @@ function extractContextValue(context: any): number | null {
   if (context?.parsed !== undefined && typeof context.parsed !== 'object') {
     return ensureNumber(context.parsed);
   }
-  if (context?.parsed?.x !== undefined) {
-    return ensureNumber(context.parsed.x);
+  const parsed = asRecord(context.parsed);
+  if (parsed.x !== undefined) {
+    return ensureNumber(parsed.x);
   }
-  if (context?.parsed?.y !== undefined) {
-    return ensureNumber(context.parsed.y);
+  if (parsed.y !== undefined) {
+    return ensureNumber(parsed.y);
   }
   return null;
 }
 
-function formatNumeric(value: number, options: BaseFormatOptions): string {
+export function formatNumeric(value: number, options: BaseFormatOptions): string {
   const decimals = typeof options.decimals === 'number' ? options.decimals : undefined;
   switch (options.format) {
     case 'currency': {
@@ -100,24 +108,28 @@ function buildValueString(value: number, options: BaseFormatOptions): string {
   return `${prefix}${formatNumeric(value, options)}${suffix}`.trim();
 }
 
-function resolveSeriesOptions(options: SeriesFormatOptions, context: any): BaseFormatOptions {
+function resolveSeriesOptions(options: SeriesFormatOptions, contextInput: unknown): BaseFormatOptions {
+  const context = asRecord(contextInput);
+  const dataset = asRecord(context.dataset);
   const resolved: SeriesFormatOptions = { ...options };
-  const axisId = context?.dataset?.yAxisID;
+  const axisId = typeof dataset.yAxisID === 'string' ? dataset.yAxisID : '';
   if (axisId && resolved.perAxis?.[axisId]) {
     Object.assign(resolved, resolved.perAxis[axisId]);
   }
-  const datasetIndex = typeof context?.datasetIndex === 'number' ? String(context.datasetIndex) : null;
+  const datasetIndex = typeof context.datasetIndex === 'number' ? String(context.datasetIndex) : null;
   if (datasetIndex && resolved.perDataset?.[datasetIndex]) {
     Object.assign(resolved, resolved.perDataset[datasetIndex]);
   }
   return resolved;
 }
 
-const datasetMembersCountFactory = () => (context: any) => {
-  const datasetCounts = Array.isArray(context?.dataset?.makerspaceCounts)
-    ? context.dataset.makerspaceCounts
+const datasetMembersCountFactory = () => (contextInput: unknown) => {
+  const context = asRecord(contextInput);
+  const dataset = asRecord(context.dataset);
+  const datasetCounts = Array.isArray(dataset.makerspaceCounts)
+    ? dataset.makerspaceCounts
     : [];
-  const index = context?.dataIndex ?? 0;
+  const index = typeof context.dataIndex === 'number' ? context.dataIndex : 0;
   const members = ensureNumber(datasetCounts[index]);
   if (members === null) {
     return '';
@@ -128,14 +140,16 @@ const datasetMembersCountFactory = () => (context: any) => {
 const callbackFactories: Record<string, CallbackFactory> = {
   series_value: (optionsInput) => {
     const baseOptions = optionsInput as SeriesFormatOptions;
-    return (context: any) => {
+    return (contextInput: unknown) => {
+      const context = asRecord(contextInput);
+      const dataset = asRecord(context.dataset);
       const value = extractContextValue(context);
       if (value === null) {
         return '';
       }
       const options = resolveSeriesOptions(baseOptions, context);
       const showLabel = options.showLabel !== false;
-      const label = showLabel ? context?.dataset?.label : '';
+      const label = showLabel && typeof dataset.label === 'string' ? dataset.label : '';
       const formatted = buildValueString(value, options);
       return label ? `${label}: ${formatted}` : formatted;
     };
@@ -154,10 +168,15 @@ const callbackFactories: Record<string, CallbackFactory> = {
     const options = optionsInput as BaseFormatOptions;
     const decimals = typeof options.decimals === 'number' ? options.decimals : 1;
     const suffix = typeof options.suffix === 'string' ? options.suffix : '%';
-    return (value: unknown, ctx: any) => {
-      const dataset = ctx?.chart?.data?.datasets?.[ctx?.datasetIndex ?? 0];
-      const data = Array.isArray(dataset?.data) ? dataset.data : [];
-      const total = data.reduce((acc, current) => acc + (ensureNumber(current) ?? 0), 0);
+    return (value: unknown, contextInput: unknown) => {
+      const context = asRecord(contextInput);
+      const chart = asRecord(context.chart);
+      const chartData = asRecord(chart.data);
+      const datasets = Array.isArray(chartData.datasets) ? chartData.datasets : [];
+      const datasetIndex = typeof context.datasetIndex === 'number' ? context.datasetIndex : 0;
+      const dataset = asRecord(datasets[datasetIndex]);
+      const data = Array.isArray(dataset.data) ? dataset.data : [];
+      const total = data.reduce<number>((acc, current) => acc + (ensureNumber(current) ?? 0), 0);
       if (!total) {
         return `0${suffix}`;
       }
@@ -166,14 +185,19 @@ const callbackFactories: Record<string, CallbackFactory> = {
       return `${pct.toFixed(decimals)}${suffix}`;
     };
   },
-  tooltip_after_body_cohort: () => (items: any[]) => {
+  tooltip_after_body_cohort: () => (itemsInput: unknown) => {
+    const items = Array.isArray(itemsInput) ? itemsInput.map(asRecord) : [];
     if (!Array.isArray(items) || items.length === 0) {
       return [];
     }
-    const index = items[0]?.dataIndex ?? 0;
-    const datasets = items[0]?.chart?.data?.datasets ?? [];
-    const active = ensureNumber(datasets[0]?.data?.[index]) ?? 0;
-    const inactive = ensureNumber(datasets[1]?.data?.[index]) ?? 0;
+    const index = typeof items[0].dataIndex === 'number' ? items[0].dataIndex : 0;
+    const chart = asRecord(items[0].chart);
+    const chartData = asRecord(chart.data);
+    const datasets = Array.isArray(chartData.datasets) ? chartData.datasets.map(asRecord) : [];
+    const activeData = Array.isArray(datasets[0]?.data) ? datasets[0].data : [];
+    const inactiveData = Array.isArray(datasets[1]?.data) ? datasets[1].data : [];
+    const active = ensureNumber(activeData[index]) ?? 0;
+    const inactive = ensureNumber(inactiveData[index]) ?? 0;
     const total = active + inactive;
     return [
       `${translate('Total')}: ${formatNumeric(total, { format: 'integer' })}`,
@@ -183,19 +207,22 @@ const callbackFactories: Record<string, CallbackFactory> = {
   },
   dataset_members_count: datasetMembersCountFactory,
   payment_mix_members_count: datasetMembersCountFactory,
-  dataset_total_members: () => (items: any[]) => {
+  dataset_total_members: () => (itemsInput: unknown) => {
+    const items = Array.isArray(itemsInput) ? itemsInput.map(asRecord) : [];
     if (!Array.isArray(items) || items.length === 0) {
       return '';
     }
     const index = typeof items[0]?.dataIndex === 'number' ? items[0].dataIndex : null;
     const datasetIndex = typeof items[0]?.datasetIndex === 'number' ? items[0].datasetIndex : null;
-    const datasets = items[0]?.chart?.data?.datasets;
+    const chart = asRecord(items[0].chart);
+    const chartData = asRecord(chart.data);
+    const datasets = chartData.datasets;
     if (index === null || datasetIndex === null || !Array.isArray(datasets)) {
       return '';
     }
-    const dataset = datasets[datasetIndex] ?? {};
-    const memberTotals = Array.isArray((dataset as any)?.makerspaceMembers)
-      ? (dataset as any).makerspaceMembers
+    const dataset = asRecord(datasets[datasetIndex]);
+    const memberTotals = Array.isArray(dataset.makerspaceMembers)
+      ? dataset.makerspaceMembers
       : [];
     const totalMembers = ensureNumber(memberTotals[index]);
     if (totalMembers === null) {
@@ -221,7 +248,7 @@ function hydrateLegacyFunction(source: string): (() => unknown) | null {
   return null;
 }
 
-function hydrateCallbacks<T>(input: T): T {
+export function hydrateCallbacks<T>(input: T): T {
   if (Array.isArray(input)) {
     return input.map((value) => hydrateCallbacks(value)) as unknown as T;
   }
@@ -258,12 +285,12 @@ function renderChart(
 
   switch (chartType) {
     case 'bar':
-      return <Bar data={data} options={options} />;
+      return <Bar data={data as unknown as ChartData<'bar'>} options={options as ChartOptions<'bar'>} />;
     case 'pie':
     case 'doughnut':
-      return <Pie data={data} options={options} />;
+      return <Pie data={data as unknown as ChartData<'pie'>} options={options as ChartOptions<'pie'>} />;
     default:
-      return <Line data={data} options={options} />;
+      return <Line data={data as unknown as ChartData<'line'>} options={options as ChartOptions<'line'>} />;
   }
 }
 
@@ -289,7 +316,7 @@ const ChartRendererComponent = ({ visualization }: ChartRendererProps) => {
       };
     }
     return null;
-  }, [visualization.data, visualization.library, visualization.options, visualization.type]);
+  }, [visualization]);
 
   if (visualization.type === 'chart' && visualization.library === 'chartjs') {
     if (!visualization.data) {

@@ -295,14 +295,6 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
-  makerspace_dashboard.chart_builder.education_capacity_placeholder:
-    class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationWorkshopCapacityPlaceholderChartBuilder
-    arguments:
-      - '@makerspace_dashboard.events_membership_data'
-      - '@string_translation'
-    tags:
-      - { name: makerspace_dashboard.chart_builder }
-
   makerspace_dashboard.chart_builder.education_workshop_fill_rate:
     class: Drupal\makerspace_dashboard\Chart\Builder\Education\EducationWorkshopFillRateChartBuilder
     arguments:
@@ -345,6 +337,22 @@ services:
 
   makerspace_dashboard.chart_builder.development_recurring_vs_onetime:
     class: Drupal\makerspace_dashboard\Chart\Builder\Development\DevelopmentRecurringGivingChartBuilder
+    arguments:
+      - '@makerspace_dashboard.development_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.development_annual_giving:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Development\DevelopmentAnnualGivingChartBuilder
+    arguments:
+      - '@makerspace_dashboard.development_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.development_gift_ranges:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Development\DevelopmentGiftRangeChartBuilder
     arguments:
       - '@makerspace_dashboard.development_data'
       - '@string_translation'

@@ -81,11 +81,13 @@ class EventsMembershipDataService {
     $query->join('civicrm_event', 'e', 'p.event_id = e.id');
     $query->join('civicrm_uf_match', 'ufm', 'p.contact_id = ufm.contact_id');
     $query->join('users_field_data', 'u', 'ufm.uf_id = u.uid');
-    $query->join('profile__field_member_join_date', 'pmjd', 'u.uid = pmjd.entity_id');
+    $query->join('profile', 'member_profile', "u.uid = member_profile.uid AND member_profile.type = 'main' AND member_profile.status = 1 AND member_profile.is_default = 1");
     $query->fields('e', ['start_date']);
-    $query->fields('pmjd', ['field_member_join_date_value']);
+    $query->addField('member_profile', 'created', 'member_join_timestamp');
     $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
     $query->condition('p.status_id', 1); // Attended
+    $query->condition('e.is_active', 1);
+    $query->condition('p.is_test', 0);
     $results = $query->execute()->fetchAll();
 
     $event_attendees = count($results);
@@ -95,12 +97,11 @@ class EventsMembershipDataService {
 
     foreach ($results as $result) {
       $event_date = new DrupalDateTime($result->start_date);
-      $joinValue = $result->field_member_join_date_value ?? NULL;
-      if (!$joinValue) {
+      $joinTimestamp = (int) ($result->member_join_timestamp ?? 0);
+      if ($joinTimestamp <= 0) {
         continue;
       }
-      $join_date = new DrupalDateTime($joinValue);
-      $diff = $join_date->getTimestamp() - $event_date->getTimestamp();
+      $diff = $joinTimestamp - $event_date->getTimestamp();
       $days = round($diff / (60 * 60 * 24));
       if ($days < 0) {
         continue;
@@ -141,13 +142,14 @@ class EventsMembershipDataService {
     $query->join('civicrm_event', 'e', 'p.event_id = e.id');
     $query->join('civicrm_uf_match', 'ufm', 'p.contact_id = ufm.contact_id');
     $query->join('users_field_data', 'u', 'ufm.uf_id = u.uid');
-    $query->join('profile__field_member_join_date', 'pmjd', 'u.uid = pmjd.entity_id');
+    $query->join('profile', 'member_profile', "u.uid = member_profile.uid AND member_profile.type = 'main' AND member_profile.status = 1 AND member_profile.is_default = 1");
     $query->fields('ufm', ['contact_id']);
     $query->fields('e', ['start_date']);
-    $query->fields('pmjd', ['field_member_join_date_value']);
+    $query->addField('member_profile', 'created', 'member_join_timestamp');
     $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
     $query->condition('p.status_id', 1); // Attended
-    $query->isNotNull('pmjd.field_member_join_date_value');
+    $query->condition('e.is_active', 1);
+    $query->condition('p.is_test', 0);
 
     $rows = $query->execute()->fetchAll();
     if (!$rows) {
@@ -164,7 +166,7 @@ class EventsMembershipDataService {
         continue;
       }
       $eventTs = strtotime($row->start_date);
-      $joinTs = strtotime($row->field_member_join_date_value ?? '');
+      $joinTs = (int) ($row->member_join_timestamp ?? 0);
       if (!$eventTs || !$joinTs || $joinTs < $eventTs) {
         continue;
       }
@@ -239,6 +241,8 @@ class EventsMembershipDataService {
     }
     $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
     $query->condition('pst.is_counted', 1);
+    $query->condition('e.is_active', 1);
+    $query->condition('p.is_test', 0);
     $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
     $query->groupBy('month_key');
     $query->groupBy('event_type');
@@ -1361,7 +1365,7 @@ class EventsMembershipDataService {
 
     $schema = $this->database->schema();
     $requiredTables = [
-      'profile__field_member_join_date',
+      'profile',
       'users_field_data',
       'civicrm_uf_match',
       'civicrm_participant',
@@ -1389,8 +1393,6 @@ class EventsMembershipDataService {
     $memberQuery->condition('p.status', 1);
     $memberQuery->condition('p.is_default', 1);
     $memberQuery->condition('p.created', [$startTimestamp, $endTimestamp], 'BETWEEN');
-    $memberQuery->innerJoin('profile__field_member_join_date', 'pmjd', 'pmjd.entity_id = p.profile_id AND pmjd.deleted = 0');
-    $memberQuery->addField('pmjd', 'field_member_join_date_value', 'join_value');
     $memberQuery->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
     $memberQuery->addField('u', 'uid', 'user_id');
     $memberQuery->leftJoin('civicrm_uf_match', 'ufm', 'ufm.uf_id = u.uid');
@@ -1408,10 +1410,7 @@ class EventsMembershipDataService {
     $members = [];
     $contactMap = [];
     foreach ($memberQuery->execute() as $record) {
-      $joinTimestamp = $this->buildJoinTimestamp($record->join_value);
-      if ($joinTimestamp === NULL && !empty($record->created)) {
-        $joinTimestamp = ((int) $record->created) > 0 ? ((int) $record->created) + 86399 : NULL;
-      }
+      $joinTimestamp = !empty($record->created) ? (int) $record->created : NULL;
       if ($joinTimestamp === NULL) {
         continue;
       }

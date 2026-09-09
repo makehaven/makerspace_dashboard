@@ -104,8 +104,7 @@ class EntrepreneurshipDataService {
     $schema = $this->database->schema();
     if (
       !$schema->tableExists('profile') ||
-      !$schema->tableExists('profile__field_member_goal') ||
-      !$schema->tableExists('profile__field_member_join_date')
+      !$schema->tableExists('profile__field_member_goal')
     ) {
       return [];
     }

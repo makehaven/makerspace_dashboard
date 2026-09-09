@@ -72,26 +72,25 @@ class FinancialDataService {
     }
 
     $query = $this->database->select('profile__field_membership_type', 'pmt');
-    $query->join('profile__field_member_join_date', 'pmjd', 'pmt.entity_id = pmjd.entity_id');
+    $query->join('profile', 'p', 'pmt.entity_id = p.profile_id');
+    $query->join('profile__field_member_payment_monthly', 'payment', 'payment.entity_id = p.profile_id AND payment.deleted = 0');
     $query->join('taxonomy_term_field_data', 'tfd', 'pmt.field_membership_type_target_id = tfd.tid');
-    $query->fields('pmjd', ['field_member_join_date_value']);
+    $query->fields('p', ['created']);
+    $query->addField('payment', 'field_member_payment_monthly_value', 'monthly_payment');
     $query->fields('tfd', ['name']);
-    $query->condition('pmjd.field_member_join_date_value', [$start_date->format('Y-m-d'), $end_date->format('Y-m-d')], 'BETWEEN');
+    $query->condition('p.type', 'main');
+    $query->condition('p.status', 1);
+    $query->condition('p.is_default', 1);
+    $query->condition('p.created', [$start_date->getTimestamp(), $end_date->getTimestamp()], 'BETWEEN');
     $results = $query->execute()->fetchAll();
 
     $mrr = [];
     foreach ($results as $result) {
-      $month = $this->dateFormatter->format(strtotime($result->field_member_join_date_value), 'custom', 'Y-m');
+      $month = $this->dateFormatter->format((int) $result->created, 'custom', 'Y-m');
       if (!isset($mrr[$month])) {
         $mrr[$month] = 0;
       }
-      // This is a simplified calculation. A real implementation would be more complex.
-      if (strpos(strtolower($result->name), 'individual') !== false) {
-        $mrr[$month] += 50;
-      }
-      elseif (strpos(strtolower($result->name), 'family') !== false) {
-        $mrr[$month] += 75;
-      }
+      $mrr[$month] += (float) ($result->monthly_payment ?? 0);
     }
     ksort($mrr);
 
@@ -665,7 +664,7 @@ class FinancialDataService {
   public function getAnnualMemberRevenue(): float {
     $year = (int) date('Y');
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
     return abs($this->getActualsForMetric('income_membership', $year));
   }
@@ -679,7 +678,7 @@ class FinancialDataService {
   public function getAnnualNetIncomeProgramLines(): float {
     $year = (int) date('Y');
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
 
     $net_storage = $this->getActualsForMetric('income_storage', $year) + $this->getActualsForMetric('expense_storage', $year);
@@ -702,7 +701,7 @@ class FinancialDataService {
     // If it is early in the year (e.g. Feb 2026), 2026 actuals might be too 
     // sparse. We will check 2025 if we are in Q1.
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
 
     $budget = $this->getBudgetForMetric($metricKey, $year);
@@ -861,7 +860,7 @@ class FinancialDataService {
   public function getAnnualIndividualGiving(): float {
     $year = (int) date('Y');
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
 
     // Individual giving = Financial Type "Donation" (1) + Contact Type "Individual".
@@ -890,7 +889,7 @@ class FinancialDataService {
   public function getAnnualCorporateSponsorships(): float {
     $year = (int) date('Y');
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
     return abs($this->getActualsForMetric('income_corporate_donations', $year));
   }
@@ -916,7 +915,7 @@ class FinancialDataService {
   public function getNetIncomeEducationProgram(): float {
     $year = (int) date('Y');
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
     $income = $this->getActualsForMetric('income_education', $year);
     $expense = $this->getActualsForMetric('expense_education', $year);
@@ -929,7 +928,7 @@ class FinancialDataService {
   public function getRevenuePerMemberIndex(): float {
     $year = (int) date('Y');
     if (date('n') <= 3) {
-      $year = 2025;
+      $year--;
     }
 
     $totalExp = abs($this->getActualsForMetric('expense_total', $year));
@@ -1409,7 +1408,9 @@ class FinancialDataService {
    */
   public function getEarnedIncomeSustainingCoreRate(): float {
     $year = (int) date('Y');
-    if (date('n') <= 3) { $year = 2025; }
+    if (date('n') <= 3) {
+      $year--;
+    }
 
     $totalInc = $this->getActualsForMetric('income_total', $year);
     $grants = $this->getActualsForMetric('income_grants', $year);
@@ -1554,9 +1555,8 @@ class FinancialDataService {
    * Monthly MRR change waterfall: dollars added by first-time joins,
    * reactivations, and dollars lost to ends.
    *
-   * "First join" anchor is COALESCE(field_member_join_date, profile.created):
-   * field_member_join_date stopped being populated for new members in Oct 2024
-   * (intentional — see project_member_tenure_date_convention memory).
+   * First joins use the canonical profile.created timestamp. The legacy
+   * field_member_join_date stopped being populated in October 2024.
    *
    * Reactivations come from field_member_reactivation_date — a separate field
    * that the join workflow still writes when a lapsed member returns. Without
@@ -1603,22 +1603,19 @@ class FinancialDataService {
     // entry in user__field_user_chargebee_plan and are excluded — they exist
     // in Drupal MRR but not in Chargebee's reporting.
     //
-    // Join dates: COALESCE field_member_join_date with profile.created, since
-    // field_member_join_date stopped populating for new members around Oct
-    // 2024 (see project_member_join_date_field_stale memory).
+    // First joins use the canonical profile creation timestamp.
     $hasChargebeePlan = $this->database->schema()->tableExists('user__field_user_chargebee_plan');
     if ($this->database->schema()->tableExists('profile__field_member_payment_monthly')) {
       $joinQuery = $this->database->select('profile', 'p');
-      $joinQuery->leftJoin('profile__field_member_join_date', 'jd', 'jd.entity_id = p.profile_id AND jd.deleted = 0');
       $joinQuery->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id AND pm.deleted = 0');
       if ($hasChargebeePlan) {
         $joinQuery->innerJoin('user__field_user_chargebee_plan', 'cb', "cb.entity_id = p.uid AND cb.field_user_chargebee_plan_value <> ''");
       }
-      $joinQuery->addExpression("DATE_FORMAT(COALESCE(jd.field_member_join_date_value, FROM_UNIXTIME(p.created)), '%Y-%m')", 'period');
+      $joinQuery->addExpression("DATE_FORMAT(FROM_UNIXTIME(p.created), '%Y-%m')", 'period');
       $joinQuery->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
       $joinQuery->condition('p.type', 'main');
       $joinQuery->condition('p.is_default', 1);
-      $joinQuery->where("COALESCE(jd.field_member_join_date_value, FROM_UNIXTIME(p.created)) BETWEEN :start AND :end", [
+      $joinQuery->where("FROM_UNIXTIME(p.created) BETWEEN :start AND :end", [
         ':start' => $start->format('Y-m-d'),
         ':end' => $end->format('Y-m-d'),
       ]);
@@ -1736,16 +1733,15 @@ class FinancialDataService {
     // analysis question is "how is this active relationship doing"). See
     // project_member_tenure_date_convention memory for the full rule.
     $query = $this->database->select('profile', 'p');
-    $query->leftJoin('profile__field_member_join_date', 'jd', 'jd.entity_id = p.profile_id AND jd.deleted = 0');
     $query->leftJoin('profile__field_member_reactivation_date', 'rd', 'rd.entity_id = p.profile_id AND rd.deleted = 0');
     $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id AND pm.deleted = 0');
     $query->leftJoin('profile__field_member_end_date', 'ed', 'ed.entity_id = p.profile_id AND ed.deleted = 0');
-    $query->addExpression("COALESCE(rd.field_member_reactivation_date_value, jd.field_member_join_date_value, DATE_FORMAT(FROM_UNIXTIME(p.created), '%Y-%m-%d'))", 'tenure_start');
+    $query->addExpression("COALESCE(rd.field_member_reactivation_date_value, DATE_FORMAT(FROM_UNIXTIME(p.created), '%Y-%m-%d'))", 'tenure_start');
     $query->addField('ed', 'field_member_end_date_value', 'end_date');
     $query->addField('pm', 'field_member_payment_monthly_value', 'monthly_value');
     $query->condition('p.type', 'main');
     $query->condition('p.is_default', 1);
-    $query->where("COALESCE(rd.field_member_reactivation_date_value, jd.field_member_join_date_value, FROM_UNIXTIME(p.created)) BETWEEN :start AND :end", [
+    $query->where("COALESCE(rd.field_member_reactivation_date_value, FROM_UNIXTIME(p.created)) BETWEEN :start AND :end", [
       ':start' => $cohortStart->format('Y-m-d'),
       ':end' => $today->format('Y-m-d'),
     ]);

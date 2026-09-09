@@ -129,7 +129,7 @@ abstract class RetentionSegmentedAnnualRetentionChartBuilderBase extends Retenti
    */
   protected function getNotes(): array {
     return [
-      (string) $this->t('Source: Member profile demographics joined to the cohort dataset defined by profile__field_member_join_date.'),
+      (string) $this->t('Source: Member profile demographics joined to cohorts defined by canonical profile creation timestamps.'),
       (string) $this->t('Processing: Same annualized retention calculation as the overall cohort chart, filtered to the selected demographic group.'),
     ];
   }
@@ -185,4 +185,3 @@ abstract class RetentionSegmentedAnnualRetentionChartBuilderBase extends Retenti
   }
 
 }
-

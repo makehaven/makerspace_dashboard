@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
  */
 class RetentionBadgeCountDistributionChartBuilder extends ChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'badge_count_distribution';
   protected const WEIGHT = 95;

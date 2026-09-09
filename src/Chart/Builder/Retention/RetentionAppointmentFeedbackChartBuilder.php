@@ -13,6 +13,8 @@ use Drupal\makerspace_dashboard\Support\RangeSelectionTrait;
  */
 class RetentionAppointmentFeedbackChartBuilder extends ChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   use RangeSelectionTrait;
 
   protected const SECTION_ID = 'retention';

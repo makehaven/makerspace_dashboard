@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
  */
 class RetentionMembershipTypeTenureChartBuilder extends ChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'membership_type_tenure';
   protected const WEIGHT = 96;
@@ -109,4 +111,3 @@ class RetentionMembershipTypeTenureChartBuilder extends ChartBuilderBase {
   }
 
 }
-

@@ -79,7 +79,7 @@ class RetentionCohortCompositionChartBuilder extends RetentionCohortChartBuilder
       (string) $this->t('Active vs inactive members for each join year cohort.'),
       $visualization,
       [
-        (string) $this->t('Source: Members with join dates in profile__field_member_join_date grouped by calendar year.'),
+        (string) $this->t('Source: Qualifying member profiles grouped by canonical profile creation year.'),
         (string) $this->t('Processing: Counts total members per cohort and marks a member as active when they hold an active membership role today.'),
         (string) $this->t('Definitions: "Still active" reflects active role assignment today; "No longer active" covers members without those roles.'),
       ],

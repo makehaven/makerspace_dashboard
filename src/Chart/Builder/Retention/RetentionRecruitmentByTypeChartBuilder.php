@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\RetentionFlowDataService;
  */
 class RetentionRecruitmentByTypeChartBuilder extends RetentionFlowChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'type_incoming';
   protected const WEIGHT = 60;

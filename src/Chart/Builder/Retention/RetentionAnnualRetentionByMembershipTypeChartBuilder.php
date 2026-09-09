@@ -10,6 +10,8 @@ use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
  */
 class RetentionAnnualRetentionByMembershipTypeChartBuilder extends RetentionSegmentedAnnualRetentionChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'annual_retention_membership_type';
   protected const WEIGHT = 93;
@@ -59,4 +61,3 @@ class RetentionAnnualRetentionByMembershipTypeChartBuilder extends RetentionSegm
   }
 
 }
-

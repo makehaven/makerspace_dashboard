@@ -52,7 +52,7 @@ class FinanceLifetimeValueByTypeChartBuilder extends ChartBuilderBase {
       'data' => [
         'labels' => $labels,
         'datasets' => [[
-          'label' => (string) $this->t('Estimated Lifetime Value'),
+          'label' => (string) $this->t('Estimated cumulative dues'),
           'data' => $values,
           'backgroundColor' => 'rgba(22, 163, 74, 0.25)', // Green-ish
           'borderColor' => '#16a34a',
@@ -85,8 +85,8 @@ class FinanceLifetimeValueByTypeChartBuilder extends ChartBuilderBase {
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Estimated Lifetime Value by Membership Type'),
-      (string) $this->t('Average total revenue contribution per member, grouped by their current membership type.'),
+      (string) $this->t('Estimated Cumulative Dues by Membership Type'),
+      (string) $this->t('Average estimated dues to date among active members, grouped by their current membership type.'),
       $visualization,
       $notes
     );

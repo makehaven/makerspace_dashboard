@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\AppointmentInsightsService;
  */
 class RetentionAppointmentOnboardingChartBuilder extends ChartBuilderBase {
 
+  protected const TIER = 'supplemental';
+
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'appointment_onboarding_purposes';
   protected const WEIGHT = 65;

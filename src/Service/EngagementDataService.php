@@ -170,25 +170,19 @@ class EngagementDataService {
    */
   protected function loadCohortMembers(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
     $query = $this->database->select('profile', 'p');
-    $query->fields('p', ['uid']);
-    $query->innerJoin('profile__field_member_join_date', 'join_date', 'join_date.entity_id = p.profile_id AND join_date.deleted = 0');
+    $query->fields('p', ['uid', 'created']);
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
-    $query->condition('join_date.field_member_join_date_value', [$start->format('Y-m-d'), $end->format('Y-m-d')], 'BETWEEN');
+    $query->condition('p.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
 
     $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
     $query->condition('u.status', 1);
-    $query->addField('join_date', 'field_member_join_date_value', 'join_value');
 
     $members = [];
     foreach ($query->execute() as $record) {
-      $joinValue = trim($record->join_value);
-      if ($joinValue === '') {
-        continue;
-      }
-      $joinTs = strtotime($joinValue . ' 00:00:00');
-      if ($joinTs === FALSE) {
+      $joinTs = (int) $record->created;
+      if ($joinTs <= 0) {
         continue;
       }
       $members[(int) $record->uid] = $joinTs;

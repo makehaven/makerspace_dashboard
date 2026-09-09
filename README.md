@@ -2,9 +2,19 @@
 
 Aggregated dashboards that summarize makerspace health across utilization, engagement, retention, events, and financial outlook without exposing personally identifiable information.
 
+## Reports
+
+- [`docs/equity-report.md`](docs/equity-report.md) — annual equity & access report: participation by
+  New Haven neighborhood (per capita), retention and badge-velocity gaps, GEMS outcomes, member-survey
+  results. Runnable via [`docs/queries/`](docs/queries/). Written for grant reporting; re-run yearly.
+- [`docs/metric-definitions.md`](docs/metric-definitions.md) — **read before computing any derived
+  metric.** Fixes the definitions of badge velocity, activation, retention, visit-days, and the
+  demographic conventions, plus the metrics deliberately not used and why. Most disagreements between
+  two reports trace back to one of these.
+
 ## Key Concepts
 
-- **Data sources** – Utilizes ECK access control logs for door entry counts, Drupal profile fields (e.g. town, gender, ethnicity) today, and can pivot to CiviCRM contacts when fields migrate. Financial summaries blend Chargebee, Stripe storage, and PayPal revenue exports.
+- **Data sources** – Utilizes ECK access control logs for door entry counts and Drupal profile fields. **Ethnicity and address have already migrated to CiviCRM** (`civicrm_value_demographics_15`, `civicrm_address`, joined via `civicrm_uf_match`); the equivalent Drupal profile fields are legacy and materially incomplete. Join date is `profile.created`, not `field_member_join_date`. See [`docs/data-sources.md`](docs/data-sources.md). Financial summaries blend Chargebee, Stripe storage, and PayPal revenue exports.
 - **Charting** – Section classes still describe datasets with the Charts module render-array API, but the actual rendering now happens in a progressively decoupled React app that consumes `/makerspace-dashboard/api/chart/...` JSON responses.
 - **Privacy guardrails** – Only aggregated metrics render. Future data services should enforce minimum row counts before displaying values and bucket low-volume segments into catch-all categories.
 - **Extensibility** – Each tab is a tagged service implementing `DashboardSectionInterface`. Add new insights by registering additional section services or extending existing ones with configurable filters.
