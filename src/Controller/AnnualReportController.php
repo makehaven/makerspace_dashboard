@@ -692,14 +692,19 @@ class AnnualReportController extends ControllerBase {
     if (!empty($workshopSeries['counts'])) {
       $groups['education']['workshops'] = [
         '#type' => 'details',
-        '#title' => $this->t('Workshop Attendance (2 Years)'),
+        '#title' => $this->t('Workshop Registrations (2 Years)'),
         '#open' => TRUE,
         'chart' => [
           '#type' => 'chart',
           '#chart_type' => 'line',
           'xaxis' => ['#type' => 'chart_xaxis', '#labels' => $workshopSeries['labels']],
-          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Attendees')],
-          'attendees' => ['#type' => 'chart_data', '#title' => $this->t('Monthly Attendees'), '#data' => $workshopSeries['counts'], '#color' => '#64748b'],
+          'yaxis' => ['#type' => 'chart_yaxis', '#title' => $this->t('Registrations')],
+          'attendees' => [
+            '#type' => 'chart_data',
+            '#title' => $this->t('Counted Registrations'),
+            '#data' => $workshopSeries['counts'],
+            '#color' => '#64748b',
+          ],
         ],
       ];
     }

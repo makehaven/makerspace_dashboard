@@ -59,7 +59,7 @@ infrastructure:
     base_2025: 4.49
     goal_2030: 4.75
   kpi_equipment_uptime_rate:
-    label: 'Equipment Uptime Rate %'
+    label: 'Equipment Availability (Current) %'
     base_2025: 0.90
     goal_2030: 0.98
   kpi_active_maintenance_load:
@@ -123,7 +123,7 @@ retention:
     base_2025: 0.70
     goal_2030: 0.85
   kpi_member_post_12_month_retention:
-    label: 'Member (Post-12mo) Retention %'
+    label: 'Second-Year Retention (Conditional) %'
     base_2025: 0.85
     goal_2030: 0.92
   kpi_member_nps:
@@ -151,7 +151,7 @@ retention:
 
 education:
   kpi_workshop_attendees:
-    label: '# of Workshop Attendees'
+    label: 'Workshop Registrations (Counted)'
     base_2025: 1200
     goal_2030: 2000
   kpi_workshop_capacity_utilization:

@@ -184,3 +184,24 @@ KPI refresh runs in the existing background workflow. No billing writes occur.
 
 Sources: [Chargebee subscriptions API](https://apidocs.chargebee.com/docs/api/subscriptions)
 and [MRR calculation](https://www.chargebee.com/docs/billing/2.0/kb/reports-and-analytics/how-is-mrr-calculated).
+
+## Display clarifications (September 10, 2026)
+
+Stable metric IDs and calculations remain unchanged; the displayed names are:
+
+- `kpi_workshop_attendees`: **Workshop Registrations (Counted)**. Ticketed Workshop
+  participant records with counted statuses can include Registered and Attended.
+  The overview/annual-report chart and CSV use registration labels too. These
+  totals do not prove attendance or count annual unique learners.
+- `kpi_equipment_uptime_rate`: **Equipment Availability (Current) %**. Current
+  operational share of the included fleet; Gone, Storage and Setup are excluded.
+  This does not measure uptime over operating hours.
+- `kpi_member_post_12_month_retention`: **Second-Year Retention (Conditional) %**.
+  Within each eligible cohort, retained share at month 24 divided by retained
+  share at month 12. Headline uses the latest eligible cohort; trailing values
+  average cohort ratios. The underlying month-based cohort matrix is unchanged;
+  this is separate from direct 24-month retention from the original join cohort.
+
+No strategic targets or assessment scales were changed. After deploying dashboard
+code, rebuild caches and run `drush msd:kpi-warm`; persisted section payloads need
+refreshing in addition to Drupal render caches.

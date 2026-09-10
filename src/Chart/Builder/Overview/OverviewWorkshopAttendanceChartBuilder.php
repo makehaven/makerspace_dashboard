@@ -9,7 +9,7 @@ use Drupal\makerspace_dashboard\Service\EventsMembershipDataService;
 use Drupal\makerspace_dashboard\Support\RangeSelectionTrait;
 
 /**
- * Builds the ticketed workshop attendance chart.
+ * Builds the ticketed workshop counted-registration chart.
  */
 class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
 
@@ -60,7 +60,7 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
     }
 
     $datasets = [[
-      'label' => (string) $this->t('Monthly attendees'),
+      'label' => (string) $this->t('Counted registrations'),
       'data' => $counts,
       'borderColor' => '#64748b',
       'backgroundColor' => 'rgba(100, 116, 139, 0.2)',
@@ -93,7 +93,7 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
             'callbacks' => [
               'label' => $this->chartCallback('series_value', [
                 'format' => 'integer',
-                'suffix' => (string) $this->t('attendees'),
+                'suffix' => (string) $this->t('registrations'),
               ]),
             ],
           ],
@@ -106,12 +106,12 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Workshop Attendance (Ticketed Workshops)'),
+      (string) $this->t('Workshop Registrations (Ticketed Workshops)'),
       (string) $this->t('Displays the monthly count of participants registered for ticketed workshops across the selected range.'),
       $visualization,
       [
         (string) $this->t('Source: CiviCRM participant records with counted statuses and event type "Ticketed Workshop".'),
-        (string) $this->t('Processing: Groups registrations by workshop month; months with no registrations render as zero.'),
+        (string) $this->t('Processing: Groups counted registrations by workshop month; months with no registrations render as zero. Registered and Attended statuses can both contribute; these counts do not establish actual attendance.'),
       ],
       [
         'active' => $activeRange,

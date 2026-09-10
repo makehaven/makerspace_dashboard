@@ -482,6 +482,22 @@ class KpiDataService {
       $config_values = $configured[$kpi_id] ?? [];
 
       $definition = array_merge($definition, $config_values);
+      // These names clarify existing formulas; stable IDs retain goal mapping.
+      $clarifications = [
+        'kpi_workshop_attendees' => [
+          'label' => 'Workshop Registrations (Counted)',
+          'description' => 'Counted registrations for ticketed workshops. Registered and Attended statuses can both contribute; this does not establish actual attendance.',
+        ],
+        'kpi_equipment_uptime_rate' => [
+          'label' => 'Equipment Availability (Current) %',
+          'description' => 'Share of the included active tool fleet currently recorded as operational.',
+        ],
+        'kpi_member_post_12_month_retention' => [
+          'label' => 'Second-Year Retention (Conditional) %',
+          'description' => 'Retention through the second year among members retained through the first year, calculated by eligible cohort.',
+        ],
+      ];
+      $definition = array_replace($definition, $clarifications[$kpi_id] ?? []);
       if (!isset($definition['label']) || $definition['label'] === '') {
         $definition['label'] = $kpi_id;
       }
@@ -1179,7 +1195,7 @@ class KpiDataService {
     }
 
     $result = $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, NULL, 'Last 12 months', 'Trailing 12 months', 1.0),
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, 'Counted CiviCRM participant registrations for Ticketed Workshop events, grouped by event month. Counted statuses can include both Registered and Attended; this is not verified attendance or annual unique learners.', 'Last 12 months', 'Trailing 12 months', 1.0),
       'kpi_workshop_attendees'
     );
 
@@ -1911,7 +1927,7 @@ class KpiDataService {
       $current,
       'kpi_equipment_uptime_rate',
       'percent',
-      'Live: Calculated from the status taxonomy of active shop tools.'
+      'Current operational tools divided by the included active fleet, based on recorded status. Gone, Storage and Setup are excluded. This is a current availability share, not uptime measured over operating hours.'
     );
   }
 
@@ -2745,7 +2761,8 @@ class KpiDataService {
       $lastUpdated,
       $current,
       'kpi_member_post_12_month_retention',
-      'percent'
+      'percent',
+      "Conditional second-year retention: each eligible cohort's retained share at month 24 divided by its retained share at month 12. The headline uses the latest eligible cohort; trailing values average cohort ratios. This is not retention from joining through month 24. Uses recorded membership history and month-based cohort milestones."
     ), 'kpi_member_post_12_month_retention');
   }
 
@@ -5470,7 +5487,7 @@ class KpiDataService {
           'source_note' => 'System: active members from ms_fact_org_snapshot (December monthly snapshot used for annual totals).',
         ],
         'kpi_workshop_attendees' => [
-          'label' => '# of Workshop Attendees',
+          'label' => 'Workshop Registrations (Counted)',
           'base_2025' => 1200,
           'goal_2030' => 2000,
           'description' => 'The total number of registrations for ticketed workshops held during the period.',
@@ -5598,10 +5615,10 @@ class KpiDataService {
       ],
       'infrastructure' => [
         'kpi_equipment_uptime_rate' => [
-          'label' => 'Equipment Uptime Rate %',
+          'label' => 'Equipment Availability (Current) %',
           'base_2025' => 0.90,
           'goal_2030' => 0.98,
-          'description' => 'Percentage of primary workshop equipment available for use during operating hours.',
+          'description' => 'Share of the included active tool fleet currently recorded as operational.',
           'source_note' => 'Shop: (Operational Tools) / (Operational + Down Tools) from live inventory status.',
         ],
         'kpi_active_maintenance_load' => [
@@ -5726,7 +5743,7 @@ class KpiDataService {
           'source_note' => 'System: 12-month survival rate for the previous year\'s join cohort (excludes unpreventable ends).',
         ],
         'kpi_member_post_12_month_retention' => [
-          'label' => 'Member (Post-12mo) Retention %',
+          'label' => 'Second-Year Retention (Conditional) %',
           'base_2025' => 0.85,
           'goal_2030' => 0.92,
           'description' => 'Retention from month 12 to month 24 among members who made it through their first year.',
@@ -5793,7 +5810,7 @@ class KpiDataService {
       ],
       'education' => [
         'kpi_workshop_attendees' => [
-          'label' => '# of Workshop Attendees',
+          'label' => 'Workshop Registrations (Counted)',
           'base_2025' => 1200,
           'goal_2030' => 2000,
           'description' => 'The total number of registrations for ticketed workshops held during the period.',
