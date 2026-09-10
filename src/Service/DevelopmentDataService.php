@@ -423,7 +423,8 @@ class DevelopmentDataService {
   /**
    * Returns the count of grant records submitted in a calendar year-to-date.
    *
-   * Submission is inferred from a populated submitted document/link field.
+   * Submission is inferred from status or a populated submitted document/link
+   * field, excluding deleted funder contacts.
    * Period bucketing is based on due date because no submitted timestamp field
    * currently exists in the funding custom group.
    */
@@ -441,6 +442,8 @@ class DevelopmentDataService {
     }
 
     $query = $this->database->select('civicrm_value_funding_7', 'f');
+    $query->innerJoin('civicrm_contact', 'ct', 'ct.id = f.entity_id');
+    $query->condition('ct.is_deleted', 0);
     $query->addExpression('COUNT(*)', 'submitted_count');
     $query->condition('f.date_due_21', [$start->format('Y-m-d H:i:s'), $end->format('Y-m-d H:i:s')], 'BETWEEN');
     $submitted = $query->orConditionGroup();
@@ -475,6 +478,8 @@ class DevelopmentDataService {
     $counts = array_fill_keys($monthKeys, 0);
 
     $query = $this->database->select('civicrm_value_funding_7', 'f');
+    $query->innerJoin('civicrm_contact', 'ct', 'ct.id = f.entity_id');
+    $query->condition('ct.is_deleted', 0);
     $query->addExpression("DATE_FORMAT(f.date_due_21, '%Y-%m')", 'month_key');
     $query->addExpression('COUNT(*)', 'submitted_count');
     $query->condition('f.date_due_21', [$startDate->format('Y-m-d H:i:s'), $endDate->format('Y-m-d H:i:s')], 'BETWEEN');
