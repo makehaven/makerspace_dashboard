@@ -77,8 +77,10 @@ Alternative fallback estimates, unavailable values and pre-upgrade payloads are
 also neutral. These labels do not prove upstream freshness or reconcile billing.
 
 Known definition gaps are listed in `Support/KpiFreshness::REVIEW_NOTES`; remove a
-note only after the source reconciliation is complete. First-year retention and
-new recurring dues currently need that work. Workshop counts are explicitly
+note only after the source reconciliation is complete. Corrected first-year
+retention and current Chargebee cohort MRR carry calculation version 2; old stored
+payloads retain their warnings until refreshed. See the metric definitions for
+anniversary eligibility, billing coverage and the revenue definition change. Workshop counts are explicitly
 counted registrations, including records not yet marked attended. Outreach
 charts describe annualized associated dues rather than asserting savings.
 

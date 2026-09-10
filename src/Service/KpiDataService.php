@@ -2,6 +2,8 @@
 
 namespace Drupal\makerspace_dashboard\Service;
 
+use Drupal\makerspace_dashboard\Support\FirstYearRetention;
+
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\KeyValueStore\KeyValueStoreInterface;
@@ -310,7 +312,7 @@ class KpiDataService {
    */
   protected function persistSectionKpis(string $section_id, array $kpi_data, string $configHash): void {
     $stored = [
-      'payload_version' => 1,
+      'payload_version' => 2,
       'data' => $kpi_data,
       'expires_at' => $this->time->getRequestTime() + $this->sectionCacheTtl,
       'config_hash' => $configHash,
@@ -359,7 +361,7 @@ class KpiDataService {
       $stored = $this->store->get($this->buildSectionKpiCacheId($sectionId));
       if (!is_array($stored)
         || !isset($stored['data'], $stored['config_hash'], $stored['expires_at'])
-        || ($stored['payload_version'] ?? 0) < 1
+        || ($stored['payload_version'] ?? 0) < 2
         || $stored['config_hash'] !== $this->getSectionConfigHash($sectionId)
         || $stored['expires_at'] < $now) {
         $needs[] = $sectionId;
@@ -2133,34 +2135,35 @@ class KpiDataService {
    * Gets the data for the "Total New Recurring Revenue" KPI.
    */
   private function getKpiTotalNewRecurringRevenueData(array $kpi_info): array {
-    $annualOverrides = [];
-    $currentYear = (int) date('Y');
-
-    // Pull recent calendar years for the annual table.
-    for ($y = $currentYear - 2; $y <= $currentYear; $y++) {
-      $annualOverrides[(string) $y] = $this->financialDataService->getAnnualNewRecurringRevenue($y);
+    $kpi_info['label'] = 'Current Chargebee MRR from Recent Joiners';
+    $kpi_info['description'] = 'Current monthly recurring revenue from current members who joined in the trailing 12 months. Chargebee only. Calendar-year columns group current contribution by join year, not historical revenue.';
+    // Acquisition targets do not describe current contribution.
+    $kpi_info['annual_values'] = [];
+    $kpi_info['base_2025'] = NULL;
+    $kpi_info['goal_2030'] = NULL;
+    $annual = [];
+    try {
+      $end = new \DateTimeImmutable('now');
+      $summary = $this->financialDataService->getJoinCohortRevenue($end->modify('-12 months'), $end);
+      for ($year = (int) $end->format('Y') - 2; $year <= (int) $end->format('Y'); $year++) {
+        $annual[(string) $year] = $this->financialDataService->getAnnualNewRecurringRevenue($year);
+      }
+      $result = $this->buildKpiResult($kpi_info, $annual,
+        $this->financialDataService->getNewRecurringRevenueTrend(), NULL, NULL,
+        date('Y-m-d', $summary['fetched_at']), $summary['amount'], NULL, 'currency',
+        'Chargebee subscription MRR in USD, already monthly-normalized, including its recurring discount/add-on treatment. Active and non-renewing subscriptions; paused/trial/cancelled contribute zero. Current members are grouped by default-profile creation date. Includes all subscriptions attached to the customer, including storage where present. This is current contribution, not starting dues, historical acquisition MRR or collected cash.',
+        'Current MRR by join quarter', 'Joined in trailing 12 months');
+      $result['interpretation_note'] = sprintf('Billing coverage: %d of %d current members in this join window matched; %d unmatched and %d duplicate customer links excluded. Other payment providers are excluded. Annual columns show current MRR by join year.', $summary['matched'], $summary['members'], $summary['unmatched'], $summary['duplicate_links']);
+      if ($summary['unmatched'] || $summary['duplicate_links']) {
+        $result['quality_note'] = 'Partial billing coverage: use as the matched Chargebee subtotal; resolve unmatched or shared customer links before treating it as total cohort revenue.';
+      }
     }
-
-    // "Current" = new MRR from members who joined in the trailing 12 months.
-    $current = $this->financialDataService->getTrailingNewRecurringRevenue();
-    $trend = $this->financialDataService->getNewRecurringRevenueTrend();
-    $lastUpdated = date('Y-m-d');
-
-    return $this->buildKpiResult(
-      $kpi_info,
-      $annualOverrides,
-      $trend,
-      NULL,
-      NULL,
-      $lastUpdated,
-      $current,
-      'kpi_total_new_recurring_revenue',
-      'currency',
-      'CiviCRM: Sum of monthly dues for members who joined during the period. Represents the monthly "clip" added to the recurring budget.',
-      '8 Quarters',
-      'Trailing 12 months',
-      1.0
-    );
+    catch (\RuntimeException $e) {
+      $result = $this->buildKpiResult($kpi_info, [], [], NULL, NULL, NULL, NULL, NULL, 'currency');
+      $result['quality_note'] = 'Billing source unavailable: no current revenue total can be verified. Retry after the Chargebee reporting connection recovers.';
+    }
+    $result['calculation_version'] = 2;
+    return $result;
   }
 
   /**
@@ -2595,102 +2598,36 @@ class KpiDataService {
    * Gets the data for the "First Year Member Retention %" KPI.
    */
   private function getKpiFirstYearMemberRetentionData(array $kpi_info): array {
-    $annualOverrides = [];
-    $trend = [];
-    $ttm12 = NULL;
-    $ttm3 = NULL;
-    $current = NULL;
-    $lastUpdated = NULL;
-
-    $retentionSeries = $this->membershipMetricsService->getMonthlyFirstYearRetentionSeries(36);
-    if (!empty($retentionSeries)) {
-      $values = [];
-      foreach ($retentionSeries as $entry) {
-        $value = isset($entry['retention_percent']) ? (float) $entry['retention_percent'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $values[] = $value;
-      }
-
-      if ($values) {
-        $trend = array_slice($values, -12);
-        $ttm12 = $this->calculateTrailingAverage($values, 12);
-        $ttm3 = $this->calculateTrailingAverage($values, 3);
-        $current = $values[count($values) - 1];
-      }
-
-      $lastEntry = end($retentionSeries);
-      if ($lastEntry) {
-        $lastUpdated = $lastEntry['evaluation_date'] ?? $lastEntry['period'] ?? NULL;
-      }
-      reset($retentionSeries);
+    $kpi_info['base_2025'] = NULL;
+    $series = $this->membershipMetricsService->getMonthlyFirstYearRetentionSeries(48);
+    $reportEnd = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
+      ->modify('first day of this month')->setTime(0, 0);
+    $windowRows = static fn(int $months): array => array_values(array_filter($series,
+      static fn(array $row): bool => $row['evaluation_date'] >= $reportEnd->modify('-' . $months . ' months')->format('Y-m-d')
+        && $row['evaluation_date'] < $reportEnd->format('Y-m-d')));
+    $annualRows = [];
+    foreach ($series as $row) {
+      $annualRows[substr($row['evaluation_date'], 0, 4)][] = $row;
     }
-
-    $snapshotSeries = $this->snapshotDataService->getKpiMetricSeries('kpi_first_year_member_retention');
-    if (!empty($snapshotSeries)) {
-      $snapshotValues = [];
-      $lastSnapshot = NULL;
-      foreach ($snapshotSeries as $record) {
-        $value = is_numeric($record['value']) ? (float) $record['value'] : NULL;
-        if ($value === NULL) {
-          continue;
-        }
-        $snapshotValues[] = $value;
-        $lastSnapshot = $record;
-
-        if ($this->isAnnualSnapshotRecord($record)) {
-          if (!empty($record['snapshot_date']) && $record['snapshot_date'] instanceof \DateTimeImmutable) {
-            $year = $record['snapshot_date']->format('Y');
-          }
-          elseif (!empty($record['period_year'])) {
-            $year = (string) $record['period_year'];
-          }
-          else {
-            $year = NULL;
-          }
-          if ($year !== NULL) {
-            $annualOverrides[$year] = $value;
-          }
-        }
-      }
-
-      if (empty($retentionSeries) && $snapshotValues) {
-        $trend = array_slice($snapshotValues, -12);
-        $ttm12 = $this->calculateTrailingAverage($snapshotValues, 12);
-        $ttm3 = $this->calculateTrailingAverage($snapshotValues, 3);
-        $current = (float) end($snapshotValues);
-      }
-
-      if ($lastUpdated === NULL && $lastSnapshot) {
-        if (!empty($lastSnapshot['snapshot_date']) && $lastSnapshot['snapshot_date'] instanceof \DateTimeImmutable) {
-          $lastUpdated = $lastSnapshot['snapshot_date']->format('Y-m-d');
-        }
-        elseif (!empty($lastSnapshot['period_year'])) {
-          $month = (int) ($lastSnapshot['period_month'] ?? 1);
-          $lastUpdated = sprintf('%04d-%02d-01', (int) $lastSnapshot['period_year'], $month);
-        }
-      }
-    }
-
-    if ($annualOverrides) {
-      foreach ($annualOverrides as $year => $value) {
-        $annualOverrides[$year] = is_numeric($value) ? (float) $value : $value;
-      }
-      ksort($annualOverrides, SORT_STRING);
-    }
-
-    return $this->withDemographicSegments($this->buildKpiResult(
+    $annual = array_map([FirstYearRetention::class, 'pooledRate'], $annualRows);
+    $last = $series ? end($series) : NULL;
+    $result = $this->buildKpiResult(
       $kpi_info,
-      $annualOverrides,
-      $trend,
-      $ttm12,
-      $ttm3,
-      $lastUpdated,
-      $current,
-      'kpi_first_year_member_retention',
-      'percent'
-    ), 'kpi_first_year_member_retention');
+      $annual,
+      array_slice(array_column($series, 'retention_percent'), -12),
+      FirstYearRetention::pooledRate($windowRows(12)),
+      FirstYearRetention::pooledRate($windowRows(3)),
+      $last['evaluation_date'] ?? NULL,
+      $last['retention_percent'] ?? NULL,
+      NULL,
+      'percent',
+      'Membership-evidenced default profiles, including disabled accounts. Individual calendar anniversaries; fully matured join months only. Terminal programs and pre-anniversary unpreventable ends excluded. Join date is inferred from profile creation; end dates are inclusive. Annual columns use anniversary year and pooled member counts.',
+      '12 completed cohorts',
+      $last ? $last['label'] . ' join cohort' : NULL
+    );
+    $result['calculation_version'] = 2;
+    return $result;
   }
 
   /**

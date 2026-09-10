@@ -32,7 +32,7 @@ final class KpiFreshness {
       $kpi['value_source'] = $kpi['value_source'] ?? 'unverified';
       $kpi['refresh_status'] = $refresh;
       $kpi['computed_at'] = $computedAt ?: NULL;
-      if (isset(self::REVIEW_NOTES[$id])) {
+      if (isset(self::REVIEW_NOTES[$id]) && ($kpi['calculation_version'] ?? 0) < 2) {
         $kpi['quality_note'] = self::REVIEW_NOTES[$id];
       }
       if ($id === 'kpi_workshop_attendees') {

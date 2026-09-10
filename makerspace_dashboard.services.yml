@@ -1119,6 +1119,10 @@ services:
       - '@cache.default'
       - '@datetime.time'
 
+  makerspace_dashboard.billing_revenue:
+    class: Drupal\makerspace_dashboard\Service\BillingRevenueService
+    arguments: ['@config.factory', '@http_client', '@cache.default']
+
   makerspace_dashboard.financial_data:
     class: Drupal\makerspace_dashboard\Service\FinancialDataService
     arguments:
@@ -1128,6 +1132,7 @@ services:
       - '@makerspace_dashboard.membership_metrics'
       - '@makerspace_dashboard.google_sheet_client'
       - '@makerspace_dashboard.snapshot_data'
+      - '@makerspace_dashboard.billing_revenue'
 
   makerspace_dashboard.infrastructure_data:
     class: Drupal\makerspace_dashboard\Service\InfrastructureDataService

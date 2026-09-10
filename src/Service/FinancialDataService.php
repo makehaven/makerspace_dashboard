@@ -45,7 +45,7 @@ class FinancialDataService {
   /**
    * Constructs the service.
    */
-  public function __construct(Connection $database, CacheBackendInterface $cache, DateFormatterInterface $dateFormatter, MembershipMetricsService $membershipMetricsService, GoogleSheetClientService $googleSheetClient, SnapshotDataService $snapshotData) {
+  public function __construct(Connection $database, CacheBackendInterface $cache, DateFormatterInterface $dateFormatter, MembershipMetricsService $membershipMetricsService, GoogleSheetClientService $googleSheetClient, SnapshotDataService $snapshotData, protected ?BillingRevenueService $billingRevenue = NULL) {
     $this->database = $database;
     $this->cache = $cache;
     $this->dateFormatter = $dateFormatter;
@@ -980,22 +980,7 @@ class FinancialDataService {
    * Calculates total recurring revenue from members who joined in a specific year.
    */
   public function getAnnualNewRecurringRevenue(int $year): float {
-    // 1. Get all Contacts who joined in this year.
-    $query = $this->database->select('civicrm_uf_match', 'ufm');
-    $query->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id');
-    $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type', [':type' => 'main']);
-    $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
-    
-    $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
-    
-    $start = strtotime($year . '-01-01 00:00:00');
-    $end = strtotime($year . '-12-31 23:59:59');
-    
-    $query->condition('u.created', [$start, $end], 'BETWEEN');
-    $query->condition('u.status', 1);
-
-    $result = $query->execute()->fetchField();
-    return (float) ($result ?: 0.0);
+    return $this->getJoinCohortRevenue(new \DateTimeImmutable($year . '-01-01'), new \DateTimeImmutable(($year + 1) . '-01-01'))['amount'];
   }
 
   /**
@@ -1309,23 +1294,58 @@ class FinancialDataService {
   }
 
   /**
-   * Gets the sum of starting monthly dues for members who joined in the
+   * Gets current Chargebee MRR for current members who joined in the
    * trailing 12 months (rolling window, not calendar-year).
    */
   public function getTrailingNewRecurringRevenue(): float {
     $end = new \DateTimeImmutable('now');
-    $start = $end->modify('-12 months');
+    return $this->getJoinCohortRevenue($end->modify('-12 months'), $end)['amount'];
+  }
 
-    $query = $this->database->select('civicrm_uf_match', 'ufm');
-    $query->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id');
-    $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type', [':type' => 'main']);
-    $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
-    $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
-    $query->condition('u.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
-    $query->condition('u.status', 1);
-
-    $result = $query->execute()->fetchField();
-    return (float) ($result ?: 0.0);
+  /**
+   * Current Chargebee MRR associated with membership-evidenced join cohorts.
+   *
+   * This is current cohort contribution, not acquisition-time or cash revenue.
+   */
+  public function getJoinCohortRevenue(\DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    if (!$this->billingRevenue) {
+      throw new \RuntimeException('Billing revenue reader is unavailable.');
+    }
+    $inventory = $this->billingRevenue->getInventory();
+    $customers = BillingRevenueService::monthlyRevenueByCustomer($inventory['subscriptions']);
+    $query = $this->database->select('profile', 'p');
+    $query->fields('p', ['uid']);
+    $query->leftJoin('user__field_user_chargebee_id', 'cb', 'cb.entity_id = p.uid AND cb.deleted = 0');
+    $query->addField('cb', 'field_user_chargebee_id_value', 'customer_id');
+    $query->condition('p.type', 'main')->condition('p.status', 1)->condition('p.is_default', 1);
+    $query->condition('p.created', $start->getTimestamp(), '>=')->condition('p.created', $end->getTimestamp(), '<');
+    $query->where("EXISTS (SELECT 1 FROM {user__roles} r WHERE r.entity_id = p.uid AND r.deleted = 0 AND r.roles_target_id IN ('member', 'current_member'))");
+    $rows = $query->execute()->fetchAllAssoc('uid');
+    $result = [
+      'amount' => 0.0,
+      'members' => count($rows),
+      'matched' => 0,
+      'unmatched' => 0,
+      'duplicate_links' => 0,
+      'fetched_at' => $inventory['fetched_at'],
+    ];
+    $links = $this->database->query("SELECT field_user_chargebee_id_value customer_id, COUNT(DISTINCT entity_id) users FROM {user__field_user_chargebee_id} WHERE deleted = 0 AND field_user_chargebee_id_value <> '' GROUP BY field_user_chargebee_id_value")->fetchAllKeyed();
+    foreach ($rows as $row) {
+      $id = trim((string) ($row->customer_id ?? ''));
+      // "was ..." IDs denote former billing links, not current attribution.
+      if ($id === '' || !isset($customers[$id]) || !$customers[$id]['complete']) {
+        $result['unmatched']++;
+        continue;
+      }
+      if (($links[$id] ?? 0) > 1) {
+        $result['duplicate_links']++;
+        continue;
+      }
+      $result['matched']++;
+      $result['amount'] += $customers[$id]['amount'];
+    }
+    $result['amount'] = round($result['amount'], 2);
+    return $result;
   }
 
   /**
@@ -1358,8 +1378,8 @@ class FinancialDataService {
   /**
    * Returns quarterly new recurring revenue as a trend (oldest-first).
    *
-   * Each point = sum of monthly dues for members whose Drupal account was
-   * created in that quarter. Mirrors getTrailingNewRecurringRevenue() but
+   * Each point = current Chargebee MRR for members whose default profile
+   * was created in that quarter. Mirrors getTrailingNewRecurringRevenue() but
    * sliced by discrete quarters instead of a rolling window.
    */
   public function getNewRecurringRevenueTrend(int $quarters = 8): array {
@@ -1389,15 +1409,7 @@ class FinancialDataService {
       $start = new \DateTimeImmutable(sprintf('%d-%02d-01 00:00:00', $targetYear, $startMonth));
       $end   = new \DateTimeImmutable(sprintf('%d-%02d-%02d 23:59:59', $targetYear, $endMonth, $lastDay));
 
-      $query = $this->database->select('civicrm_uf_match', 'ufm');
-      $query->innerJoin('users_field_data', 'u', 'u.uid = ufm.uf_id');
-      $query->innerJoin('profile', 'p', 'p.uid = u.uid AND p.type = :type', [':type' => 'main']);
-      $query->innerJoin('profile__field_member_payment_monthly', 'pm', 'pm.entity_id = p.profile_id');
-      $query->addExpression('SUM(pm.field_member_payment_monthly_value)', 'total');
-      $query->condition('u.created', [$start->getTimestamp(), $end->getTimestamp()], 'BETWEEN');
-      $query->condition('u.status', 1);
-
-      $trend[] = (float) ($query->execute()->fetchField() ?: 0.0);
+      $trend[] = $this->getJoinCohortRevenue($start, $end->modify('+1 second'))['amount'];
     }
 
     return $trend;

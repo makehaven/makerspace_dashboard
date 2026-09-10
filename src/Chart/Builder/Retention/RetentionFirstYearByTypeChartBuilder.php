@@ -152,9 +152,9 @@ class RetentionFirstYearByTypeChartBuilder extends ChartBuilderBase {
       (string) $this->t('Share of Standard and Sliding Scale members still active 12 months after joining. Terminal Program excluded.'),
       $visualization,
       [
-        (string) $this->t('Source: profile records with field_membership_type matching Standard (tid 716) or Sliding Scale (tid 718).'),
+        (string) $this->t('Source: membership-evidenced default profiles, including disabled accounts, with current membership type Standard (tid 716) or Sliding Scale (tid 718). Join date is inferred from profile creation.'),
         (string) $this->t('Terminal Program (tid 842) members are excluded — time-bounded memberships not expected to renew.'),
-        (string) $this->t('A month appears only after its 12-month evaluation window has elapsed; the most recent 12 months are excluded.'),
+        (string) $this->t('Only fully completed anniversary months appear. Each member is evaluated on their own calendar anniversary; leap-day anniversaries use February 28.'),
         (string) $this->t('Unpreventable attrition (relocation, etc.) is excluded from both numerator and denominator.'),
         (string) $this->t('Null points indicate fewer than 1 members of that type joined in that month (too small to show).'),
       ],

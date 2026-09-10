@@ -2,6 +2,8 @@
 
 namespace Drupal\makerspace_dashboard\Service;
 
+use Drupal\makerspace_dashboard\Support\FirstYearRetention;
+
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
@@ -449,310 +451,38 @@ class MembershipMetricsService {
    *   - evaluation_date: Date the metric was evaluated (join month + 12 months).
    */
   public function getMonthlyFirstYearRetentionSeries(int $months = 36): array {
-    $months = max(1, $months);
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
-      ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
-      ->setTime(0, 0)
-      ->modify('first day of this month');
-    $lastJoinMonth = $now->modify('-12 months');
-    if ($lastJoinMonth < new \DateTimeImmutable('1970-01-01')) {
-      return [];
-    }
-
-    $cacheId = sprintf(
-      'makerspace_dashboard:membership:first_year_retention_v2:%d:%s',
-      $months,
-      $lastJoinMonth->format('Y-m')
-    );
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+    $cacheId = sprintf('makerspace_dashboard:membership:first_year_retention_v3:%d:%s', $months, $now->format('Y-m'));
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
-
-    $startJoinMonth = $lastJoinMonth->modify(sprintf('-%d months', $months - 1));
-    $monthBuckets = [];
-    $periodEnd = $lastJoinMonth->modify('+1 month');
-    $period = new \DatePeriod($startJoinMonth, new \DateInterval('P1M'), $periodEnd);
-    foreach ($period as $monthDate) {
-      $key = $monthDate->format('Y-m-01');
-      $monthBuckets[$key] = [
-        'label' => $monthDate->format('M Y'),
-        'evaluation' => $monthDate->modify('+12 months'),
-        'total' => 0,
-        'retained' => 0,
-      ];
-    }
-
-    if (!$monthBuckets) {
-      return [];
-    }
-
-    $startTs = strtotime($startJoinMonth->format('Y-m-01 00:00:00'));
-    $endTs = strtotime($lastJoinMonth->modify('last day of this month')->format('Y-m-t 23:59:59'));
-
     $query = $this->database->select('profile', 'p');
-    $query->fields('p', ['created']);
-    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
-    $query->leftJoin('profile__field_member_end_reason', 'end_reason', 'end_reason.entity_id = p.profile_id AND end_reason.deleted = 0');
-    $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
-    // Exclude Terminal Program members — time-bounded memberships not expected
-    // to renew; including them would artificially depress the blended rate.
-    $query->leftJoin('profile__field_membership_type', 'mtype', 'mtype.entity_id = p.profile_id AND mtype.deleted = 0');
-    $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
-    $query->addField('end_reason', 'field_member_end_reason_value', 'end_reason_value');
-    $query->condition('p.created', [$startTs, $endTs], 'BETWEEN');
+    $query->fields('p', ['uid', 'created']);
+    $query->leftJoin('profile__field_member_end_date', 'ed', 'ed.entity_id = p.profile_id AND ed.deleted = 0');
+    $query->leftJoin('profile__field_member_end_reason', 'er', 'er.entity_id = p.profile_id AND er.deleted = 0');
+    $query->leftJoin('profile__field_membership_type', 'mt', 'mt.entity_id = p.profile_id AND mt.deleted = 0');
+    $query->addField('ed', 'field_member_end_date_value', 'end_date_value');
+    $query->addField('er', 'field_member_end_reason_value', 'end_reason_value');
+    $query->addField('mt', 'field_membership_type_target_id', 'membership_type_id');
+    $query->addExpression('EXISTS (SELECT 1 FROM {user__roles} r WHERE r.entity_id = p.uid AND r.deleted = 0 AND r.roles_target_id IN (:member_roles[]))', 'has_member_role', [':member_roles[]' => $this->memberRoles]);
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
-    $query->condition('u.status', 1);
-    $notTerminal = $query->orConditionGroup()
-      ->isNull('mtype.field_membership_type_target_id')
-      ->condition('mtype.field_membership_type_target_id', self::TERMINAL_PROGRAM_TYPE_ID, '<>');
-    $query->condition($notTerminal);
-
-    $rows = $query->execute()->fetchAll();
-    $hasData = FALSE;
-    $unpreventableReasons = $this->getUnpreventableEndReasons();
-    $tz = new \DateTimeZone(date_default_timezone_get());
-
-    foreach ($rows as $row) {
-      $created = (int) $row->created;
-      if ($created <= 0) {
-        continue;
-      }
-      try {
-        $joinDate = (new \DateTimeImmutable('@' . $created))->setTimezone($tz);
-      }
-      catch (\Exception $exception) {
-        continue;
-      }
-      $monthKey = $joinDate->format('Y-m-01');
-      if (!isset($monthBuckets[$monthKey])) {
-        continue;
-      }
-      $evaluationDate = $monthBuckets[$monthKey]['evaluation'];
-      $endValue = $row->end_date_value ?? '';
-      $endDate = NULL;
-      if (!empty($endValue)) {
-        try {
-          $endDate = new \DateTimeImmutable($endValue);
-        }
-        catch (\Exception $exception) {
-          $endDate = NULL;
-        }
-      }
-      $endReason = strtolower(trim((string) ($row->end_reason_value ?? '')));
-      if ($endReason === '') {
-        $endReason = NULL;
-      }
-
-      if ($endDate !== NULL && $endDate < $evaluationDate && $endReason !== NULL && in_array($endReason, $unpreventableReasons, TRUE)) {
-        continue;
-      }
-
-      $monthBuckets[$monthKey]['total']++;
-      $hasData = TRUE;
-
-      if ($endDate === NULL || $endDate >= $evaluationDate) {
-        $monthBuckets[$monthKey]['retained']++;
-      }
-    }
-
-    if (!$hasData) {
-      $expire = $this->time->getRequestTime() + $this->ttl;
-      $this->cache->set($cacheId, [], $expire, ['profile_list', 'user_list']);
-      return [];
-    }
-
-    $results = [];
-    foreach ($monthBuckets as $monthKey => $bucket) {
-      if ($bucket['total'] <= 0) {
-        continue;
-      }
-      $percent = $bucket['retained'] > 0 ? round(($bucket['retained'] / $bucket['total']) * 100, 2) : 0.0;
-      $results[] = [
-        'period' => $monthKey,
-        'label' => $bucket['label'],
-        'total' => $bucket['total'],
-        'retained' => $bucket['retained'],
-        'retention_percent' => $percent,
-        'evaluation_date' => $bucket['evaluation']->format('Y-m-d'),
-      ];
-    }
-
-    $expire = $this->time->getRequestTime() + $this->ttl;
-    $this->cache->set($cacheId, $results, $expire, ['profile_list', 'user_list']);
-
+    // User login status must not remove former members from historical cohorts.
+    $results = FirstYearRetention::calculate(
+      $query->execute()->fetchAll(), $now, $months, $this->getUnpreventableEndReasons()
+    );
+    $this->cache->set($cacheId, $results, $this->time->getRequestTime() + $this->ttl, ['profile_list', 'user_list']);
     return $results;
   }
 
   /**
-   * Returns first-year retention broken out by Standard vs Sliding Scale type.
-   *
-   * Terminal Program members (tid=842) are excluded entirely.  Only Standard
-   * (tid=716) and Sliding Scale (tid=718) are tracked; other types are also
-   * excluded so the "Standard" line doesn't accumulate noise from Student,
-   * Corporate, etc.
-   *
-   * @param int $months
-   *   Number of completed 12-month cohort months to return (default 36).
-   *
-   * @return array
-   *   Ordered list of rows, each with keys:
-   *   - period: Month key (Y-m-01).
-   *   - label: Human-readable month label.
-   *   - standard_total / standard_retained / standard_percent
-   *   - sliding_total / sliding_retained / sliding_percent
+   * Returns Standard and Sliding Scale counts from the same evaluated cohorts.
    */
   public function getMonthlyFirstYearRetentionByType(int $months = 36): array {
-    $months = max(1, $months);
-    $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
-      ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
-      ->setTime(0, 0)
-      ->modify('first day of this month');
-    $lastJoinMonth = $now->modify('-12 months');
-
-    $cacheId = sprintf(
-      'makerspace_dashboard:membership:first_year_retention_by_type_v1:%d:%s',
-      $months,
-      $lastJoinMonth->format('Y-m')
-    );
-    if ($cache = $this->cache->get($cacheId)) {
-      return $cache->data;
-    }
-
-    $startJoinMonth = $lastJoinMonth->modify(sprintf('-%d months', $months - 1));
-    $monthBuckets = [];
-    $periodEnd = $lastJoinMonth->modify('+1 month');
-    $period = new \DatePeriod($startJoinMonth, new \DateInterval('P1M'), $periodEnd);
-    foreach ($period as $monthDate) {
-      $key = $monthDate->format('Y-m-01');
-      $monthBuckets[$key] = [
-        'label' => $monthDate->format('M Y'),
-        'evaluation' => $monthDate->modify('+12 months'),
-        'standard_total' => 0,
-        'standard_retained' => 0,
-        'sliding_total' => 0,
-        'sliding_retained' => 0,
-      ];
-    }
-
-    if (!$monthBuckets) {
-      return [];
-    }
-
-    $startTs = strtotime($startJoinMonth->format('Y-m-01 00:00:00'));
-    $endTs = strtotime($lastJoinMonth->modify('last day of this month')->format('Y-m-t 23:59:59'));
-
-    $query = $this->database->select('profile', 'p');
-    $query->fields('p', ['created']);
-    $query->leftJoin('profile__field_member_end_date', 'end_date', 'end_date.entity_id = p.profile_id AND end_date.deleted = 0');
-    $query->leftJoin('profile__field_member_end_reason', 'end_reason', 'end_reason.entity_id = p.profile_id AND end_reason.deleted = 0');
-    $query->leftJoin('users_field_data', 'u', 'u.uid = p.uid');
-    $query->leftJoin('profile__field_membership_type', 'mtype', 'mtype.entity_id = p.profile_id AND mtype.deleted = 0');
-    $query->addField('end_date', 'field_member_end_date_value', 'end_date_value');
-    $query->addField('end_reason', 'field_member_end_reason_value', 'end_reason_value');
-    $query->addField('mtype', 'field_membership_type_target_id', 'membership_type_id');
-    $query->condition('p.created', [$startTs, $endTs], 'BETWEEN');
-    $query->condition('p.type', 'main');
-    $query->condition('p.status', 1);
-    $query->condition('p.is_default', 1);
-    $query->condition('u.status', 1);
-    // Only Standard and Sliding Scale; all others (including Terminal) excluded.
-    $query->condition('mtype.field_membership_type_target_id', [
-      self::STANDARD_TYPE_ID,
-      self::SLIDING_SCALE_TYPE_ID,
-    ], 'IN');
-
-    $rows = $query->execute()->fetchAll();
-    $hasData = FALSE;
-    $unpreventableReasons = $this->getUnpreventableEndReasons();
-    $tz = new \DateTimeZone(date_default_timezone_get());
-
-    foreach ($rows as $row) {
-      $created = (int) $row->created;
-      if ($created <= 0) {
-        continue;
-      }
-      try {
-        $joinDate = (new \DateTimeImmutable('@' . $created))->setTimezone($tz);
-      }
-      catch (\Exception $exception) {
-        continue;
-      }
-      $monthKey = $joinDate->format('Y-m-01');
-      if (!isset($monthBuckets[$monthKey])) {
-        continue;
-      }
-      $typeId = (int) ($row->membership_type_id ?? 0);
-      $isStandard = $typeId === self::STANDARD_TYPE_ID;
-      $isSliding = $typeId === self::SLIDING_SCALE_TYPE_ID;
-      if (!$isStandard && !$isSliding) {
-        continue;
-      }
-
-      $evaluationDate = $monthBuckets[$monthKey]['evaluation'];
-      $endValue = $row->end_date_value ?? '';
-      $endDate = NULL;
-      if (!empty($endValue)) {
-        try {
-          $endDate = new \DateTimeImmutable($endValue);
-        }
-        catch (\Exception $exception) {
-          $endDate = NULL;
-        }
-      }
-      $endReason = strtolower(trim((string) ($row->end_reason_value ?? '')));
-      if ($endReason === '') {
-        $endReason = NULL;
-      }
-
-      // Skip unpreventable attrition.
-      if ($endDate !== NULL && $endDate < $evaluationDate && $endReason !== NULL && in_array($endReason, $unpreventableReasons, TRUE)) {
-        continue;
-      }
-
-      $prefix = $isStandard ? 'standard' : 'sliding';
-      $monthBuckets[$monthKey][$prefix . '_total']++;
-      $hasData = TRUE;
-
-      if ($endDate === NULL || $endDate >= $evaluationDate) {
-        $monthBuckets[$monthKey][$prefix . '_retained']++;
-      }
-    }
-
-    if (!$hasData) {
-      $expire = $this->time->getRequestTime() + $this->ttl;
-      $this->cache->set($cacheId, [], $expire, ['profile_list', 'user_list']);
-      return [];
-    }
-
-    $results = [];
-    foreach ($monthBuckets as $monthKey => $bucket) {
-      if ($bucket['standard_total'] <= 0 && $bucket['sliding_total'] <= 0) {
-        continue;
-      }
-      $standardPct = $bucket['standard_total'] > 0
-        ? round(($bucket['standard_retained'] / $bucket['standard_total']) * 100, 2)
-        : NULL;
-      $slidingPct = $bucket['sliding_total'] > 0
-        ? round(($bucket['sliding_retained'] / $bucket['sliding_total']) * 100, 2)
-        : NULL;
-      $results[] = [
-        'period' => $monthKey,
-        'label' => $bucket['label'],
-        'standard_total' => $bucket['standard_total'],
-        'standard_retained' => $bucket['standard_retained'],
-        'standard_percent' => $standardPct,
-        'sliding_total' => $bucket['sliding_total'],
-        'sliding_retained' => $bucket['sliding_retained'],
-        'sliding_percent' => $slidingPct,
-      ];
-    }
-
-    $expire = $this->time->getRequestTime() + $this->ttl;
-    $this->cache->set($cacheId, $results, $expire, ['profile_list', 'user_list']);
-
-    return $results;
+    return array_values(array_filter($this->getMonthlyFirstYearRetentionSeries($months),
+      static fn(array $row): bool => $row['standard_total'] > 0 || $row['sliding_total'] > 0));
   }
 
   /**

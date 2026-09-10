@@ -139,3 +139,48 @@ until seats are allocated by lottery with the waitlist tracked.
 | Badge counts including `pending` | Not achievements; inflates totals ~25%. |
 
 Values in this document are as of **2026-08-27**.
+
+## Dashboard first-year anniversary retention (corrected September 2026)
+
+This is distinct from the equity report's **survival to today** measure above.
+Use default, published main profiles with a current member role or a valid end
+record as membership evidence. Include disabled user accounts. Profile creation
+is still an inferred join date; current profile/end/type fields cannot reconstruct
+multiple historical membership spells. Exclude invalid/pre-join end dates and
+profiles without membership evidence instead of counting them as retained.
+
+Evaluate each member at their own calendar anniversary, with February 29 clamped
+to February 28 in non-leap years. End dates are inclusive. Report only completely
+mature join months: in September 2026, August 2025 is the latest eligible cohort.
+Exclude Terminal Program memberships and configured unpreventable ends occurring
+before the anniversary. Type breakdowns use the same counts and today's recorded
+type. Pool retained/eligible counts for trailing and annual rates, rather than
+averaging percentages of differently sized cohorts. Annual columns group by
+anniversary year. Do not mix old snapshot facts or survival-to-today demographic
+segments into this calculation. Stored historical facts remain unchanged.
+
+## Current Chargebee MRR by join cohort (September 2026)
+
+The former “New Recurring Membership Revenue” implementation summed today's raw
+profile amounts by account creation and incorrectly called them starting dues.
+The replacement deliberately measures **current contribution**, not historical
+acquisition MRR. Current members are grouped by default-profile creation date;
+the headline includes joiners from the trailing 12 months. Annual/quarterly
+columns show current contribution by join year/quarter, not revenue earned then.
+
+Read complete, paginated Chargebee subscriptions and use their USD `mrr / 100`.
+Chargebee normalizes annual and multi-month billing and applies its configured
+recurring-discount/add-on treatment. Active/non-renewing subscriptions contribute;
+paused, trial, future and cancelled subscriptions contribute zero. Never substitute
+`plan_amount` when MRR is missing. Non-USD and missing-MRR customers are unmatched.
+Multiple subscriptions for one customer are summed; customer IDs linked to multiple
+Drupal users are excluded to prevent ambiguous or double cohort attribution.
+
+Show matched/total current members, unmatched and duplicate links. Other payment
+providers are excluded; this is explicitly the matched Chargebee subtotal. Clear
+legacy acquisition targets/baselines and do not restore old snapshot values when
+billing is unavailable. The billing inventory is cached for one hour and section
+KPI refresh runs in the existing background workflow. No billing writes occur.
+
+Sources: [Chargebee subscriptions API](https://apidocs.chargebee.com/docs/api/subscriptions)
+and [MRR calculation](https://www.chargebee.com/docs/billing/2.0/kb/reports-and-analytics/how-is-mrr-calculated).
