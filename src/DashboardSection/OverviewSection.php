@@ -213,7 +213,12 @@ class OverviewSection extends DashboardSectionBase {
         ],
         'table_wrap' => [
           '#type' => 'container',
-          '#attributes' => ['class' => ['overview-kpi-table-wrap'], 'tabindex' => '0', 'role' => 'region', 'aria-label' => $sectionTable['label'] . ' KPIs'],
+          '#attributes' => [
+            'class' => ['overview-kpi-table-wrap'],
+            'tabindex' => '0',
+            'role' => 'region',
+            'aria-label' => $sectionTable['label'] . ' KPIs',
+          ],
           'table' => [
             '#type' => 'table',
             '#attributes' => ['class' => ['kpi-stoplight-table', 'kpi-stoplight-table--sectioned']],

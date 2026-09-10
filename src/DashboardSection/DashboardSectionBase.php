@@ -886,7 +886,6 @@ SVG;
     ];
 
     // React renders the download link from the response for the active range.
-
     return $container;
   }
 
@@ -932,7 +931,6 @@ SVG;
 
     $container['#cache'] = $this->buildChartCacheMetadata($definition, $tier);
     // React renders the download link from the response for the active range.
-
     $container['#attached']['library'][] = 'makerspace_dashboard/react_app';
     $settings = [
       'sectionId' => $definition->getSectionId(),
