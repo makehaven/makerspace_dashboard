@@ -206,12 +206,14 @@ class EngagementDataService {
     $query->addField('mtb', 'field_member_to_badge_target_id', 'uid');
     $query->addField('req', 'field_badge_requested_target_id', 'badge_tid');
     $query->addField('n', 'created', 'created');
-    $query->leftJoin('taxonomy_term__field_badge_access_control', 'ac', 'ac.entity_id = req.field_badge_requested_target_id AND ac.deleted = 0');
-    $query->addField('ac', 'field_badge_access_control_value', 'tool_flag');
 
     $query->innerJoin('node__field_member_to_badge', 'mtb', 'mtb.entity_id = n.nid AND mtb.deleted = 0');
     $query->innerJoin('node__field_badge_status', 'status', 'status.entity_id = n.nid AND status.deleted = 0');
     $query->innerJoin('node__field_badge_requested', 'req', 'req.entity_id = n.nid AND req.deleted = 0');
+    // Must come after the `req` join: the ON clause references its alias, and
+    // MySQL resolves joins in order (this returned 500 on live 09-09 → 09-14).
+    $query->leftJoin('taxonomy_term__field_badge_access_control', 'ac', 'ac.entity_id = req.field_badge_requested_target_id AND ac.deleted = 0');
+    $query->addField('ac', 'field_badge_access_control_value', 'tool_flag');
 
     $query->condition('n.type', 'badge_request');
     $query->condition('n.status', 1);
