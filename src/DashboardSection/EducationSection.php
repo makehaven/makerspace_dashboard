@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\Core\Url;
 use Drupal\makerspace_dashboard\Service\ChartBuilderManager;
 use Drupal\makerspace_dashboard\Service\EngagementDataService;
 use Drupal\makerspace_dashboard\Service\KpiDataService;
@@ -52,6 +53,11 @@ class EducationSection extends DashboardSectionBase {
 
     $build['kpi_table'] = $this->buildKpiTable($this->kpiDataService->getKpiData('education'));
     $build['kpi_table']['#weight'] = $weight++;
+
+    // Cross-links: the dashboard answers "how are we doing"; these answer
+    // "what do I do about it" and "where did the money numbers come from".
+    $build['quick_links'] = $this->buildEducationQuickLinks();
+    $build['quick_links']['#weight'] = $weight++;
 
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
       ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
@@ -118,6 +124,48 @@ class EducationSection extends DashboardSectionBase {
     ];
 
     return $build;
+  }
+
+
+  /**
+   * Builds the row of cross-links shown under the education KPI table.
+   *
+   * The dashboard reports how the programme is doing. These point at the pages
+   * that let someone act on it, and at the finance review the money KPIs are
+   * reconciled against.
+   */
+  protected function buildEducationQuickLinks(): array {
+    $links = [
+      ['/admin/education', $this->t('Education console'), $this->t('Proposals, closeouts, evaluations to read')],
+      ['/admin/workshops', $this->t('Workshops by course'), $this->t('Runs, seats, revenue and the gap to a full room')],
+      ['/admin/program', $this->t('Programs and cohorts'), $this->t('Institutional cohorts and their runs')],
+      ['/admin/meetups', $this->t('Meetups'), $this->t('Free events, for comparison against ticketed classes')],
+    ];
+
+    $items = [];
+    foreach ($links as [$path, $title, $description]) {
+      $items[] = [
+        '#type' => 'container',
+        '#attributes' => ['class' => ['education-quick-link']],
+        'link' => [
+          '#type' => 'link',
+          '#title' => $title,
+          '#url' => Url::fromUserInput($path),
+        ],
+        'description' => [
+          '#markup' => '<span class="education-quick-link__description">' . $description . '</span>',
+        ],
+      ];
+    }
+
+    return [
+      '#type' => 'container',
+      '#attributes' => ['class' => ['education-quick-links']],
+      'heading' => [
+        '#markup' => '<h3>' . $this->t('Act on this') . '</h3>',
+      ],
+      'items' => $items,
+    ];
   }
 
 }

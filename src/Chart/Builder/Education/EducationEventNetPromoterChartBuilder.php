@@ -10,7 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationEventNetPromoterChartBuilder extends EducationEvaluationChartBuilderBase {
 
   protected const CHART_ID = 'event_net_promoter';
-  protected const WEIGHT = 26;
+  protected const WEIGHT = 30;
   protected const TIER = 'key';
 
   /**

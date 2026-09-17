@@ -11,7 +11,7 @@ class EducationEngagementVelocityChartBuilder extends EducationEngagementChartBu
 
   protected const CHART_ID = 'engagement_velocity';
   protected const WEIGHT = 120;
-  protected const TIER = 'key';
+  protected const TIER = 'supplemental';
 
   /**
    * {@inheritdoc}

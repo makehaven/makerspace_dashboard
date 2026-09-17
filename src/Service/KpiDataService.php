@@ -1224,7 +1224,7 @@ class KpiDataService {
       $kpi_info,
       $series,
       'kpi_workshop_capacity_utilization',
-      'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Ticketed Workshops (capacity > 0). Deactivated/cancelled events are excluded.'
+      'CiviCRM: Weighted fill ratio = counted attendee registrations / capped capacity net of counted staff for active Ticketed Workshops (capacity > 0). Deactivated/cancelled events are excluded.'
     );
   }
 
@@ -1237,7 +1237,7 @@ class KpiDataService {
       $kpi_info,
       $series,
       'kpi_program_capacity_utilization',
-      'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Program events (capacity > 0). Deactivated/cancelled events are excluded.'
+      'CiviCRM: Weighted fill ratio = counted attendee registrations / capped capacity net of counted staff for active Program events (capacity > 0). Deactivated/cancelled events are excluded.'
     );
 
     $end = new \DateTimeImmutable('now');
@@ -1268,7 +1268,7 @@ class KpiDataService {
       $kpi_info,
       $combinedSeries,
       'kpi_workshop_program_capacity_utilization',
-      'CiviCRM: Weighted fill ratio = counted registrations / total capacity for active Ticketed Workshop + Program events (capacity > 0). Deactivated/cancelled events are excluded.'
+      'CiviCRM: Weighted fill ratio = counted attendee registrations / capped capacity net of counted staff for active Ticketed Workshop + Program events (capacity > 0). Deactivated/cancelled events are excluded.'
     );
     $workshopWeighted = $workshopSeries['summary']['weighted_fill_ratio'] ?? NULL;
     $programWeighted = $programSeries['summary']['weighted_fill_ratio'] ?? NULL;
@@ -5821,21 +5821,21 @@ class KpiDataService {
           'base_2025' => 0.70,
           'goal_2030' => 0.90,
           'description' => 'Weighted ratio of counted registrations to total available seats for active, ticketed workshops.',
-          'source_note' => 'CiviCRM: Counted registrations / max participant capacity for active Ticketed Workshops (capacity > 0).',
+          'source_note' => 'CiviCRM: Counted attendee registrations / capped capacity net of counted staff for active Ticketed Workshops (capacity > 0).',
         ],
         'kpi_program_capacity_utilization' => [
           'label' => 'Program Capacity Utilization %',
           'base_2025' => 0.70,
           'goal_2030' => 0.90,
           'description' => 'Weighted ratio of counted registrations to total available seats for active program events.',
-          'source_note' => 'CiviCRM: Counted registrations / max participant capacity for active Program events (capacity > 0).',
+          'source_note' => 'CiviCRM: Counted attendee registrations / capped capacity net of counted staff for active Program events (capacity > 0).',
         ],
         'kpi_workshop_program_capacity_utilization' => [
           'label' => 'Workshop + Program Capacity Utilization %',
           'base_2025' => 0.70,
           'goal_2030' => 0.90,
           'description' => 'Combined weighted fill ratio across active workshop and program events.',
-          'source_note' => 'CiviCRM: Counted registrations / max participant capacity for active Ticketed Workshop + Program events (capacity > 0).',
+          'source_note' => 'CiviCRM: Counted attendee registrations / capped capacity net of counted staff for active Ticketed Workshop + Program events (capacity > 0).',
         ],
         'kpi_education_nps' => [
           'label' => 'Education Net Promoter Score (NPS)',

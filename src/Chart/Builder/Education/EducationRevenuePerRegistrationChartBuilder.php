@@ -10,8 +10,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationRevenuePerRegistrationChartBuilder extends EducationEventsChartBuilderBase {
 
   protected const CHART_ID = 'revenue_per_registration';
-  protected const WEIGHT = 40;
-  protected const TIER = 'supplemental';
+  protected const WEIGHT = 20;
+  protected const TIER = 'key';
 
   /**
    * {@inheritdoc}

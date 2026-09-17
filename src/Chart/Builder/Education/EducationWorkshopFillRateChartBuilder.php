@@ -10,7 +10,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationWorkshopFillRateChartBuilder extends EducationEventsChartBuilderBase {
 
   protected const CHART_ID = 'workshop_fill_rate';
-  protected const WEIGHT = 30;
+  protected const WEIGHT = 15;
+  protected const TIER = 'key';
 
   /**
    * {@inheritdoc}

@@ -790,21 +790,15 @@ class EventsMembershipDataService {
   }
 
   /**
-   * Returns average paid amount per registration grouped by event type and month.
+   * Base query for counted, non-test registrations on live events.
+   *
+   * Shared so the registration count and the deduplicated revenue figure are
+   * guaranteed to describe the same population.
    */
-  public function getAverageRevenuePerRegistration(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
-    $cid = 'makerspace_dashboard:avg_revenue_by_type:' . $start_date->getTimestamp() . ':' . $end_date->getTimestamp();
-    if ($cache = $this->cache->get($cid)) {
-      return $cache->data;
-    }
-
-    $eventTypeGroupId = $this->getEventTypeGroupId();
-
+  protected function buildRegistrationBaseQuery(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, $eventTypeGroupId) {
     $query = $this->database->select('civicrm_participant', 'p');
     $query->addExpression("DATE_FORMAT(e.start_date, '%Y-%m-01')", 'month_key');
     $query->addExpression("COALESCE(ov.label, 'Unknown')", 'event_type');
-    $query->addExpression('SUM(c.total_amount)', 'total_amount');
-    $query->addExpression('COUNT(DISTINCT p.id)', 'registration_count');
     $query->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
     if ($eventTypeGroupId) {
       $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [':event_type_group' => $eventTypeGroupId]);
@@ -816,15 +810,59 @@ class EventsMembershipDataService {
     }
     $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
     $query->condition('pst.is_counted', 1);
-    $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
-    $query->leftJoin('civicrm_contribution', 'c', 'c.id = pp.contribution_id');
+    $query->condition('p.is_test', 0);
+    $query->condition('e.is_active', 1);
+    $query->condition('e.is_template', 0);
     $query->condition('e.start_date', [$start_date->format('Y-m-d H:i:s'), $end_date->format('Y-m-d H:i:s')], 'BETWEEN');
-    $query->groupBy('month_key');
-    $query->groupBy('event_type');
-    $query->orderBy('month_key', 'ASC');
-    $query->orderBy('event_type', 'ASC');
+    return $query;
+  }
 
-    $results = $query->execute();
+  /**
+   * Returns average paid amount per registration grouped by event type and month.
+   */
+  public function getAverageRevenuePerRegistration(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date): array {
+    $cid = 'makerspace_dashboard:avg_revenue_by_type:' . $start_date->getTimestamp() . ':' . $end_date->getTimestamp();
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+
+    // Registration counts and revenue are gathered separately and on purpose.
+    //
+    // civicrm_participant_payment holds one row per participant, so a single
+    // contribution covering a group booking appears once per head. Summing
+    // total_amount across that join multiplies group payments by their party
+    // size — measured at +27% for workshops and +50% for programs over a
+    // twelve-month window. Revenue is therefore deduplicated by contribution
+    // id first, then aggregated.
+    $counts = $this->buildRegistrationBaseQuery($start_date, $end_date, $eventTypeGroupId);
+    $counts->addExpression('COUNT(DISTINCT p.id)', 'registration_count');
+    $counts->groupBy('month_key');
+    $counts->groupBy('event_type');
+
+    $perContribution = $this->buildRegistrationBaseQuery($start_date, $end_date, $eventTypeGroupId);
+    $perContribution->innerJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
+    $perContribution->innerJoin('civicrm_contribution', 'c', 'c.id = pp.contribution_id AND c.contribution_status_id = :completed', [':completed' => 1]);
+    $perContribution->addField('c', 'id', 'contribution_id');
+    $perContribution->addExpression('MAX(c.total_amount)', 'amount');
+    $perContribution->groupBy('month_key');
+    $perContribution->groupBy('event_type');
+    $perContribution->groupBy('c.id');
+
+    $revenue = $this->database->select($perContribution, 'd');
+    $revenue->addField('d', 'month_key');
+    $revenue->addField('d', 'event_type');
+    $revenue->addExpression('SUM(d.amount)', 'total_amount');
+    $revenue->groupBy('d.month_key');
+    $revenue->groupBy('d.event_type');
+
+    $totals = [];
+    foreach ($revenue->execute() as $record) {
+      $totals[$record->month_key][$record->event_type] = (float) $record->total_amount;
+    }
+
+    $results = $counts->execute();
 
     $months = $this->buildMonthRange($start_date, $end_date);
     $typeNames = [];
@@ -832,7 +870,7 @@ class EventsMembershipDataService {
     foreach ($results as $record) {
       $monthKey = $record->month_key;
       $type = $record->event_type;
-      $total = (float) $record->total_amount;
+      $total = $totals[$monthKey][$type] ?? 0.0;
       $count = max(1, (int) $record->registration_count);
       $typeNames[$type] = TRUE;
       if (!isset($averages[$type])) {
@@ -872,6 +910,506 @@ class EventsMembershipDataService {
       'data' => [65, 72, 68, 75],
       'note' => 'Sample data – replace with actual workshop capacity utilization.',
     ];
+  }
+
+  /**
+   * Workshop fill rate grouped by top-level area of interest.
+   *
+   * Answers a question the overall fill rate hides: which subjects sell the
+   * seats they are offered. Fabrication and fibre sit roughly thirty points
+   * apart while the schedule offers more seats to the side that fills least.
+   *
+   * A class can carry several interest areas, so an event contributes its
+   * capacity to each of its top-level terms. Rows therefore overlap and must
+   * not be totalled — the caller is expected to say so on the chart.
+   *
+   * Capacity is clamped at WORKSHOP_CAPACITY_CAP for the same reason as the
+   * monthly fill chart: placeholder caps such as 99 on a lecture would
+   * otherwise swamp a subject on one run.
+   *
+   * @return array
+   *   Rows keyed by top-level term name, each with capacity, seats_filled,
+   *   fill_rate and events, ordered by fill rate ascending so the weakest
+   *   subjects read first.
+   */
+  public function getFillRateByInterestArea(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): array {
+    $cid = sprintf('makerspace_dashboard:fill_by_interest:%d:%d:%s',
+      $start_date->getTimestamp(), $end_date->getTimestamp(), md5($eventTypeLabel));
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('civicrm_event__field_civi_event_area_interest')) {
+      return [];
+    }
+    $termHierarchy = $this->loadInterestTermHierarchy();
+    if (!$termHierarchy) {
+      return [];
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+
+    // Per-event capacity and counted attendance, same definition as the
+    // monthly fill chart: live events only, attendees only, hosts excluded.
+    $events = $this->database->select('civicrm_event', 'e');
+    $events->addField('e', 'id', 'event_id');
+    $events->addField('e', 'max_participants');
+    $events->leftJoin('civicrm_participant', 'p', 'p.event_id = e.id AND p.is_test = 0');
+    $events->leftJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    if ($eventTypeGroupId) {
+      $events->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :grp', [':grp' => $eventTypeGroupId]);
+    }
+    else {
+      $events->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $events->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $events->condition('og.name', 'event_type');
+    }
+    $events->condition('ov.label', $eventTypeLabel);
+    $events->condition('e.is_active', 1);
+    $events->condition('e.is_template', 0);
+    $events->condition('e.max_participants', 0, '>');
+    $events->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+    $events->addExpression("SUM(CASE WHEN pst.is_counted = 1
+      AND CONCAT(CHAR(1), p.role_id, CHAR(1)) LIKE CONCAT('%', CHAR(1), '1', CHAR(1), '%')
+      THEN 1 ELSE 0 END)", 'counted');
+    $events->groupBy('e.id');
+    $events->groupBy('e.max_participants');
+
+    $perEvent = [];
+    foreach ($events->execute() as $row) {
+      $perEvent[(int) $row->event_id] = [
+        'capacity' => min(max(0, (int) $row->max_participants), self::WORKSHOP_CAPACITY_CAP),
+        'filled' => (int) $row->counted,
+      ];
+    }
+    if (!$perEvent) {
+      return [];
+    }
+
+    $interest = $this->database->select('civicrm_event__field_civi_event_area_interest', 'i');
+    $interest->addField('i', 'entity_id', 'event_id');
+    $interest->addField('i', 'field_civi_event_area_interest_target_id', 'term_id');
+    $interest->condition('i.entity_id', array_keys($perEvent), 'IN');
+
+    $byTerm = [];
+    $seen = [];
+    foreach ($interest->execute() as $row) {
+      $eventId = (int) $row->event_id;
+      $termId = (int) $row->term_id;
+      if (!isset($termHierarchy[$termId])) {
+        continue;
+      }
+      $topId = $this->resolveTopInterestId($termHierarchy, $termId);
+      if ($topId === NULL || isset($seen[$eventId][$topId])) {
+        continue;
+      }
+      $seen[$eventId][$topId] = TRUE;
+      $name = $termHierarchy[$topId]['name'] ?? (string) $topId;
+      if (!isset($byTerm[$name])) {
+        $byTerm[$name] = ['capacity' => 0, 'seats_filled' => 0, 'events' => 0];
+      }
+      $byTerm[$name]['capacity'] += $perEvent[$eventId]['capacity'];
+      $byTerm[$name]['seats_filled'] += $perEvent[$eventId]['filled'];
+      $byTerm[$name]['events']++;
+    }
+
+    $rows = [];
+    foreach ($byTerm as $name => $vals) {
+      if ($vals['capacity'] <= 0) {
+        continue;
+      }
+      $rows[] = [
+        'interest' => $name,
+        'capacity' => $vals['capacity'],
+        'seats_filled' => $vals['seats_filled'],
+        'events' => $vals['events'],
+        'fill_rate' => round($vals['seats_filled'] / $vals['capacity'] * 100, 1),
+      ];
+    }
+    usort($rows, static fn($a, $b) => $a['fill_rate'] <=> $b['fill_rate']);
+
+    $this->cache->set($cid, $rows, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+    return $rows;
+  }
+
+  /**
+   * Waitlisted people, and whether any of them were later served.
+   *
+   * A waitlist count on its own is ambiguous: it reads as unmet demand, but it
+   * could equally be a queue that cleared. This resolves it by joining forward
+   * from every waitlisted person to any later seat they took.
+   *
+   * Three ways a waitlist entry resolves, in descending order of directness:
+   * moved off the waitlist into that same class, a later run of the same parent
+   * course, or any other workshop on or after the date they were waiting for.
+   *
+   * Counts are of distinct people, not participant rows — somebody who waits on
+   * three runs is one person. Per-course rows overlap where a person waited on
+   * more than one course, so they sum above the total and must not be added.
+   *
+   * @return array
+   *   ['rows' => per-course, 'totals' => distinct-person totals].
+   */
+  public function getWaitlistFollowThrough(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): array {
+    $cid = sprintf('makerspace_dashboard:waitlist_followthrough:%d:%d:%s',
+      $start_date->getTimestamp(), $end_date->getTimestamp(), md5($eventTypeLabel));
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $waitlistStatuses = $this->getWaitlistStatusIds();
+    if (!$waitlistStatuses) {
+      return ['rows' => [], 'totals' => []];
+    }
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+
+    // Only classes that have already run. A class still to come has not failed
+    // anyone yet, and counting it would overstate lost demand.
+    $waiting = $this->database->select('civicrm_participant', 'p');
+    $waiting->addField('p', 'contact_id');
+    $waiting->addField('p', 'event_id');
+    $waiting->addField('p', 'status_id');
+    $waiting->addField('e', 'start_date');
+    $waiting->addField('course', 'field_parent_course_target_id', 'course_id');
+    $waiting->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+    $waiting->leftJoin('civicrm_event__field_parent_course', 'course', 'course.entity_id = e.id');
+    if ($eventTypeGroupId) {
+      $waiting->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :grp', [':grp' => $eventTypeGroupId]);
+    }
+    else {
+      $waiting->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $waiting->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $waiting->condition('og.name', 'event_type');
+    }
+    $waiting->condition('ov.label', $eventTypeLabel);
+    $waiting->condition('e.is_active', 1);
+    $waiting->condition('e.is_template', 0);
+    $waiting->condition('p.is_test', 0);
+    $waiting->condition('p.role_id', '1');
+    $waiting->condition('p.status_id', $waitlistStatuses, 'IN');
+    $waiting->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+
+    $entries = [];
+    $contactIds = [];
+    foreach ($waiting->execute() as $row) {
+      $entries[] = [
+        'contact_id' => (int) $row->contact_id,
+        'event_id' => (int) $row->event_id,
+        'status_id' => (int) $row->status_id,
+        'start_date' => (string) $row->start_date,
+        'course_id' => $row->course_id !== NULL ? (int) $row->course_id : NULL,
+      ];
+      $contactIds[(int) $row->contact_id] = TRUE;
+    }
+    if (!$entries) {
+      return ['rows' => [], 'totals' => []];
+    }
+
+    // Every counted seat those people hold, to join forward against.
+    $seats = $this->database->select('civicrm_participant', 'p');
+    $seats->addField('p', 'contact_id');
+    $seats->addField('p', 'event_id');
+    $seats->addField('e', 'start_date');
+    $seats->addField('course', 'field_parent_course_target_id', 'course_id');
+    $seats->addField('ov', 'label', 'event_type');
+    $seats->innerJoin('civicrm_event', 'e', 'p.event_id = e.id');
+    $seats->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
+    $seats->leftJoin('civicrm_event__field_parent_course', 'course', 'course.entity_id = e.id');
+    if ($eventTypeGroupId) {
+      $seats->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :grp2', [':grp2' => $eventTypeGroupId]);
+    }
+    else {
+      $seats->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $seats->innerJoin('civicrm_option_group', 'og2', 'og2.id = ov.option_group_id');
+      $seats->condition('og2.name', 'event_type');
+    }
+    $seats->condition('pst.is_counted', 1);
+    $seats->condition('p.is_test', 0);
+    $seats->condition('p.role_id', '1');
+    $seats->condition('e.is_active', 1);
+    $seats->condition('e.is_template', 0);
+    $seats->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<=');
+    $seats->condition('p.contact_id', array_keys($contactIds), 'IN');
+
+    $seatsByContact = [];
+    foreach ($seats->execute() as $row) {
+      $seatsByContact[(int) $row->contact_id][] = [
+        'event_id' => (int) $row->event_id,
+        'start_date' => (string) $row->start_date,
+        'course_id' => $row->course_id !== NULL ? (int) $row->course_id : NULL,
+        'event_type' => (string) $row->event_type,
+      ];
+    }
+
+    $courseNames = $this->loadCourseTitles();
+    $byCourse = [];
+    $resolvedPeople = [];
+    $allPeople = [];
+
+    foreach ($entries as $entry) {
+      $contactId = $entry['contact_id'];
+      $allPeople[$contactId] = TRUE;
+      $held = $seatsByContact[$contactId] ?? [];
+
+      // A status that CiviCRM counts means they were already being moved into
+      // the class; their own row is the evidence, so do not look for a second.
+      $sameEvent = in_array($entry['status_id'], $this->getCountedStatusIds(), TRUE);
+      $sameCourse = FALSE;
+      $anyWorkshop = FALSE;
+      foreach ($held as $seat) {
+        if ($seat['event_id'] === $entry['event_id'] || $seat['start_date'] < $entry['start_date']) {
+          continue;
+        }
+        if ($entry['course_id'] !== NULL && $seat['course_id'] === $entry['course_id']) {
+          $sameCourse = TRUE;
+        }
+        if ($seat['event_type'] === $eventTypeLabel) {
+          $anyWorkshop = TRUE;
+        }
+      }
+      $resolved = $sameEvent || $sameCourse || $anyWorkshop;
+      if ($resolved) {
+        $resolvedPeople[$contactId] = TRUE;
+      }
+
+      $key = $entry['course_id'] !== NULL
+        ? ($courseNames[$entry['course_id']] ?? ('Course ' . $entry['course_id']))
+        : 'Not linked to a course';
+      if (!isset($byCourse[$key])) {
+        $byCourse[$key] = ['people' => [], 'resolved' => [], 'entries' => 0];
+      }
+      $byCourse[$key]['entries']++;
+      $byCourse[$key]['people'][$contactId] = TRUE;
+      if ($resolved) {
+        $byCourse[$key]['resolved'][$contactId] = TRUE;
+      }
+    }
+
+    $rows = [];
+    foreach ($byCourse as $course => $vals) {
+      $people = count($vals['people']);
+      $resolved = count($vals['resolved']);
+      $rows[] = [
+        'course' => $course,
+        'entries' => $vals['entries'],
+        'people' => $people,
+        'served' => $resolved,
+        'never_served' => $people - $resolved,
+      ];
+    }
+    usort($rows, static fn($a, $b) => $b['never_served'] <=> $a['never_served']);
+
+    $result = [
+      'rows' => $rows,
+      'totals' => [
+        'entries' => count($entries),
+        'people' => count($allPeople),
+        'served' => count($resolvedPeople),
+        'never_served' => count($allPeople) - count($resolvedPeople),
+      ],
+    ];
+    $this->cache->set($cid, $result, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+    return $result;
+  }
+
+  /**
+   * Participant status ids that mean "waiting for a seat".
+   */
+  protected function getWaitlistStatusIds(): array {
+    $query = $this->database->select('civicrm_participant_status_type', 's');
+    $query->addField('s', 'id');
+    $query->condition('s.name', ['On waitlist', 'Pending from waitlist'], 'IN');
+    return array_map('intval', $query->execute()->fetchCol());
+  }
+
+  /**
+   * Participant status ids that occupy a seat.
+   */
+  protected function getCountedStatusIds(): array {
+    static $ids;
+    if ($ids === NULL) {
+      $query = $this->database->select('civicrm_participant_status_type', 's');
+      $query->addField('s', 'id');
+      $query->condition('s.is_counted', 1);
+      $ids = array_map('intval', $query->execute()->fetchCol());
+    }
+    return $ids;
+  }
+
+  /**
+   * Course node titles keyed by nid.
+   */
+  protected function loadCourseTitles(): array {
+    $query = $this->database->select('node_field_data', 'n');
+    $query->addField('n', 'nid');
+    $query->addField('n', 'title');
+    $titles = [];
+    foreach ($query->execute() as $row) {
+      $titles[(int) $row->nid] = (string) $row->title;
+    }
+    return $titles;
+  }
+
+  /**
+   * Fill, demand and revenue per course, so a subject average can be opened up.
+   *
+   * A subject-level fill rate is an average of courses that often behave nothing
+   * like each other. In January-August 2026 the fiber areas averaged about 40%,
+   * which was one course at 84% with the programme's largest waitlist sitting on
+   * top of a quilting series that sold 18 of 129 places. Acting on the average
+   * would have cut the best course in the schedule.
+   *
+   * Events are deduplicated before grouping: a class tagged to two interest
+   * areas must not count twice.
+   *
+   * @return array
+   *   Rows with course, runs, capacity, seats_filled, fill_rate, waitlisted,
+   *   empty_runs, revenue and revenue_per_run, ordered by fill rate ascending.
+   */
+  public function getCourseFillSpread(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, int $min_runs = 2, string $eventTypeLabel = 'Ticketed Workshop'): array {
+    $cid = sprintf('makerspace_dashboard:course_fill_spread:%d:%d:%d:%s',
+      $start_date->getTimestamp(), $end_date->getTimestamp(), $min_runs, md5($eventTypeLabel));
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+    $counted = $this->getCountedStatusIds();
+    $waitlist = $this->getWaitlistStatusIds();
+    if (!$counted) {
+      return [];
+    }
+
+    $events = $this->database->select('civicrm_event', 'e');
+    $events->addField('e', 'id', 'event_id');
+    $events->addField('e', 'max_participants');
+    $events->addField('course', 'field_parent_course_target_id', 'course_id');
+    $events->leftJoin('civicrm_event__field_parent_course', 'course', 'course.entity_id = e.id');
+    if ($eventTypeGroupId) {
+      $events->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :grp', [':grp' => $eventTypeGroupId]);
+    }
+    else {
+      $events->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $events->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $events->condition('og.name', 'event_type');
+    }
+    $events->condition('ov.label', $eventTypeLabel);
+    $events->condition('e.is_active', 1);
+    $events->condition('e.is_template', 0);
+    $events->condition('e.max_participants', 0, '>');
+    $events->condition('e.start_date', [
+      $start_date->format('Y-m-d H:i:s'),
+      $end_date->format('Y-m-d H:i:s'),
+    ], 'BETWEEN');
+
+    $perEvent = [];
+    foreach ($events->execute() as $row) {
+      $perEvent[(int) $row->event_id] = [
+        'capacity' => min(max(0, (int) $row->max_participants), self::WORKSHOP_CAPACITY_CAP),
+        'course_id' => $row->course_id !== NULL ? (int) $row->course_id : NULL,
+        'filled' => 0,
+        'waiting' => 0,
+        'revenue' => 0.0,
+      ];
+    }
+    if (!$perEvent) {
+      return [];
+    }
+    $eventIds = array_keys($perEvent);
+
+    $seats = $this->database->select('civicrm_participant', 'p');
+    $seats->addField('p', 'event_id');
+    $seats->addExpression('COUNT(DISTINCT p.id)', 'n');
+    $seats->condition('p.event_id', $eventIds, 'IN');
+    $seats->condition('p.is_test', 0);
+    $seats->condition('p.role_id', '1');
+    $seats->condition('p.status_id', $counted, 'IN');
+    $seats->groupBy('p.event_id');
+    foreach ($seats->execute() as $row) {
+      $perEvent[(int) $row->event_id]['filled'] = (int) $row->n;
+    }
+
+    if ($waitlist) {
+      $waiting = $this->database->select('civicrm_participant', 'p');
+      $waiting->addField('p', 'event_id');
+      $waiting->addExpression('COUNT(DISTINCT p.id)', 'n');
+      $waiting->condition('p.event_id', $eventIds, 'IN');
+      $waiting->condition('p.is_test', 0);
+      $waiting->condition('p.role_id', '1');
+      $waiting->condition('p.status_id', $waitlist, 'IN');
+      $waiting->groupBy('p.event_id');
+      foreach ($waiting->execute() as $row) {
+        $perEvent[(int) $row->event_id]['waiting'] = (int) $row->n;
+      }
+    }
+
+    // Revenue deduplicated by contribution, per getAverageRevenuePerRegistration().
+    $inner = $this->database->select('civicrm_participant', 'p');
+    $inner->addField('p', 'event_id');
+    $inner->addField('c', 'id', 'contribution_id');
+    $inner->addExpression('MAX(c.total_amount)', 'amount');
+    $inner->innerJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
+    $inner->innerJoin('civicrm_contribution', 'c', 'c.id = pp.contribution_id AND c.contribution_status_id = :done', [':done' => 1]);
+    $inner->condition('p.event_id', $eventIds, 'IN');
+    $inner->condition('p.is_test', 0);
+    $inner->groupBy('p.event_id');
+    $inner->groupBy('c.id');
+    $revenue = $this->database->select($inner, 'd');
+    $revenue->addField('d', 'event_id');
+    $revenue->addExpression('SUM(d.amount)', 'revenue');
+    $revenue->groupBy('d.event_id');
+    foreach ($revenue->execute() as $row) {
+      $perEvent[(int) $row->event_id]['revenue'] = (float) $row->revenue;
+    }
+
+    $titles = $this->loadCourseTitles();
+    $byCourse = [];
+    foreach ($perEvent as $event) {
+      $key = $event['course_id'] !== NULL
+        ? ($titles[$event['course_id']] ?? ('Course ' . $event['course_id']))
+        : 'Not linked to a course';
+      if (!isset($byCourse[$key])) {
+        $byCourse[$key] = ['runs' => 0, 'capacity' => 0, 'seats_filled' => 0,
+                           'waitlisted' => 0, 'empty_runs' => 0, 'revenue' => 0.0];
+      }
+      $byCourse[$key]['runs']++;
+      $byCourse[$key]['capacity'] += $event['capacity'];
+      $byCourse[$key]['seats_filled'] += $event['filled'];
+      $byCourse[$key]['waitlisted'] += $event['waiting'];
+      $byCourse[$key]['revenue'] += $event['revenue'];
+      if ($event['filled'] === 0) {
+        $byCourse[$key]['empty_runs']++;
+      }
+    }
+
+    $rows = [];
+    foreach ($byCourse as $course => $vals) {
+      if ($vals['runs'] < $min_runs || $vals['capacity'] <= 0) {
+        continue;
+      }
+      $rows[] = [
+        'course' => $course,
+        'runs' => $vals['runs'],
+        'capacity' => $vals['capacity'],
+        'seats_filled' => $vals['seats_filled'],
+        'fill_rate' => round($vals['seats_filled'] / $vals['capacity'] * 100, 1),
+        'waitlisted' => $vals['waitlisted'],
+        'empty_runs' => $vals['empty_runs'],
+        'revenue' => round($vals['revenue'], 2),
+        'revenue_per_run' => round($vals['revenue'] / $vals['runs'], 2),
+      ];
+    }
+    usort($rows, static fn($a, $b) => $a['fill_rate'] <=> $b['fill_rate']);
+
+    $this->cache->set($cid, $rows, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
+    return $rows;
   }
 
   /**
@@ -1823,7 +2361,7 @@ class EventsMembershipDataService {
     $query->addExpression("DATE_FORMAT(e.start_date, '%Y-%m-01')", 'month_key');
     $query->addField('e', 'id', 'event_id');
     $query->addField('e', 'max_participants');
-    $query->leftJoin('civicrm_participant', 'p', 'p.event_id = e.id');
+    $query->leftJoin('civicrm_participant', 'p', 'p.event_id = e.id AND p.is_test = 0');
     $query->leftJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
     if ($eventTypeGroupId) {
       $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
@@ -1841,8 +2379,14 @@ class EventsMembershipDataService {
       $end_date->format('Y-m-d H:i:s'),
     ], 'BETWEEN');
     $query->condition('e.is_active', 1);
+    $query->condition('e.is_template', 0);
     $query->condition('e.max_participants', 0, '>');
-    $query->addExpression('SUM(CASE WHEN pst.is_counted = 1 THEN 1 ELSE 0 END)', 'counted_regs');
+    $query->addExpression("SUM(CASE WHEN pst.is_counted = 1
+      AND CONCAT(CHAR(1), p.role_id, CHAR(1)) LIKE CONCAT('%', CHAR(1), '1', CHAR(1), '%')
+      THEN 1 ELSE 0 END)", 'counted_regs');
+    $query->addExpression("SUM(CASE WHEN pst.is_counted = 1
+      AND CONCAT(CHAR(1), p.role_id, CHAR(1)) NOT LIKE CONCAT('%', CHAR(1), '1', CHAR(1), '%')
+      THEN 1 ELSE 0 END)", 'counted_staff');
     $query->groupBy('month_key');
     $query->groupBy('e.id');
     $query->groupBy('e.max_participants');
@@ -1866,7 +2410,8 @@ class EventsMembershipDataService {
       }
       // Clamp placeholder caps (e.g. 99 on a lecture) so one run can't skew the
       // month's fill rate and empty-seat totals. See WORKSHOP_CAPACITY_CAP.
-      $capacity = min(max(0, (int) $record->max_participants), self::WORKSHOP_CAPACITY_CAP);
+      $rawCapacity = min(max(0, (int) $record->max_participants), self::WORKSHOP_CAPACITY_CAP);
+      $capacity = max(0, $rawCapacity - max(0, (int) $record->counted_staff));
       if ($capacity <= 0) {
         continue;
       }
@@ -1949,8 +2494,10 @@ class EventsMembershipDataService {
   /**
    * Returns monthly workshop fill-rate percentages for a date range.
    *
-   * Fill rate = counted registrations / total capacity across active events
-   * with an explicit capacity (max_participants > 0) starting in the month.
+   * Fill rate = counted attendee registrations / effective capacity across
+   * active events with an explicit capacity starting in the month. Effective
+   * capacity clamps placeholders at WORKSHOP_CAPACITY_CAP and removes counted
+   * staff registrations.
    *
    * @param \DateTimeImmutable $start_date
    *   Start of the reporting window.
@@ -2198,13 +2745,42 @@ class EventsMembershipDataService {
       return [];
     }
 
+    // Revenue is deduplicated by contribution id for the reason set out on
+    // getAverageRevenuePerRegistration(): one contribution can cover several
+    // participants, and summing across civicrm_participant_payment counts it
+    // once per head.
+    $inner = $this->database->select('civicrm_participant', 'p');
+    $inner->addField('p', 'event_id');
+    $inner->addField('c', 'id', 'contribution_id');
+    $inner->addExpression('MAX(c.total_amount)', 'amount');
+    $inner->innerJoin('civicrm_participant_status_type', 'pst2', 'pst2.id = p.status_id');
+    $inner->condition('pst2.is_counted', 1);
+    $inner->condition('p.is_test', 0);
+    $inner->innerJoin('civicrm_participant_payment', 'pp2', 'pp2.participant_id = p.id');
+    $inner->innerJoin('civicrm_contribution', 'c', 'c.id = pp2.contribution_id AND c.contribution_status_id = :done', [':done' => 1]);
+    $inner->condition('p.event_id', $eventIds, 'IN');
+    $inner->groupBy('p.event_id');
+    $inner->groupBy('c.id');
+
+    $revenueQuery = $this->database->select($inner, 'd');
+    $revenueQuery->addField('d', 'event_id');
+    $revenueQuery->addExpression('SUM(d.amount)', 'total_amount');
+    $revenueQuery->addExpression('COUNT(*)', 'paid_count');
+    $revenueQuery->groupBy('d.event_id');
+    $revenueByEvent = [];
+    foreach ($revenueQuery->execute() as $row) {
+      $revenueByEvent[(int) $row->event_id] = [
+        'total_amount' => (float) $row->total_amount,
+        'paid_count' => (int) $row->paid_count,
+      ];
+    }
+
     $query = $this->database->select('civicrm_participant', 'p');
     $query->addField('p', 'event_id');
     $query->addExpression('COUNT(DISTINCT p.id)', 'registration_count');
-    $query->addExpression('SUM(COALESCE(c.total_amount, 0))', 'total_amount');
-    $query->addExpression('COUNT(DISTINCT c.id)', 'paid_count');
     $query->innerJoin('civicrm_participant_status_type', 'pst', 'pst.id = p.status_id');
     $query->condition('pst.is_counted', 1);
+    $query->condition('p.is_test', 0);
     $query->innerJoin('civicrm_event', 'e', 'e.id = p.event_id');
     if ($start_date) {
       $query->condition('e.start_date', [
@@ -2216,17 +2792,16 @@ class EventsMembershipDataService {
       $query->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<=');
     }
     $query->condition('p.event_id', $eventIds, 'IN');
-    $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.participant_id = p.id');
-    $query->leftJoin('civicrm_contribution', 'c', 'c.id = pp.contribution_id');
     $query->groupBy('p.event_id');
 
     $metrics = [];
     foreach ($query->execute() as $record) {
       $eventId = (int) $record->event_id;
+      $revenue = $revenueByEvent[$eventId] ?? ['total_amount' => 0.0, 'paid_count' => 0];
       $metrics[$eventId] = [
         'registrations' => (int) $record->registration_count,
-        'total_amount' => (float) $record->total_amount,
-        'paid_count' => (int) $record->paid_count,
+        'total_amount' => $revenue['total_amount'],
+        'paid_count' => $revenue['paid_count'],
       ];
     }
 

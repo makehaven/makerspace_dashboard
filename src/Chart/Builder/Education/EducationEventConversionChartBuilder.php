@@ -10,7 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationEventConversionChartBuilder extends EducationEventsChartBuilderBase {
 
   protected const CHART_ID = 'conversion_funnel';
-  protected const WEIGHT = 10;
+  protected const WEIGHT = 25;
   protected const TIER = 'key';
 
   /**
