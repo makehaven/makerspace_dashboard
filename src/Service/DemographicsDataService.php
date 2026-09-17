@@ -818,43 +818,112 @@ class DemographicsDataService {
   /**
    * Gets the annual member referral rate.
    *
+   * Rewritten 2026-09-17. Both halves were wrong, in the same family as the
+   * 2026-07 KPI audit:
+   *
+   * - The numerator counted `COUNT(DISTINCT LOWER(TRIM(free_text)))`. Those
+   *   answers are typed by hand — 547 of them collapse into 429 distinct
+   *   strings — so one member spelled two ways counted twice, and an
+   *   organisation counted as a referrer. It now counts distinct **resolved
+   *   accounts** from `field_member_referral`, which only a confirmed staff
+   *   review writes.
+   * - The denominator used *today's* active member count for every year,
+   *   including historical ones, which silently rescaled the past every time
+   *   membership changed. It now prefers the `kpi_total_active_members`
+   *   snapshot for that year.
+   *
+   * The numerator is bounded by how much of the review queue has been worked;
+   * see getReferralResolutionRate(), which is the number that says whether
+   * this one can be trusted yet.
+   *
    * @param int|null $year
    *   The year to calculate for. Defaults to current year.
    *
    * @return float
-   *   The member referral rate.
+   *   Unique resolved referrers as a share of that year's active members.
    */
   public function getAnnualMemberReferralRate(?int $year = NULL): float {
-    // We are now measuring "Member Referrers Rate (%)":
-    // Unique referrers in the given year / Total active members.
     $targetYear = $year ?: (int) date('Y');
+    $start = strtotime($targetYear . '-01-01');
+    $end = strtotime($targetYear . '-12-31 23:59:59');
 
-    // 1. Get unique referrers for the given year.
-    // This looks at new members created in that year and identifies who referred them.
-    $query = $this->database->select('profile__field_member_referring', 'r');
-    $query->innerJoin('profile', 'p', 'r.entity_id = p.profile_id');
-    $query->innerJoin('users_field_data', 'u', 'p.uid = u.uid');
-    $query->addExpression('COUNT(DISTINCT LOWER(TRIM(r.field_member_referring_value)))', 'referrer_count');
-    $query->condition('p.type', 'main');
-    $query->condition('u.created', strtotime($targetYear . '-01-01'), '>=');
-    $query->condition('u.created', strtotime($targetYear . '-12-31 23:59:59'), '<=');
-    $referrerCount = (int) $query->execute()->fetchField();
+    $referrerCount = 0;
+    if ($this->database->schema()->tableExists('profile__field_member_referral')) {
+      $query = $this->database->select('profile__field_member_referral', 'x');
+      $query->innerJoin('profile', 'p', 'x.entity_id = p.profile_id');
+      $query->innerJoin('users_field_data', 'u', 'p.uid = u.uid');
+      $query->addExpression('COUNT(DISTINCT x.field_member_referral_target_id)', 'referrer_count');
+      $query->condition('x.deleted', 0);
+      $query->condition('p.type', 'main');
+      $query->condition('u.created', $start, '>=');
+      $query->condition('u.created', $end, '<=');
+      $referrerCount = (int) $query->execute()->fetchField();
+    }
 
-    // 2. Get total active members.
-    // Note: For historical years, this simple count of CURRENTLY active members 
-    // is an approximation. Ideally we would use snapshots, but this matches 
-    // the user intent for the dashboard fallback.
+    $activeCount = $this->activeMembersForYear($targetYear);
+
+    return $activeCount > 0 ? $referrerCount / $activeCount : 0.0;
+  }
+
+  /**
+   * Resolved referrals as a share of the ones members actually told us about.
+   *
+   * The honesty check on every other referral number: a low rate means the
+   * review queue is not being worked, not that members are not referring.
+   *
+   * @return float
+   *   Resolved ÷ named, between 0 and 1.
+   */
+  public function getReferralResolutionRate(): float {
+    if (!$this->database->schema()->tableExists('profile__field_member_referring')) {
+      return 0.0;
+    }
+
+    $named = (int) $this->database->select('profile__field_member_referring', 'r')
+      ->condition('r.deleted', 0)
+      ->condition('r.field_member_referring_value', '', '<>')
+      ->countQuery()->execute()->fetchField();
+    if ($named === 0) {
+      return 0.0;
+    }
+
+    $resolved = 0;
+    if ($this->database->schema()->tableExists('profile__field_member_referral')) {
+      $resolved = (int) $this->database->select('profile__field_member_referral', 'x')
+        ->condition('x.deleted', 0)
+        ->countQuery()->execute()->fetchField();
+    }
+
+    return $resolved / $named;
+  }
+
+  /**
+   * Active members in a given year, preferring the recorded snapshot.
+   *
+   * Falls back to counting current members only when no snapshot exists —
+   * which is correct for the current year and an approximation for any other,
+   * so the fallback is deliberately the last resort rather than the default.
+   */
+  protected function activeMembersForYear(int $year): int {
+    if ($this->database->schema()->tableExists('ms_fact_kpi_snapshot')) {
+      $snapshot = $this->database->select('ms_fact_kpi_snapshot', 'k')
+        ->fields('k', ['metric_value'])
+        ->condition('k.kpi_id', 'kpi_total_active_members')
+        ->condition('k.period_year', $year)
+        ->orderBy('k.period_month', 'DESC')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+      if ($snapshot !== FALSE && (int) $snapshot > 0) {
+        return (int) $snapshot;
+      }
+    }
+
     $query = $this->database->select('user__roles', 'ur');
     $query->innerJoin('users_field_data', 'u', 'u.uid = ur.entity_id');
     $query->condition('ur.roles_target_id', $this->memberRoles, 'IN');
     $query->condition('u.status', 1);
-    $activeCount = (int) $query->countQuery()->execute()->fetchField();
-
-    if ($activeCount > 0) {
-      return $referrerCount / $activeCount;
-    }
-
-    return 0.0;
+    return (int) $query->countQuery()->execute()->fetchField();
   }
 
   /**

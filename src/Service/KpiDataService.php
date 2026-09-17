@@ -565,6 +565,8 @@ class KpiDataService {
         'kpi_tours_to_member_conversion',
         'kpi_guest_waiver_to_member_conversion',
         'kpi_event_participant_to_member_conversion',
+        'kpi_member_referral_rate',
+        'kpi_referral_resolution_rate',
       ],
       // Keep retention KPI rows focused on membership scale, health, and early activation.
       'retention' => [
@@ -2252,6 +2254,72 @@ class KpiDataService {
       'percent',
       $sourceNote,
       '8 Quarters'
+    );
+  }
+
+  /**
+   * Gets the data for the "Member Referral Rate %" KPI.
+   *
+   * Counts resolved referrer accounts, never typed names. Read it alongside
+   * the resolution rate below: if only a fraction of the answers have been
+   * matched to accounts, this number is a floor, not a measurement.
+   */
+  private function getKpiMemberReferralRateData(array $kpi_info): array {
+    $year = (int) date('Y');
+    $current = $this->demographicsDataService->getAnnualMemberReferralRate($year);
+
+    $annualOverrides = [];
+    for ($y = $year - 4; $y <= $year; $y++) {
+      $value = $this->demographicsDataService->getAnnualMemberReferralRate($y);
+      if ($value > 0) {
+        $annualOverrides[(string) $y] = $value;
+      }
+    }
+
+    $resolution = $this->demographicsDataService->getReferralResolutionRate();
+    $sourceNote = sprintf(
+      'Drupal: distinct resolved referrer accounts for members who joined in %d, over that year\'s active member count. Only %s%% of stored answers have been matched to an account, so this is a floor.',
+      $year,
+      number_format($resolution * 100, 1),
+    );
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      $annualOverrides,
+      [],
+      NULL,
+      NULL,
+      NULL,
+      $current > 0 ? $current : NULL,
+      'kpi_member_referral_rate',
+      'percent',
+      $sourceNote,
+    );
+  }
+
+  /**
+   * Gets the data for the "Referral Resolution Rate %" KPI.
+   *
+   * The number that says whether the review queue is being worked. It held 545
+   * unanswered names against 2 decisions ever recorded on 2026-09-17, and
+   * every other referral number is capped by it.
+   */
+  private function getKpiReferralResolutionRateData(array $kpi_info): array {
+    $current = $this->demographicsDataService->getReferralResolutionRate();
+
+    return $this->buildKpiResult(
+      $kpi_info,
+      [],
+      [],
+      NULL,
+      NULL,
+      NULL,
+      // Zero is a real and important answer here, so it is reported rather
+      // than collapsed into "unavailable" the way an absent value would be.
+      $current,
+      'kpi_referral_resolution_rate',
+      'percent',
+      'Drupal: profiles with a resolved referrer account over profiles carrying any referrer answer. A low number is a queue that is not being worked, not members who are not referring.',
     );
   }
 
@@ -5690,6 +5758,20 @@ class KpiDataService {
           'goal_2030' => 0.35,
           'description' => 'Percentage of tour participants who subsequently signed up for a membership.',
           'source_note' => 'CRM: (Tour participants who became members) / (Total unique tour participants).',
+        ],
+        'kpi_member_referral_rate' => [
+          'label' => 'Member Referral Rate %',
+          'base_2025' => 0.05,
+          'goal_2030' => 0.15,
+          'description' => 'Members who introduced at least one person who joined this year, as a share of active members.',
+          'source_note' => 'Drupal: distinct RESOLVED referrer accounts (field_member_referral) for members who joined in the year, over that year\'s snapshotted active member count. Counts accounts, never typed names — the free-text answers collapse 547 rows into 429 strings. Bounded by how much of the review queue has been worked; read alongside Referral Resolution Rate.',
+        ],
+        'kpi_referral_resolution_rate' => [
+          'label' => 'Referral Resolution Rate %',
+          'base_2025' => 0.00,
+          'goal_2030' => 0.80,
+          'description' => 'Share of stored "who referred you" answers that staff have matched to an account.',
+          'source_note' => 'Drupal: resolved (field_member_referral) over named (field_member_referring). This is the honesty check on the referral rate above — a low number means the review queue is not being worked, not that members are not referring. Until a name is matched, nobody is thanked and no credit is applied.',
         ],
         'kpi_event_participant_to_member_conversion' => [
           'label' => 'Event Participant to Member Conversion %',

@@ -4,6 +4,7 @@ description: 'Provides aggregated dashboards for makerspace utilization, engagem
 core_version_requirement: ^10 || ^11
 package: Makerspace
 dependencies:
+  - makerspace_referrals:makerspace_referrals
   - drupal:charts
   - charts:charts_google
   - makerspace_member_success:makerspace_member_success

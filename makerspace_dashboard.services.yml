@@ -597,6 +597,33 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
+  # Referral charts. These take makerspace_referrals.stats rather than the
+  # demographics service, following the same direction of dependency as the
+  # lending and storage collectors: the dashboard depends on the owning module.
+  makerspace_dashboard.chart_builder.outreach_referrals_monthly:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachReferralsPerMonthChartBuilder
+    arguments:
+      - '@makerspace_referrals.stats'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_top_referrers:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachTopReferrersChartBuilder
+    arguments:
+      - '@makerspace_referrals.stats'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.outreach_referral_resolution:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachReferralResolutionChartBuilder
+    arguments:
+      - '@makerspace_referrals.stats'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
   makerspace_dashboard.chart_builder.outreach_discovery_sources:
     class: Drupal\makerspace_dashboard\Chart\Builder\Outreach\OutreachDiscoverySourcesChartBuilder
     arguments:
