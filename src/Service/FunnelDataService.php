@@ -360,7 +360,7 @@ class FunnelDataService {
    * Loads a contact => earliest activity date map for the given label match.
    */
   protected function getActivityContactMap(string $labelMatch, DateTimeImmutable $start, DateTimeImmutable $end): array {
-    $cacheId = sprintf('makerspace_dashboard:funnel:activity_map:%s:%s:%s', strtolower($labelMatch), $start->format('Ymd'), $end->format('Ymd'));
+    $cacheId = sprintf('makerspace_dashboard:funnel:activity_map:v2:%s:%s:%s', strtolower($labelMatch), $start->format('Ymd'), $end->format('Ymd'));
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
@@ -381,6 +381,12 @@ class FunnelDataService {
     ], 'BETWEEN');
     $query->condition('a.is_test', 0);
     $query->condition('a.is_deleted', 0);
+    // A Calendly booking that was cancelled is kept, marked Cancelled; it is
+    // not a tour that happened (calendly_to_civicrm, 2026-10).
+    $cancelled = $this->getCancelledActivityStatusId();
+    if ($cancelled) {
+      $query->condition('a.status_id', $cancelled, '<>');
+    }
     $query->where('LOWER(COALESCE(ov.label, \'\')) LIKE :activity_label', [
       ':activity_label' => $pattern,
     ]);
@@ -554,6 +560,22 @@ class FunnelDataService {
       $map[$uid] = $joinDate;
     }
     return $map;
+  }
+
+  /**
+   * The "Cancelled" activity status value, or 0 when it cannot be found.
+   */
+  protected function getCancelledActivityStatusId(): int {
+    static $id;
+    if ($id === NULL) {
+      $query = $this->database->select('civicrm_option_group', 'og');
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.option_group_id = og.id');
+      $query->addField('ov', 'value');
+      $query->condition('og.name', 'activity_status');
+      $query->condition('ov.name', 'Cancelled');
+      $id = (int) $query->execute()->fetchField();
+    }
+    return $id;
   }
 
   /**
