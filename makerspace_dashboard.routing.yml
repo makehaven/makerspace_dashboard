@@ -97,3 +97,16 @@ makerspace_dashboard.map_debug:
     _title: 'Member Map Debug'
   requirements:
     _permission: 'view makerspace dashboard'
+
+# Data behind the "What's next" board on process.makehaven.org. Any signed-in
+# member (registry OAuth token or a site session); nothing in it is per-user.
+makerspace_dashboard.work_board_feed:
+  path: '/api/work-board'
+  defaults:
+    _controller: '\Drupal\makerspace_dashboard\Controller\WorkBoardFeedController::feed'
+  methods: [GET]
+  options:
+    _auth: ['oauth2', 'cookie']
+    no_cache: TRUE
+  requirements:
+    _user_is_logged_in: 'TRUE'
