@@ -649,11 +649,12 @@ SVG;
     elseif ($source === 'estimate') {
       $notes[] = $this->t('Alternative estimate. See the source note for its definition.');
     }
-    elseif (!empty($kpi['last_updated'])) {
-      $notes[] = $this->t('Reporting date: @date.', ['@date' => $kpi['last_updated']]);
-    }
-    if (!empty($kpi['computed_at'])) {
-      $notes[] = $this->t('Calculated @date.', ['@date' => gmdate('Y-m-d H:i', (int) $kpi['computed_at']) . ' UTC']);
+    $timing = $this->buildTimingNote(
+      $source === 'calculated' ? ($kpi['last_updated'] ?? NULL) : NULL,
+      !empty($kpi['computed_at']) ? (int) $kpi['computed_at'] : NULL
+    );
+    if ($timing !== '') {
+      $notes[] = $timing;
     }
     if (($kpi['refresh_status'] ?? 'unknown') === 'stale') {
       $notes[] = $this->t('Refresh overdue. Check the source before using this figure.');
@@ -662,6 +663,43 @@ SVG;
       $notes[] = $this->t('Calculation time unknown.');
     }
     return '<div class="kpi-freshness">' . implode(' ', array_map(static fn($note) => Html::escape((string) $note), $notes)) . '</div>';
+  }
+
+  /**
+   * Describes what date a value covers and when it was last refreshed.
+   *
+   * Reads as one phrase in site time: "As of Oct 5, 2026, 4:44 PM" when the
+   * data date is the refresh day, otherwise "As of Jun 30, 2026 · refreshed
+   * Oct 5, 4:44 PM" so an old source date stands out.
+   */
+  protected function buildTimingNote(?string $dataDate, ?int $computedAt): string {
+    $data = NULL;
+    if ($dataDate !== NULL && preg_match('/^\d{4}-\d{2}-\d{2}/', $dataDate)) {
+      $data = new \DateTimeImmutable(substr($dataDate, 0, 10));
+    }
+    $computed = NULL;
+    if ($computedAt) {
+      $computed = (new \DateTimeImmutable('@' . $computedAt))
+        ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
+    }
+
+    if ($data && $computed && $data->format('Y-m-d') === $computed->format('Y-m-d')) {
+      return (string) $this->t('As of @date.', ['@date' => $computed->format('M j, Y, g:i A')]);
+    }
+    $parts = [];
+    if ($data) {
+      $parts[] = (string) $this->t('As of @date', ['@date' => $data->format('M j, Y')]);
+    }
+    elseif ($dataDate !== NULL && trim($dataDate) !== '') {
+      $parts[] = (string) $this->t('As of @date', ['@date' => trim($dataDate)]);
+    }
+    if ($computed) {
+      $parts[] = (string) $this->t('refreshed @date', ['@date' => $computed->format('M j, g:i A')]);
+    }
+    if (!$parts) {
+      return '';
+    }
+    return ucfirst(implode(' · ', $parts)) . '.';
   }
 
   /**

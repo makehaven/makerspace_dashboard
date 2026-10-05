@@ -350,7 +350,13 @@ class GovernanceBoardDataService {
     $query->innerJoin('webform_submission', 's', 's.sid = d.sid');
     $query->fields('d', ['value']);
     $query->condition('s.webform_id', $webform_id);
-    $query->condition('d.name', $elements, 'IN');
+    // Both surveys are likert grids: the grid is stored in `name` and each
+    // question key in `property`. Matching only `name` found nothing.
+    $query->condition(
+      $query->orConditionGroup()
+        ->condition('d.name', $elements, 'IN')
+        ->condition('d.property', $elements, 'IN')
+    );
     $query->condition('s.created', $yearStart, '>=');
     $query->condition('s.in_draft', 0);
 
