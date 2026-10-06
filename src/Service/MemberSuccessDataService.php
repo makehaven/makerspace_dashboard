@@ -2,6 +2,7 @@
 
 namespace Drupal\makerspace_dashboard\Service;
 
+use Drupal\Core\Config\ConfigFactoryInterface;
 use DateTimeImmutable;
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
@@ -24,6 +25,7 @@ class MemberSuccessDataService {
     protected Connection $database,
     protected CacheBackendInterface $cache,
     protected TimeInterface $time,
+    protected ?ConfigFactoryInterface $configFactory = NULL,
   ) {
   }
 
@@ -104,7 +106,7 @@ class MemberSuccessDataService {
     $activationDays = max(1, $activationDays);
 
     $cacheId = sprintf(
-      'makerspace_dashboard:member_success:activation:v2:%d:%d',
+      'makerspace_dashboard:member_success:activation:v3:%d:%d',
       $months,
       $activationDays
     );
@@ -127,6 +129,11 @@ class MemberSuccessDataService {
     $firstBadge->condition('badge_node.type', 'badge_request');
     $firstBadge->condition('badge_node.status', 1);
     $firstBadge->condition('badge_status.field_badge_status_value', 'active');
+    // The Door badge is granted to nearly everyone on finishing onboarding
+    // (456 of ~520 first badges), so counting it measured onboarding, not
+    // whether a new member learned a tool.
+    $firstBadge->innerJoin('node__field_badge_requested', 'badge_term', 'badge_term.entity_id = badge_node.nid AND badge_term.deleted = 0');
+    $firstBadge->condition('badge_term.field_badge_requested_target_id', $this->getDoorBadgeTid(), '<>');
     $firstBadge->groupBy('badge_member.field_member_to_badge_target_id');
 
     $query = $this->database->select('profile', 'p');
@@ -176,6 +183,14 @@ class MemberSuccessDataService {
 
     $this->cache->set($cacheId, $series, $this->time->getRequestTime() + 3600, ['node_list:badge_request', 'profile_list', 'user_list']);
     return $series;
+  }
+
+  /**
+   * The Door access badge term, shared with makerspace_member_success.
+   */
+  protected function getDoorBadgeTid(): int {
+    $tid = $this->configFactory?->get('makerspace_member_success.settings')->get('door_badge_tid');
+    return (int) ($tid ?: 1519);
   }
 
   /**

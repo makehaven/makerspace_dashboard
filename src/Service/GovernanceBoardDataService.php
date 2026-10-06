@@ -348,7 +348,7 @@ class GovernanceBoardDataService {
     
     $query = $this->database->select('webform_submission_data', 'd');
     $query->innerJoin('webform_submission', 's', 's.sid = d.sid');
-    $query->fields('d', ['value']);
+    $query->fields('d', ['sid', 'value']);
     $query->condition('s.webform_id', $webform_id);
     // Both surveys are likert grids: the grid is stored in `name` and each
     // question key in `property`. Matching only `name` found nothing.
@@ -367,6 +367,7 @@ class GovernanceBoardDataService {
     // counted as zeros.
     $total = 0;
     $sum = 0;
+    $submissions = [];
     $lastUpdated = NULL;
 
     foreach ($results as $row) {
@@ -380,6 +381,7 @@ class GovernanceBoardDataService {
       }
       $total++;
       $sum += $val;
+      $submissions[(int) $row->sid] = TRUE;
     }
 
     // Get last updated time.
@@ -396,6 +398,7 @@ class GovernanceBoardDataService {
       'value' => $total > 0 ? round($sum / $total, 2) : NULL,
       'last_updated' => $lastUpdated,
       'response_count' => $total,
+      'submission_count' => count($submissions),
     ];
   }
 

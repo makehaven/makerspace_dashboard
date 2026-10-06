@@ -1224,6 +1224,44 @@ class FinancialDataService {
   }
 
   /**
+   * Quarters posted to the Income-Statement tab, newest last.
+   *
+   * Finance KPIs must follow the columns actually entered, not today's date:
+   * the sheet is filled in by hand weeks after a quarter closes.
+   *
+   * @return array<string, array{int, int}>
+   *   Keyed "YYYY-Q", each value [year, quarter].
+   */
+  public function getPostedIncomeStatementQuarters(): array {
+    $data = $this->googleSheetClient->getSheetData('Income-Statement');
+    if (empty($data)) {
+      return [];
+    }
+    $quarterOrder = ['Jan-Mar' => 1, 'Apr-Jun' => 2, 'Jul-Sep' => 3, 'Jul-Sept' => 3, 'Oct-Dec' => 4];
+    $posted = [];
+    foreach ((array) reset($data) as $header) {
+      if (preg_match('/^(Jan-Mar|Apr-Jun|Jul-Sept?|Oct-Dec)\s+(\d{4})$/', trim((string) $header), $m)) {
+        $posted[$m[2] . '-' . $quarterOrder[$m[1]]] = [(int) $m[2], $quarterOrder[$m[1]]];
+      }
+    }
+    ksort($posted);
+    return $posted;
+  }
+
+  /**
+   * Last day of the newest quarter posted to the Income-Statement tab.
+   */
+  public function getIncomeStatementPostedThrough(): ?string {
+    $posted = $this->getPostedIncomeStatementQuarters();
+    if (!$posted) {
+      return NULL;
+    }
+    [$year, $quarter] = end($posted);
+    return (new \DateTimeImmutable(sprintf('%04d-%02d-01', $year, $quarter * 3)))
+      ->modify('last day of this month')->format('Y-m-d');
+  }
+
+  /**
    * Returns [year, quarterNumber] for the most recently completed quarter.
    *
    * @return array{int, int}  [$year, $quarter]  e.g. [2025, 4]

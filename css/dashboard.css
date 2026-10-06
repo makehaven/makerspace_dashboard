@@ -423,6 +423,37 @@
   font-weight: 500;
 }
 
+/* Period chip: what span the headline value covers. One color per kind so a
+   12-month figure is never read as year-to-date or as a snapshot. */
+.kpi-basis {
+  display: inline-block;
+  margin-top: 0.3rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  cursor: help;
+  color: #334155;
+  background-color: #e2e8f0;
+}
+.kpi-basis--rolling-12 { color: #1e40af; background-color: #dbeafe; }
+.kpi-basis--rolling-90 { color: #075985; background-color: #e0f2fe; }
+.kpi-basis--ytd { color: #92400e; background-color: #fef3c7; }
+.kpi-basis--quarter { color: #5b21b6; background-color: #ede9fe; }
+.kpi-basis--cohort { color: #115e59; background-color: #ccfbf1; }
+.kpi-basis--survey { color: #9d174d; background-color: #fce7f3; }
+
+/* Sample size and quarter/YTD lines under the value. */
+.kpi-sample-note,
+.kpi-period-context {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--mh-color-neutral-700, #475569);
+}
+
 /* YTD accumulating badge */
 .kpi-period-badge--ytd {
   display: inline-block;
@@ -1158,6 +1189,12 @@
 @media print {
   @page {
     margin: 0.35in 0.45in;
+  }
+
+  /* Keep the period chip colors in the emailed board PDF. */
+  .kpi-basis {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   html:has(body[class*="path-makerspace-dashboard"]),

@@ -301,10 +301,175 @@ class KpiDataService {
         continue;
       }
 
-      $kpi_data[$kpi_id] = $result;
+      $kpi_data[$kpi_id] = $this->applyReportingContext($kpi_id, $result);
     }
 
     return $kpi_data;
+  }
+
+  /**
+   * What period each KPI's headline value covers.
+   *
+   * Shown as a chip on every card so a 12-month figure, a year-to-date
+   * figure and a value as of today are never read as the same kind of
+   * number. KPIs that set their own period_basis (cohort retention, uptime)
+   * win over this map.
+   */
+  private const PERIOD_BASIS = [
+    'kpi_total_active_members' => 'point',
+    'kpi_membership_diversity_bipoc' => 'point',
+    'kpi_recurring_donors_count' => 'point',
+    'kpi_incubator_workspace_occupancy' => 'point',
+    'kpi_active_incubator_ventures' => 'point',
+    'kpi_board_ethnic_diversity' => 'point',
+    'kpi_board_gender_diversity' => 'point',
+    'kpi_member_lifetime_value_projected' => 'point',
+    'kpi_reserve_funds_months' => 'point',
+    'kpi_active_participation' => 'rolling_90',
+    'kpi_active_participation_bipoc' => 'rolling_90',
+    'kpi_active_participation_female_nb' => 'rolling_90',
+    'kpi_workshop_attendees' => 'rolling_12',
+    'kpi_total_new_member_signups' => 'rolling_12',
+    'kpi_total_first_time_workshop_participants' => 'rolling_12',
+    'kpi_tours' => 'rolling_12',
+    'kpi_tours_to_member_conversion' => 'rolling_12',
+    'kpi_guest_waiver_to_member_conversion' => 'rolling_12',
+    'kpi_event_participant_to_member_conversion' => 'rolling_12',
+    'kpi_total_new_recurring_revenue' => 'rolling_12',
+    'kpi_workshop_capacity_utilization' => 'rolling_12',
+    'kpi_program_capacity_utilization' => 'rolling_12',
+    'kpi_workshop_program_capacity_utilization' => 'rolling_12',
+    'kpi_workshop_participants_bipoc' => 'rolling_12',
+    'kpi_active_instructors_bipoc' => 'rolling_12',
+    'kpi_education_nps' => 'rolling_12',
+    'kpi_entrepreneurship_event_participation' => 'rolling_12',
+    'kpi_entrepreneurship_joins_rate' => 'rolling_12',
+    'kpi_equipment_investment' => 'rolling_12',
+    'kpi_grant_pipeline_count' => 'rolling_12',
+    'kpi_donor_retention_rate' => 'rolling_12',
+    'kpi_annual_corporate_sponsorships' => 'rolling_12',
+    'kpi_earned_income_sustaining_core' => 'ytd',
+    'kpi_revenue_per_member_index' => 'ytd',
+    'kpi_net_income_education' => 'ytd',
+    'kpi_member_referral_rate' => 'ytd',
+    'kpi_member_revenue_quarterly' => 'quarter',
+    'kpi_member_post_12_month_retention' => 'cohort',
+    'kpi_member_nps' => 'survey',
+    'kpi_board_governance' => 'survey',
+    'kpi_committee_effectiveness' => 'survey',
+    'kpi_grant_win_ratio' => 'multi_year',
+  ];
+
+  /**
+   * Count KPIs whose 12-month trend is one total per calendar month.
+   *
+   * For these the card can also show the last quarter and the year to date,
+   * which is what an annual goal is judged against. Tours are excluded: its
+   * trend is not monthly totals.
+   */
+  private const MONTHLY_COUNT_KPIS = [
+    'kpi_workshop_attendees',
+    'kpi_total_new_member_signups',
+    'kpi_total_first_time_workshop_participants',
+  ];
+
+  /**
+   * KPIs read from the hand-entered finance Google Sheet.
+   */
+  private const FINANCE_SHEET_KPIS = [
+    'kpi_reserve_funds_months',
+    'kpi_earned_income_sustaining_core',
+    'kpi_member_revenue_quarterly',
+    'kpi_revenue_per_member_index',
+    'kpi_net_income_education',
+    'kpi_annual_corporate_sponsorships',
+  ];
+
+  /**
+   * Adds the period chip, quarter/YTD context and finance lag to a KPI.
+   */
+  private function applyReportingContext(string $kpiId, array $result): array {
+    $result['period_basis'] ??= self::PERIOD_BASIS[$kpiId] ?? NULL;
+
+    if (in_array($kpiId, self::MONTHLY_COUNT_KPIS, TRUE)) {
+      $context = $this->buildMonthlyCountContext($result);
+      if ($context) {
+        $result['period_context'] = $context;
+      }
+      // These stamp the first day of the last complete month; the data runs
+      // through its last day, so "As of Sep 1" undersold a full September.
+      if (!empty($result['last_updated']) && str_ends_with((string) $result['last_updated'], '-01')) {
+        $result['last_updated'] = (new \DateTimeImmutable((string) $result['last_updated']))->modify('last day of this month')->format('Y-m-d');
+      }
+    }
+
+    if (in_array($kpiId, self::FINANCE_SHEET_KPIS, TRUE)) {
+      $postedThrough = $kpiId === 'kpi_reserve_funds_months'
+        ? ($result['last_updated'] ?? NULL)
+        : $this->financialDataService->getIncomeStatementPostedThrough();
+      if ($postedThrough) {
+        // These figures describe the sheet's newest quarter, not the day the
+        // dashboard recalculated them.
+        $result['last_updated'] = $postedThrough;
+        $now = new \DateTimeImmutable('@' . $this->time->getRequestTime());
+        $age = (int) $now->diff(new \DateTimeImmutable($postedThrough))->days;
+        if ($age > 45) {
+          $result['source_lag_note'] = sprintf(
+            'Finance entered through %s; the next quarter has not been added to the finance sheet yet.',
+            (new \DateTimeImmutable($postedThrough))->format('M j, Y')
+          );
+        }
+      }
+    }
+
+    return $result;
+  }
+
+  /**
+   * Last-quarter and year-to-date totals from a 12-month monthly count trend.
+   *
+   * The trend ends at the last complete month (last_updated is its first
+   * day), so the final N entries are that month and the N-1 before it.
+   */
+  private function buildMonthlyCountContext(array $result): ?array {
+    $trend = array_values(array_filter((array) ($result['trend'] ?? []), 'is_numeric'));
+    if (count($trend) < 11 || empty($result['last_updated'])) {
+      return NULL;
+    }
+    $lastMonth = new \DateTimeImmutable(substr((string) $result['last_updated'], 0, 7) . '-01');
+    // Some trends end with the month in progress (stamped today); leave it
+    // out so the quarter and the year-to-date pace use complete months only.
+    $thisMonth = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('Y-m');
+    if ($lastMonth->format('Y-m') === $thisMonth) {
+      array_pop($trend);
+      $lastMonth = $lastMonth->modify('-1 month');
+    }
+    $month = (int) $lastMonth->format('n');
+    $year = (int) $lastMonth->format('Y');
+    $context = [];
+
+    // Last complete calendar quarter inside the trend.
+    $quarterEndMonth = $month - ($month % 3);
+    $skip = $month - $quarterEndMonth;
+    $quarterYear = $year;
+    if ($quarterEndMonth === 0) {
+      $quarterEndMonth = 12;
+      $quarterYear--;
+    }
+    $quarterValues = array_slice($trend, count($trend) - $skip - 3, 3);
+    if (count($quarterValues) === 3) {
+      $labels = [3 => 'Jan–Mar', 6 => 'Apr–Jun', 9 => 'Jul–Sep', 12 => 'Oct–Dec'];
+      $context['quarter_label'] = $labels[$quarterEndMonth] . ' ' . $quarterYear;
+      $context['quarter_value'] = array_sum($quarterValues);
+    }
+
+    // Year to date through the last complete month, and the pace it implies.
+    $ytdValues = array_slice($trend, -$month);
+    $context['ytd_label'] = sprintf('%d through %s', $year, $lastMonth->format('M'));
+    $context['ytd_value'] = array_sum($ytdValues);
+    $context['ytd_pace'] = $context['ytd_value'] / $month * 12;
+    return $context;
   }
 
   /**
@@ -489,8 +654,8 @@ class KpiDataService {
           'description' => 'Counted registrations for ticketed workshops. Registered and Attended statuses can both contribute; this does not establish actual attendance.',
         ],
         'kpi_equipment_uptime_rate' => [
-          'label' => 'Equipment Availability (Current) %',
-          'description' => 'Share of the included active tool fleet currently recorded as operational.',
+          'label' => 'Equipment Uptime %',
+          'description' => 'Share of tool-days the active fleet spent in a usable status, from the tool status log.',
         ],
         'kpi_member_post_12_month_retention' => [
           'label' => 'Second-Year Retention (Conditional) %',
@@ -1916,21 +2081,36 @@ class KpiDataService {
    * Gets the data for the "Equipment Uptime Rate %" KPI.
    */
   private function getKpiEquipmentUptimeRateData(array $kpi_info): array {
-    $current = $this->infrastructureDataService->getEquipmentUptimeRate();
-    $lastUpdated = date('Y-m-d');
-
-    return $this->buildKpiResult(
+    $now = $this->time->getRequestTime();
+    $period = $this->infrastructureDataService->getEquipmentUptimeOverPeriod(strtotime('-12 months', $now), $now);
+    if ($period === NULL) {
+      return $this->buildKpiResult(
+        $kpi_info, [], [], NULL, NULL, date('Y-m-d'),
+        $this->infrastructureDataService->getEquipmentUptimeRate(),
+        'kpi_equipment_uptime_rate',
+        'percent',
+        'Current operational tools divided by the included active fleet. The status log was unavailable, so this is today\'s share, not uptime over time.'
+      );
+    }
+    $fullYear = $period['start'] <= strtotime('-12 months', $now) + 86400;
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       [],
+      $fullYear ? $period['rate'] : NULL,
       NULL,
-      NULL,
-      $lastUpdated,
-      $current,
+      date('Y-m-d', $now),
+      $period['rate'],
       'kpi_equipment_uptime_rate',
       'percent',
-      'Current operational tools divided by the included active fleet, based on recorded status. Gone, Storage and Setup are excluded. This is a current availability share, not uptime measured over operating hours.'
+      'Share of tool-days the active fleet spent in a usable status (Operational or Reported Concern), rebuilt from the tool status log. Offline, Degraded and other statuses count as down. Status changes have been logged since Feb 2026; a tool with no change before the window is assumed usable until its first logged change.',
+      NULL,
+      $fullYear ? 'Last 12 months' : 'Since ' . date('M j, Y', $period['start'])
     );
+    $result['period_basis'] = $fullYear ? 'rolling_12' : 'since';
+    $result['sample_note'] = sprintf('%d tools · %d outages · %s tool-days down',
+      $period['tools'], $period['outages'], number_format($period['down_tool_days']));
+    return $result;
   }
 
   /**
@@ -2002,24 +2182,17 @@ class KpiDataService {
       );
     }
 
-    $trend = [];
-    $annualOverrides = [];
-    $lastUpdated = NULL;
-    foreach ($series as $row) {
-      if (!array_key_exists('ratio', $row) || !is_numeric($row['ratio'])) {
-        continue;
-      }
-      $ratio = (float) $row['ratio'];
-      $trend[] = $ratio;
+    // A join month counts only once every member in it has had 28 days;
+    // the current month is otherwise a handful of early joiners (9 of 9).
+    $completeBefore = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
+      ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
+      ->modify('-28 days')->format('Y-m-d');
+    $complete = array_values(array_filter($series, static fn(array $row): bool =>
+      $row['snapshot_date'] instanceof \DateTimeImmutable
+      && $row['snapshot_date']->format('Y-m-d') <= $completeBefore
+      && (int) $row['cohort_total'] > 0));
 
-      if (!empty($row['snapshot_date']) && $row['snapshot_date'] instanceof \DateTimeImmutable) {
-        $year = $row['snapshot_date']->format('Y');
-        $annualOverrides[$year] = $ratio;
-        $lastUpdated = $row['snapshot_date']->format('Y-m-d');
-      }
-    }
-
-    if (empty($trend)) {
+    if (empty($complete)) {
       $funnel = $this->memberSuccessDataService->getLatestOnboardingFunnel(90);
       $joined = (int) ($funnel['joined_recent'] ?? 0);
       $badgeActive = (int) ($funnel['badge_active'] ?? 0);
@@ -2041,20 +2214,43 @@ class KpiDataService {
       );
     }
 
-    $current = (float) end($trend);
+    $pooled = static function (array $rows): ?float {
+      $total = array_sum(array_column($rows, 'cohort_total'));
+      return $total > 0 ? array_sum(array_column($rows, 'activated_total')) / $total : NULL;
+    };
+    $byYear = [];
+    foreach ($complete as $row) {
+      $byYear[$row['snapshot_date']->format('Y')][] = $row;
+    }
+    $annualOverrides = array_filter(array_map($pooled, $byYear), static fn($v): bool => $v !== NULL);
     ksort($annualOverrides, SORT_STRING);
-    return $this->buildKpiResult(
+    $window = array_slice($complete, -12);
+    $first = reset($window);
+    $last = end($window);
+    $current = $pooled($window);
+
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
-      array_slice($trend, -12),
-      $this->calculateTrailingAverage($trend, 12),
-      $this->calculateTrailingAverage($trend, 3),
-      $lastUpdated,
+      array_column($window, 'ratio'),
       $current,
-      'kpi_new_member_first_badge_28_days',
+      $pooled(array_slice($complete, -3)),
+      $last['snapshot_date']->format('Y-m-d'),
+      $current,
+      // No snapshot merge: stored history counted the Door badge.
+      NULL,
       'percent',
-      'Automated: Member success daily snapshots (join cohort reaching ~28 days).'
+      'Share of new members who earned a tool badge within 28 days of joining, pooled over the last 12 complete join months. The Door access badge, which nearly every member gets during onboarding, does not count.',
+      'Each join month',
+      sprintf('Joined %s–%s', $first['snapshot_date']->format('M Y'), $last['snapshot_date']->format('M Y'))
     );
+    $result['period_basis'] = 'cohort';
+    $result['sample_note'] = $this->formatSampleNote(
+      (int) array_sum(array_column($window, 'activated_total')),
+      (int) array_sum(array_column($window, 'cohort_total')),
+      0, '', 'new members'
+    );
+    return $result;
   }
 
   /**
@@ -2242,7 +2438,7 @@ class KpiDataService {
       $conversions
     );
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $this->funnelDataService->getTourConversionRateTrend(),
@@ -2255,6 +2451,8 @@ class KpiDataService {
       $sourceNote,
       '8 Quarters'
     );
+    $result['sample_note'] = $this->formatSampleNote($conversions, $participants, $alreadyMembers, 'already members', 'tour visitors joined');
+    return $result;
   }
 
   /**
@@ -2283,7 +2481,7 @@ class KpiDataService {
       number_format($resolution * 100, 1),
     );
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       [],
@@ -2295,6 +2493,12 @@ class KpiDataService {
       'percent',
       $sourceNote,
     );
+    // Until most answers are matched to accounts the rate measures the review
+    // backlog, not referrals, so it stays out of the reported KPIs.
+    if ($resolution < 0.5) {
+      $result['in_development'] = TRUE;
+    }
+    return $result;
   }
 
   /**
@@ -2351,7 +2555,7 @@ class KpiDataService {
       $conversions
     );
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $this->funnelDataService->getEventParticipantConversionRateTrend(),
@@ -2364,6 +2568,8 @@ class KpiDataService {
       $sourceNote,
       '8 Quarters'
     );
+    $result['sample_note'] = $this->formatSampleNote($conversions, $participants, $alreadyMembers, 'already members', 'event participants joined');
+    return $result;
   }
 
   /**
@@ -2427,7 +2633,7 @@ class KpiDataService {
       $conversions
     );
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $this->funnelDataService->getGuestWaiverConversionRateTrend(),
@@ -2440,6 +2646,8 @@ class KpiDataService {
       $sourceNote,
       '8 Quarters'
     );
+    $result['sample_note'] = $this->formatSampleNote($conversions, $waivers, $alreadyMembers, 'already members', 'guests joined');
+    return $result;
   }
 
   /**
@@ -2533,7 +2741,9 @@ class KpiDataService {
 
     $annualOverrides = $this->extractKpiSnapshotAnnualOverrides('kpi_education_nps');
 
-    return $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $end->format('Y-m-d'), $current, 'kpi_education_nps');
+    $result = $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $end->format('Y-m-d'), $current, 'kpi_education_nps');
+    $result['sample_note'] = !empty($npsSeries['overall']['responses']) ? sprintf('%d class evaluations', $npsSeries['overall']['responses']) : NULL;
+    return $result;
   }
 
   /**
@@ -2553,7 +2763,7 @@ class KpiDataService {
 
     $trend = $snapshot['trend'] ?? ($current !== NULL ? [$current] : []);
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $trend,
@@ -2572,6 +2782,8 @@ class KpiDataService {
       NULL,
       'Trailing 12 months'
     );
+    $result['sample_note'] = $this->formatSampleNote((int) $summary['bipoc'], (int) $summary['reported'], (int) $summary['unknown'], 'no ethnicity recorded', 'participants');
+    return $result;
   }
 
   /**
@@ -2658,7 +2870,7 @@ class KpiDataService {
 
     $trend = $snapshot['trend'] ?? ($current !== NULL ? [$current] : []);
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       $annualOverrides,
       $trend,
@@ -2676,42 +2888,87 @@ class KpiDataService {
       NULL,
       'Trailing 12 months'
     );
+    $result['sample_note'] = $this->formatSampleNote($bipocCount, $knownCount, count($instructors) - $knownCount, 'no ethnicity recorded', 'instructors');
+    return $result;
   }
 
   /**
    * Gets the data for the "First Year Member Retention %" KPI.
    */
   private function getKpiFirstYearMemberRetentionData(array $kpi_info): array {
+    return $this->buildFirstYearRetentionKpi(
+      $kpi_info,
+      NULL,
+      'Membership-evidenced default profiles, including disabled accounts. Individual calendar anniversaries; fully matured join months only. Terminal programs and pre-anniversary unpreventable ends excluded. Join date is inferred from profile creation; end dates are inclusive. Annual columns use anniversary year and pooled member counts.'
+    );
+  }
+
+  /**
+   * Pooled first-year retention over the 12 most recent matured join months.
+   *
+   * The headline used to be the single latest join month (as few as 26
+   * people), which swung 15 points month to month. Pooling the trailing 12
+   * cohorts is what the board compares against the annual goal; the
+   * sparkline still shows each month. Values are ratios (0-1) like the goals.
+   */
+  private function buildFirstYearRetentionKpi(array $kpi_info, ?array $filter, string $sourceNote): array {
     $kpi_info['base_2025'] = NULL;
-    $series = $this->membershipMetricsService->getMonthlyFirstYearRetentionSeries(48);
+    $series = $this->membershipMetricsService->getMonthlyFirstYearRetentionSeries(48, $filter);
     $reportEnd = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
       ->setTimezone(new \DateTimeZone(date_default_timezone_get()))
       ->modify('first day of this month')->setTime(0, 0);
     $windowRows = static fn(int $months): array => array_values(array_filter($series,
       static fn(array $row): bool => $row['evaluation_date'] >= $reportEnd->modify('-' . $months . ' months')->format('Y-m-d')
         && $row['evaluation_date'] < $reportEnd->format('Y-m-d')));
+    $ratio = static fn(?float $percent): ?float => $percent === NULL ? NULL : round($percent / 100, 4);
     $annualRows = [];
     foreach ($series as $row) {
       $annualRows[substr($row['evaluation_date'], 0, 4)][] = $row;
     }
-    $annual = array_map([FirstYearRetention::class, 'pooledRate'], $annualRows);
-    $last = $series ? end($series) : NULL;
+    $annual = array_map(static fn(array $rows): ?float => $ratio(FirstYearRetention::pooledRate($rows)), $annualRows);
+    $window = $windowRows(12);
+    $ttm12 = $ratio(FirstYearRetention::pooledRate($window));
+    $first = $window ? reset($window) : NULL;
+    $last = $window ? end($window) : NULL;
     $result = $this->buildKpiResult(
       $kpi_info,
-      $annual,
-      array_slice(array_column($series, 'retention_percent'), -12),
-      FirstYearRetention::pooledRate($windowRows(12)),
-      FirstYearRetention::pooledRate($windowRows(3)),
+      array_filter($annual, static fn($value): bool => $value !== NULL),
+      array_map($ratio, array_slice(array_column($series, 'retention_percent'), -12)),
+      $ttm12,
+      $ratio(FirstYearRetention::pooledRate($windowRows(3))),
       $last['evaluation_date'] ?? NULL,
-      $last['retention_percent'] ?? NULL,
+      $ttm12,
       NULL,
       'percent',
-      'Membership-evidenced default profiles, including disabled accounts. Individual calendar anniversaries; fully matured join months only. Terminal programs and pre-anniversary unpreventable ends excluded. Join date is inferred from profile creation; end dates are inclusive. Annual columns use anniversary year and pooled member counts.',
-      '12 completed cohorts',
-      $last ? $last['label'] . ' join cohort' : NULL
+      $sourceNote,
+      'Each join month',
+      $first && $last ? sprintf('Joined %s–%s', $first['label'], $last['label']) : NULL
     );
     $result['calculation_version'] = 2;
+    $result['period_basis'] = 'cohort';
+    if ($window) {
+      $result['sample_note'] = $this->formatSampleNote(
+        (int) array_sum(array_column($window, 'retained')),
+        (int) array_sum(array_column($window, 'total')),
+        (int) array_sum(array_column($window, 'excluded')),
+        'left for reasons outside our control'
+      );
+    }
     return $result;
+  }
+
+  /**
+   * "56 of 100 members · 17 excluded (reason)" for a ratio KPI.
+   */
+  private function formatSampleNote(int $numerator, int $denominator, int $excluded = 0, string $excludedReason = '', string $unit = 'members'): string {
+    $note = sprintf('%s of %s %s', number_format($numerator), number_format($denominator), $unit);
+    if ($excluded > 0) {
+      $note .= sprintf(' · %s excluded', number_format($excluded));
+      if ($excludedReason !== '') {
+        $note .= ' (' . $excludedReason . ')';
+      }
+    }
+    return $note;
   }
 
   /**
@@ -2875,7 +3132,7 @@ class KpiDataService {
     $ttm12 = $this->calculateTrailingAverage($trend, 12);
     $ttm3 = $this->calculateTrailingAverage($trend, 3);
 
-    return $this->withDemographicSegments(
+    $result = $this->withDemographicSegments(
       $this->buildKpiResult(
         $kpi_info,
         $annualOverrides,
@@ -2892,6 +3149,8 @@ class KpiDataService {
       ),
       'kpi_member_nps'
     );
+    $result['sample_note'] = sprintf('%d survey responses', $survey['responses']);
+    return $result;
   }
 
   /**
@@ -3275,13 +3534,19 @@ class KpiDataService {
    * Gets the data for the "Net Income (Education Program)" KPI.
    */
   private function getKpiNetIncomeEducationData(array $kpi_info): array {
-    $currentMonth = (int) date('n');
     $currentYear  = (int) date('Y');
     $trend        = $this->financialDataService->getNetIncomeEducationTrend();
     $ttm          = $this->financialDataService->getNetIncomeEducationTtm();
+    // Count the quarters actually posted, not the quarters the calendar says
+    // should be: Q3 is typically entered weeks after it closes, and dividing
+    // two quarters of actuals by three understated the year by a third.
+    $completedQuarters = count(array_filter(
+      $this->financialDataService->getPostedIncomeStatementQuarters(),
+      static fn(array $quarter): bool => $quarter[0] === $currentYear
+    ));
 
-    if ($currentMonth <= 3) {
-      // In Q1 we have no current-year quarters yet — show the prior full year.
+    if ($completedQuarters === 0) {
+      // No current-year quarters posted yet — show the prior full year.
       $priorYear = $currentYear - 1;
       $income  = $this->financialDataService->getActualsForMetric('income_education', $priorYear);
       $expense = $this->financialDataService->getActualsForMetric('expense_education', $priorYear);
@@ -3294,13 +3559,11 @@ class KpiDataService {
       );
     }
     else {
-      // Quarters with actual sheet data: April = 1, July = 2, October = 3.
-      $completedQuarters = (int) floor(($currentMonth - 1) / 3);
       $income  = $this->financialDataService->getActualsForMetric('income_education', $currentYear);
       $expense = $this->financialDataService->getActualsForMetric('expense_education', $currentYear);
       $ytd     = $income + $expense;
       // Annualize: project the full year at the current quarterly run-rate.
-      $current = $completedQuarters > 0 ? ($ytd / $completedQuarters) * 4 : $ytd;
+      $current = ($ytd / $completedQuarters) * 4;
       $qLabel  = $completedQuarters === 1
         ? 'Q1 pace'
         : sprintf('Q1–Q%d pace', $completedQuarters);
@@ -3372,22 +3635,13 @@ class KpiDataService {
    * Gets the data for the "Entrepreneurship Retention" KPI.
    */
   private function getKpiEntrepreneurshipRetentionData(array $kpi_info): array {
-    $stats = $this->entrepreneurshipDataService->getRetentionRate();
-    $trend = $this->entrepreneurshipDataService->getRetentionRateTrend();
-
-    return $this->withDemographicSegments($this->buildKpiResult(
+    // No BIPOC/Female-NB chips: the stored segment snapshots used the old
+    // "active today" definition and would not match this value.
+    return $this->buildFirstYearRetentionKpi(
       $kpi_info,
-      [],
-      $trend,
-      NULL,
-      NULL,
-      date('Y-m-d'),
-      $stats['value'],
-      'kpi_entrepreneurship_retention',
-      'percent',
-      'Profile: 12-month retention rate for members who joined with entrepreneurial goals or experience.',
-      '4 Years'
-    ), 'kpi_entrepreneurship_retention');
+      ['type' => 'entrepreneur', 'value' => 'any'],
+      'First-year retention for members whose signup goals or experience mark them as entrepreneurs, sellers or inventors, using the same cohorts and exclusions as overall First Year Member Retention.'
+    );
   }
 
   /**
@@ -4185,55 +4439,20 @@ class KpiDataService {
    * Gets the data for the "Retention POC %" KPI.
    */
   private function getKpiRetentionPocData(array $kpi_info): array {
-    $annualOverrides = [];
-    $currentYear = (int) date('Y');
-
     // Any member whose multi-select ethnicity includes at least one BIPOC
     // value counts once (including alongside White). Unknown/declined
     // responses never match, so they are excluded rather than misclassified.
+    // Same cohort rules as overall first-year retention, so the two compare.
     $pocValues = $this->demographicsDataService->getBipocEthnicityValues();
-
-    if ($pocValues) {
-      for ($year = $currentYear - 5; $year <= $currentYear - 1; $year++) {
-        $cohort = $this->membershipMetricsService->getAnnualCohorts($year, $year, [
-          'type' => 'ethnicity_any',
-          'value' => $pocValues,
-        ]);
-        if (empty($cohort[0])) {
-          continue;
-        }
-        $joined = (int) ($cohort[0]['joined'] ?? 0);
-        $active = (int) ($cohort[0]['active'] ?? 0);
-
-        if ($joined > 0) {
-          $annualOverrides[(string) $year] = $active / $joined;
-        }
-      }
-    }
-
-    if (empty($annualOverrides)) {
-      // No measurable cohorts — show TBD rather than a fabricated estimate.
+    if (!$pocValues) {
       return $this->getPlaceholderData($kpi_info, 'kpi_retention_poc');
     }
-
-    ksort($annualOverrides, SORT_STRING);
-    $trend = array_values($annualOverrides);
-    $current = end($trend);
-    $latestYear = (int) array_key_last($annualOverrides);
-    $lastUpdated = sprintf('%04d-12-31', $latestYear);
-
-    return $this->buildKpiResult(
+    $result = $this->buildFirstYearRetentionKpi(
       $kpi_info,
-      $annualOverrides,
-      $trend,
-      $this->calculateTrailingAverage($trend, 12),
-      $this->calculateTrailingAverage($trend, 3),
-      $lastUpdated,
-      $current,
-      'kpi_retention_poc',
-      'percent',
-      'Automated: Cohort retention filtered by BIPOC ethnicity.'
+      ['type' => 'ethnicity_any', 'value' => $pocValues],
+      'First-year retention for members who identify as BIPOC in CiviCRM, using the same cohorts and exclusions as overall First Year Member Retention. Members with no recorded ethnicity are not counted.'
     );
+    return $result;
   }
 
   /**
@@ -4320,7 +4539,7 @@ class KpiDataService {
    */
   private function getKpiBoardGovernanceData(array $kpi_info): array {
     $stats = $this->governanceBoardDataService->getBoardGovernanceKpi();
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       [],
@@ -4332,6 +4551,8 @@ class KpiDataService {
       NULL,
       'Survey: Annual self-assessment of Board effectiveness. Value is the average score on a 1-5 scale (blank answers excluded).'
     );
+    $result['sample_note'] = !empty($stats['submission_count']) ? sprintf('%d responses, %d answers', $stats['submission_count'], $stats['response_count']) : NULL;
+    return $result;
   }
 
   /**
@@ -4339,7 +4560,7 @@ class KpiDataService {
    */
   private function getKpiCommitteeEffectivenessData(array $kpi_info): array {
     $stats = $this->governanceBoardDataService->getCommitteeEffectivenessKpi();
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       [],
@@ -4351,6 +4572,8 @@ class KpiDataService {
       NULL,
       'Survey: Annual self-assessment of Committee effectiveness. Value is the average score on a 1-5 scale (blank answers excluded).'
     );
+    $result['sample_note'] = !empty($stats['submission_count']) ? sprintf('%d responses, %d answers', $stats['submission_count'], $stats['response_count']) : NULL;
+    return $result;
   }
 
   /**
@@ -4367,7 +4590,7 @@ class KpiDataService {
     $current = isset($summary['percentage']) ? (float) $summary['percentage'] : NULL;
     $lastUpdated = date('Y-m-d');
 
-    return $this->buildKpiResult(
+    $result = $this->buildKpiResult(
       $kpi_info,
       [],
       [],
@@ -4378,6 +4601,8 @@ class KpiDataService {
       'kpi_membership_diversity_bipoc',
       'percent'
     );
+    $result['sample_note'] = $this->formatSampleNote((int) ($summary['bipoc_members'] ?? 0), (int) ($summary['reported_members'] ?? 0), max(0, (int) ($summary['active_members'] ?? 0) - (int) ($summary['reported_members'] ?? 0)), 'no ethnicity recorded');
+    return $result;
   }
 
   /**
@@ -5590,10 +5815,10 @@ class KpiDataService {
           'source_note' => 'Profile: % of new members selecting inventor, entrepreneur, or seller goals.',
         ],
         'kpi_entrepreneurship_retention' => [
-          'label' => 'Entrepreneurship Retention %',
+          'label' => 'First Year Retention (Entrepreneurs) %',
           'base_2025' => 0.60,
           'goal_2030' => 0.75,
-          'description' => 'The 12-month survival rate for members who joined with entrepreneurial goals or experience.',
+          'description' => 'First-year retention for members who joined with entrepreneurial goals or experience, measured the same way as overall first-year retention.',
           'source_note' => 'Profile: 12-month retention tracked for the entrepreneurial member segment.',
         ],
       ],
@@ -5683,10 +5908,10 @@ class KpiDataService {
       ],
       'infrastructure' => [
         'kpi_equipment_uptime_rate' => [
-          'label' => 'Equipment Availability (Current) %',
+          'label' => 'Equipment Uptime %',
           'base_2025' => 0.90,
           'goal_2030' => 0.98,
-          'description' => 'Share of the included active tool fleet currently recorded as operational.',
+          'description' => 'Share of tool-days the active fleet spent in a usable status, from the tool status log.',
           'source_note' => 'Shop: (Operational Tools) / (Operational + Down Tools) from live inventory status.',
         ],
         'kpi_active_maintenance_load' => [
@@ -5821,7 +6046,7 @@ class KpiDataService {
           'label' => 'First Year Member Retention %',
           'base_2025' => 0.70,
           'goal_2030' => 0.85,
-          'description' => 'Percentage of new members who remain active for at least 12 months after joining.',
+          'description' => 'Share of members still active on their first anniversary, pooled over the last 12 matured join months.',
           'source_note' => 'System: 12-month survival rate for the previous year\'s join cohort (excludes unpreventable ends).',
         ],
         'kpi_member_post_12_month_retention' => [
@@ -5832,10 +6057,10 @@ class KpiDataService {
           'source_note' => 'System: Cohort month-24 retention divided by month-12 retention.',
         ],
         'kpi_retention_poc' => [
-          'label' => 'Retention POC %',
+          'label' => 'First Year Retention (BIPOC) %',
           'base_2025' => 0.45,
           'goal_2030' => 0.80,
-          'description' => 'The 12-month survival rate specifically for members identifying as Black, Indigenous, or People of Color.',
+          'description' => 'First-year retention for members identifying as Black, Indigenous, or People of Color, measured the same way as overall first-year retention.',
           'source_note' => 'System: 12-month survival rate filtered by BIPOC ethnicity.',
         ],
         'kpi_member_nps' => [
@@ -5870,7 +6095,7 @@ class KpiDataService {
           'label' => 'New Member First Badge (28 days) %',
           'base_2025' => 0.55,
           'goal_2030' => 0.80,
-          'description' => 'Share of new members who successfully complete their first badge/orientation within 28 days of joining.',
+          'description' => 'Share of new members who earn a tool badge within 28 days of joining. The Door access badge does not count.',
           'source_note' => 'System: New members with badge_count >= 1 within their first month.',
         ],
         'kpi_members_at_risk_share' => [
@@ -5978,10 +6203,10 @@ class KpiDataService {
           'source_note' => 'Profile: % of new members selecting inventor, entrepreneur, or seller goals.',
         ],
         'kpi_entrepreneurship_retention' => [
-          'label' => 'Entrepreneurship Retention %',
+          'label' => 'First Year Retention (Entrepreneurs) %',
           'base_2025' => 0.60,
           'goal_2030' => 0.75,
-          'description' => 'The 12-month survival rate for members who joined with entrepreneurial goals or experience.',
+          'description' => 'First-year retention for members who joined with entrepreneurial goals or experience, measured the same way as overall first-year retention.',
           'source_note' => 'Profile: 12-month retention tracked for the entrepreneurial member segment.',
         ],
       ],

@@ -193,9 +193,12 @@ Stable metric IDs and calculations remain unchanged; the displayed names are:
   participant records with counted statuses can include Registered and Attended.
   The overview/annual-report chart and CSV use registration labels too. These
   totals do not prove attendance or count annual unique learners.
-- `kpi_equipment_uptime_rate`: **Equipment Availability (Current) %**. Current
-  operational share of the included fleet; Gone, Storage and Setup are excluded.
-  This does not measure uptime over operating hours.
+- `kpi_equipment_uptime_rate`: **Equipment Uptime %** (changed October 2026).
+  Share of tool-days the active fleet (Gone, Storage and Setup excluded) spent in
+  a usable status over the last 12 months, rebuilt from `asset_log_entry`. Status
+  changes are logged only since Feb 2026, so until Feb 2027 the window starts
+  there. Operational and Reported Concern count as up. The previous version
+  showed only today's share, which read 100% while Q3 had 4 maintenance outages.
 - `kpi_member_post_12_month_retention`: **Second-Year Retention (Conditional) %**.
   Within each eligible cohort, retained share at month 24 divided by retained
   share at month 12. Headline uses the latest eligible cohort; trailing values
@@ -205,3 +208,32 @@ Stable metric IDs and calculations remain unchanged; the displayed names are:
 No strategic targets or assessment scales were changed. After deploying dashboard
 code, rebuild caches and run `drush msd:kpi-warm`; persisted section payloads need
 refreshing in addition to Drupal render caches.
+
+## Reporting periods and sample sizes (October 2026)
+
+Every KPI card names the period its headline covers with a colored chip: Last 12
+months, Last 90 days, year to date, Quarter, Snapshot (one date), Join cohorts,
+Survey, Multi-year. The map is `KpiDataService::PERIOD_BASIS`; a KPI that sets
+`period_basis` itself wins. Monthly count KPIs (`MONTHLY_COUNT_KPIS`) also show
+the last complete calendar quarter and the year to date with its annual pace,
+from the same monthly trend, leaving out a month in progress. Ratio KPIs show
+their numerator, denominator and exclusions (`sample_note`).
+
+Changed definitions:
+
+- `kpi_first_year_member_retention`: the headline is now the pooled rate over
+  the 12 most recent matured join months, as a ratio. It was the single latest
+  join month (Sep 2025: 19 of 26 = 73%) against a 12-month figure of 56%.
+- `kpi_retention_poc` (**First Year Retention (BIPOC) %**) and
+  `kpi_entrepreneurship_retention` (**First Year Retention (Entrepreneurs) %**)
+  use the same calculation with a cohort filter, so all three compare directly.
+  They were "share of a calendar-year cohort active today", which is survival to
+  today, not first-year retention.
+- `kpi_new_member_first_badge_28_days`: the Door access badge no longer counts
+  (456 of ~520 first badges were Door), and the headline pools the last 12 join
+  months whose members have all had 28 days. It read 100% (9 of 9 early joiners).
+- `kpi_member_referral_rate` is listed under KPIs in development while fewer than
+  half of referral answers are matched to an account.
+- Finance KPIs read from the sheet show the newest posted quarter as their date
+  and say so when it is over 45 days old. Education net income annualises by the
+  quarters actually posted, not by today's date.

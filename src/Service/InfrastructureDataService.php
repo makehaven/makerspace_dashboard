@@ -112,6 +112,105 @@ class InfrastructureDataService {
   }
 
   /**
+   * Time-weighted uptime of the active fleet from the asset status log.
+   *
+   * Reconstructs each tool's status over the window from asset_log_entry
+   * (every status change since logging began in Feb 2026) and returns the
+   * share of tool-days spent in a usable status. A tool with no log entry
+   * before the window keeps the status of its first logged change's
+   * predecessor, which is unknown, so it is assumed usable until then.
+   *
+   * @return array|null
+   *   ['rate', 'start', 'end', 'tools', 'down_tool_days', 'outages'] or NULL.
+   */
+  public function getEquipmentUptimeOverPeriod(int $start, int $end): ?array {
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('asset_log_entry') || $end <= $start) {
+      return NULL;
+    }
+    $cid = sprintf('makerspace_dashboard:infrastructure:equipment_uptime_period:%d:%d', $start, $end);
+    if ($cache = $this->cache->get($cid)) {
+      return $cache->data;
+    }
+
+    $logStart = (int) $this->database->query('SELECT MIN(created) FROM {asset_log_entry} WHERE confirmed_status IS NOT NULL')->fetchField();
+    if ($logStart <= 0) {
+      return NULL;
+    }
+    $start = max($start, $logStart);
+
+    // Fleet: published tools whose current status is in service.
+    $query = $this->database->select('node__field_item_status', 's');
+    $query->innerJoin('node_field_data', 'n', 'n.nid = s.entity_id');
+    $query->innerJoin('taxonomy_term_field_data', 't', 't.tid = s.field_item_status_target_id');
+    $query->addField('n', 'nid');
+    $query->addField('t', 'name');
+    $query->condition('n.type', 'item');
+    $query->condition('n.status', 1);
+    $query->condition('s.deleted', 0);
+    $fleet = [];
+    foreach ($query->execute() as $row) {
+      $status = mb_strtolower((string) $row->name);
+      if (str_contains($status, 'gone') || str_contains($status, 'storage') || str_contains($status, 'setup')) {
+        continue;
+      }
+      $fleet[(int) $row->nid] = TRUE;
+    }
+    if (!$fleet) {
+      return NULL;
+    }
+
+    $log = $this->database->select('asset_log_entry', 'l');
+    $log->innerJoin('taxonomy_term_field_data', 't', 't.tid = l.confirmed_status');
+    $log->fields('l', ['asset', 'created']);
+    $log->addField('t', 'name');
+    $log->condition('l.asset', array_keys($fleet), 'IN');
+    $log->condition('l.created', $end, '<');
+    $log->orderBy('l.asset');
+    $log->orderBy('l.created');
+    $changes = [];
+    foreach ($log->execute() as $row) {
+      $changes[(int) $row->asset][] = [(int) $row->created, $this->isOperationalStatus((string) $row->name)];
+    }
+
+    $downSeconds = 0;
+    $outages = 0;
+    foreach ($changes as $entries) {
+      $up = TRUE;
+      $cursor = $start;
+      foreach ($entries as [$at, $isUp]) {
+        if ($at <= $start) {
+          $up = $isUp;
+          continue;
+        }
+        if (!$up) {
+          $downSeconds += $at - $cursor;
+        }
+        if ($up && !$isUp) {
+          $outages++;
+        }
+        $cursor = $at;
+        $up = $isUp;
+      }
+      if (!$up) {
+        $downSeconds += $end - $cursor;
+      }
+    }
+
+    $toolSeconds = count($fleet) * ($end - $start);
+    $result = [
+      'rate' => 1 - ($downSeconds / $toolSeconds),
+      'start' => $start,
+      'end' => $end,
+      'tools' => count($fleet),
+      'down_tool_days' => (int) round($downSeconds / 86400),
+      'outages' => $outages,
+    ];
+    $this->cache->set($cid, $result, time() + $this->ttl, ['node_list:item', 'asset_log_entry_list']);
+    return $result;
+  }
+
+  /**
    * Calculates the total replacement value of equipment added during a period.
    *
    * @param int|null $year

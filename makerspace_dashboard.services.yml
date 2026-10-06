@@ -1169,6 +1169,7 @@ services:
       - '@database'
       - '@cache.default'
       - '@datetime.time'
+      - '@config.factory'
 
   makerspace_dashboard.billing_revenue:
     class: Drupal\makerspace_dashboard\Service\BillingRevenueService

@@ -440,6 +440,8 @@ class MembershipMetricsService {
    *
    * @param int $months
    *   Number of matured cohorts to return (defaults to 36).
+   * @param array|null $filter
+   *   Optional cohort filter, as accepted by getAnnualCohorts().
    *
    * @return array
    *   Ordered list of period rows with keys:
@@ -447,13 +449,14 @@ class MembershipMetricsService {
    *   - label: Human-readable month label.
    *   - total: Members in the cohort (excludes unpreventable attrition).
    *   - retained: Members still active 12 months after joining.
+   *   - excluded: Joiners left out (terminal programs, unpreventable ends).
    *   - retention_percent: Rounded retention percentage.
    *   - evaluation_date: Date the metric was evaluated (join month + 12 months).
    */
-  public function getMonthlyFirstYearRetentionSeries(int $months = 36): array {
+  public function getMonthlyFirstYearRetentionSeries(int $months = 36, ?array $filter = NULL): array {
     $now = (new \DateTimeImmutable('@' . $this->time->getRequestTime()))
       ->setTimezone(new \DateTimeZone(date_default_timezone_get()));
-    $cacheId = sprintf('makerspace_dashboard:membership:first_year_retention_v3:%d:%s', $months, $now->format('Y-m'));
+    $cacheId = sprintf('makerspace_dashboard:membership:first_year_retention_v4:%d:%s:%s', $months, $now->format('Y-m'), $this->buildCohortFilterCacheKey($filter));
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
@@ -469,6 +472,11 @@ class MembershipMetricsService {
     $query->condition('p.type', 'main');
     $query->condition('p.status', 1);
     $query->condition('p.is_default', 1);
+    if (!empty($filter['type'])) {
+      // Segment cohorts (BIPOC, entrepreneurs) use the same rules as the
+      // whole membership so the rates can be compared side by side.
+      $this->applyCohortFilter($query, $filter);
+    }
     // User login status must not remove former members from historical cohorts.
     $results = FirstYearRetention::calculate(
       $query->execute()->fetchAll(), $now, $months, $this->getUnpreventableEndReasons()

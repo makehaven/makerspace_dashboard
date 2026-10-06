@@ -24,6 +24,7 @@ final class FirstYearRetention {
     $last = $now->modify('first day of this month')->setTime(0, 0)->modify('-13 months');
     $first = $last->modify('-' . (max(1, $months) - 1) . ' months');
     $buckets = [];
+    $excluded = [];
     $seen = [];
     foreach ($rows as $row) {
       $uid = (int) $row->uid;
@@ -50,10 +51,11 @@ final class FirstYearRetention {
       $anniversary = self::anniversary($join);
       $reason = strtolower(trim((string) ($row->end_reason_value ?? '')));
       $type = (int) ($row->membership_type_id ?? 0);
+      $key = $join->format('Y-m-01');
       if ($type === 842 || ($end && $end < $anniversary && in_array($reason, $excludedReasons, TRUE))) {
+        $excluded[$key] = ($excluded[$key] ?? 0) + 1;
         continue;
       }
-      $key = $join->format('Y-m-01');
       $buckets[$key] ??= [
         'period' => $key,
         'label' => $join->format('M Y'),
@@ -77,7 +79,8 @@ final class FirstYearRetention {
       }
     }
     ksort($buckets);
-    foreach ($buckets as &$bucket) {
+    foreach ($buckets as $key => &$bucket) {
+      $bucket['excluded'] = $excluded[$key] ?? 0;
       $bucket['retention_percent'] = round(100 * $bucket['retained'] / $bucket['total'], 2);
       foreach (['standard', 'sliding'] as $prefix) {
         $bucket[$prefix . '_percent'] = $bucket[$prefix . '_total'] > 0

@@ -371,6 +371,9 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
    * Determines whether a KPI should be treated as in-development.
    */
   protected function isKpiInDevelopment(array $kpi): bool {
+    if (!empty($kpi['in_development'])) {
+      return TRUE;
+    }
     $current = $kpi['current'] ?? NULL;
     $normalizedCurrent = is_string($current) ? strtolower(trim($current)) : $current;
     $hasCurrent = !in_array($normalizedCurrent, [NULL, '', 'tbd', 'n/a'], TRUE);
@@ -602,12 +605,16 @@ SVG;
       $badge = '<span class="kpi-value-big">' . $valueHtml . '</span>';
     }
 
-    // Period label and YTD indicator sit below the badge, outside the color.
-    $below = '';
+    // Period chip and label sit below the badge, outside the color.
+    $below = $this->buildPeriodBasisChip($kpi);
     $label = $kpi['current_period_label'] ?? NULL;
-    if ($label) {
+    if ($label && !in_array(strtolower($label), ['trailing 12 months', 'average utilization'], TRUE)) {
       $below .= '<div class="kpi-period-label">' . Html::escape($label) . '</div>';
     }
+    if (!empty($kpi['sample_note'])) {
+      $below .= '<div class="kpi-sample-note">' . Html::escape($kpi['sample_note']) . '</div>';
+    }
+    $below .= $this->buildPeriodContext($kpi, $format);
     if ($periodFraction < 1.0 && $periodFraction > 0.0) {
       $pct = (int) round($periodFraction * 100);
       $title = Html::escape("Year in progress ($pct% elapsed) — goal comparison scaled proportionally");
@@ -620,6 +627,79 @@ SVG;
     return [
       '#markup' => Markup::create('<div class="kpi-value-cell">' . $badge . $below . '</div>'),
     ];
+  }
+
+  /**
+   * A colored chip naming the period the headline value covers.
+   *
+   * Rolling 12-month figures are always current; year-to-date figures are
+   * what an annual goal is judged against. Readers need to tell them apart
+   * at a glance, so each kind of period has its own color.
+   */
+  protected function buildPeriodBasisChip(array $kpi): string {
+    $basis = $kpi['period_basis'] ?? NULL;
+    $labels = [
+      'rolling_12' => $this->t('Last 12 months'),
+      'rolling_90' => $this->t('Last 90 days'),
+      'ytd' => $this->t('@year to date', ['@year' => date('Y')]),
+      'quarter' => $this->t('Quarter'),
+      'point' => $this->t('Snapshot'),
+      'cohort' => $this->t('Join cohorts'),
+      'survey' => $this->t('Survey'),
+      'multi_year' => $this->t('Multi-year'),
+      'since' => $this->t('Since logging began'),
+    ];
+    if (!$basis || !isset($labels[$basis])) {
+      return '';
+    }
+    $titles = [
+      'rolling_12' => 'The 12 months ending with the latest complete data. Always a full year, so it compares directly with an annual goal.',
+      'rolling_90' => 'The 90 days ending at the latest month-end snapshot.',
+      'ytd' => 'This calendar year so far. Compare against the goal pro-rated for the part of the year that has passed.',
+      'quarter' => 'One calendar quarter.',
+      'point' => 'The state on a single date, not a total over a period.',
+      'cohort' => 'Members grouped by the month they joined, measured once each group is old enough.',
+      'survey' => 'Answers from a survey; see the details for how many responded.',
+      'multi_year' => 'Pooled over several years because there are too few cases in one year.',
+      'since' => 'From when this data started being recorded.',
+    ];
+    return sprintf(
+      '<span class="kpi-basis kpi-basis--%s" title="%s">%s</span>',
+      Html::escape(str_replace('_', '-', $basis)),
+      Html::escape($titles[$basis]),
+      Html::escape((string) $labels[$basis])
+    );
+  }
+
+  /**
+   * Last-quarter and year-to-date figures for monthly count KPIs.
+   */
+  protected function buildPeriodContext(array $kpi, ?string $format): string {
+    $context = $kpi['period_context'] ?? NULL;
+    if (!is_array($context)) {
+      return '';
+    }
+    $lines = [];
+    if (isset($context['quarter_label'], $context['quarter_value'])) {
+      $lines[] = $this->t('@label: @value', [
+        '@label' => $context['quarter_label'],
+        '@value' => $this->formatKpiValue($context['quarter_value'], $format),
+      ]);
+    }
+    if (isset($context['ytd_label'], $context['ytd_value'])) {
+      $line = (string) $this->t('@label: @value', [
+        '@label' => $context['ytd_label'],
+        '@value' => $this->formatKpiValue($context['ytd_value'], $format),
+      ]);
+      if (isset($context['ytd_pace'])) {
+        $line .= ' · ' . $this->t('on pace for @pace', ['@pace' => $this->formatKpiValue(round($context['ytd_pace']), $format)]);
+      }
+      $lines[] = $line;
+    }
+    if (!$lines) {
+      return '';
+    }
+    return '<div class="kpi-period-context">' . implode('<br>', array_map(static fn($line) => Html::escape((string) $line), $lines)) . '</div>';
   }
 
   /**
@@ -648,6 +728,9 @@ SVG;
     }
     elseif ($source === 'estimate') {
       $notes[] = $this->t('Alternative estimate. See the source note for its definition.');
+    }
+    if (!empty($kpi['source_lag_note'])) {
+      $notes[] = $kpi['source_lag_note'];
     }
     $timing = $this->buildTimingNote(
       $source === 'calculated' ? ($kpi['last_updated'] ?? NULL) : NULL,
