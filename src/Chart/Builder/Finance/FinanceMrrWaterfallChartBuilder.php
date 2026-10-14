@@ -27,7 +27,7 @@ class FinanceMrrWaterfallChartBuilder extends ChartBuilderBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): ?ChartDefinition {
-    $trend = $this->financialDataService->getMrrWaterfallTrend(12);
+    $trend = $this->financialDataService->getMrrWaterfallTrend(14);
     if (empty($trend['labels'])) {
       return NULL;
     }
@@ -123,7 +123,7 @@ class FinanceMrrWaterfallChartBuilder extends ChartBuilderBase {
     $atRisk = (float) ($trend['at_risk_today'] ?? 0.0);
     $notes = [
       (string) $this->t('Source: canonical profile creation timestamp, reactivation date, and end date, each paired with the per-member recorded monthly payment value. Restricted to members with a non-empty Chargebee plan so the chart matches Chargebee\'s MRR scope (excludes comps, founders, manually-billed members).'),
-      (string) $this->t('Processing: 12 trailing months. New joins and reactivations both add MRR; ends remove MRR. Net = joins + reactivations − ends.'),
+      (string) $this->t('Processing: 14 trailing months, so this month can be compared with the same month last year. New joins and reactivations both add MRR; ends remove MRR. Net = joins + reactivations − ends.'),
       (string) $this->t('Known blind spot: Plan upgrades/downgrades, pauses, resumes, and mid-tenure price changes still aren\'t visible here — they require monthly MRR snapshots. The makerspace_snapshot module captures these (ms_fact_revenue_snapshot table) but the historical record is mostly seed values until the cron writes a few months of real data.'),
     ];
     if ($atRisk > 0) {

@@ -80,8 +80,10 @@ class FinanceLifetimeValueByTypeChartBuilder extends ChartBuilderBase {
 
     $notes = [
       (string) $this->t('Source: Active member profiles with valid join dates and monthly payment values.'),
-      (string) $this->t('Calculation: (Months Active) * (Current Monthly Payment).'),
-      (string) $this->t('Note: This is an estimate based on current payment rates and does not account for past rate changes or pauses.'),
+      (string) $this->t('Calculation: (Months since the member profile was created) * (Current Monthly Payment).'),
+      (string) $this->t('Tenure counts every month since that first profile, including months a member was lapsed or paused, so a member who left and rejoined is credited for the gap.'),
+      (string) $this->t('Only members active today are counted; members who have left are not, so types with short-lived members look better than they are.'),
+      (string) $this->t('Note: This is an estimate based on current payment rates and does not account for past rate changes.'),
     ];
 
     return $this->newDefinition(
