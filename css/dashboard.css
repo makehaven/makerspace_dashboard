@@ -38,7 +38,7 @@
   background-color: #0d6efd;
 }
 
-@media (max-width: 768px) {
+@media screen and (max-width: 768px) {
   .makerspace-dashboard-tabs {
     flex-wrap: wrap;
     overflow-x: visible;
@@ -772,7 +772,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 900px) {
+@media screen and (max-width: 900px) {
   .kpi-table,
   .kpi-annual-table {
     table-layout: auto;
@@ -871,7 +871,7 @@
   font-size: 0.9rem;
 }
 
-@media (max-width: 640px) {
+@media screen and (max-width: 640px) {
   .overview-kpi-grid {
     grid-template-columns: 1fr;
   }
@@ -884,7 +884,7 @@
   table-layout: fixed;
 }
 
-@media (max-width: 900px) {
+@media screen and (max-width: 900px) {
   .makerspace-dashboard-section .overview-stoplight .overview-kpi-table-wrap > table.kpi-stoplight-table.kpi-stoplight-table--sectioned {
     min-width: 760px !important;
     max-width: none !important;
@@ -1105,7 +1105,7 @@
 
 /* --- Mobile UI Enhancements --- */
 
-@media (max-width: 600px) {
+@media screen and (max-width: 600px) {
   .makerspace-dashboard-wrapper {
     padding: 1rem 0.5rem;
   }
@@ -1618,4 +1618,106 @@
 .makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table th:nth-child(2),
 .makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table td:nth-child(2) {
   width: 26% !important;
+}
+
+/* Board packets: override screen widths after all responsive table rules. */
+@media print {
+  body[class*="path-makerspace-dashboard"] .container,
+  body[class*="path-makerspace-dashboard"] .container-fluid,
+  body[class*="path-makerspace-dashboard"] #content {
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    float: none !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .row {
+    margin: 0 !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-legend {
+    display: flex !important;
+    flex-wrap: wrap;
+  }
+
+  body[class*="path-makerspace-dashboard"] .overview-kpi-section-table {
+    break-inside: auto !important;
+    page-break-inside: auto !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .overview-kpi-section-table h3 {
+    break-after: avoid;
+  }
+
+  body[class*="path-makerspace-dashboard"] .gin-table-scroll-wrapper,
+  body[class*="path-makerspace-dashboard"] .kpi-table-scroll {
+    overflow: visible !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .overview-stoplight table.kpi-stoplight-table.kpi-stoplight-table--sectioned {
+    min-width: 0 !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .overview-stoplight .kpi-stoplight-table th:nth-child(1),
+  body[class*="path-makerspace-dashboard"] .overview-stoplight .kpi-stoplight-table td:nth-child(1) {
+    width: 30% !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .overview-stoplight .kpi-stoplight-table th:nth-child(2),
+  body[class*="path-makerspace-dashboard"] .overview-stoplight .kpi-stoplight-table td:nth-child(2) {
+    width: 34% !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .overview-stoplight .kpi-stoplight-table th:nth-child(n+3),
+  body[class*="path-makerspace-dashboard"] .overview-stoplight .kpi-stoplight-table td:nth-child(n+3) {
+    width: 12% !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-stoplight-table thead {
+    display: table-header-group !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-stoplight-table tr {
+    break-inside: avoid;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-description {
+    display: block !important;
+    overflow: visible !important;
+    -webkit-line-clamp: unset;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-freshness,
+  body[class*="path-makerspace-dashboard"] .kpi-sample-note,
+  body[class*="path-makerspace-dashboard"] .kpi-period-context {
+    font-size: 8pt !important;
+    line-height: 1.35 !important;
+    color: #222 !important;
+    overflow-wrap: anywhere;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-title {
+    font-size: 9pt !important;
+    line-height: 1.25 !important;
+  }
+
+  body[class*="path-makerspace-dashboard"] .kpi-description,
+  body[class*="path-makerspace-dashboard"] .kpi-stoplight-table thead th {
+    font-size: 8pt !important;
+    line-height: 1.25 !important;
+  }
+
+  /* Text survives grayscale printing and disabled background graphics. */
+  .kpi-current-cell .kpi-progress::after {
+    display: block;
+    font-size: 7pt;
+    font-weight: 400;
+    margin-top: 3px;
+  }
+  .kpi-current-cell .kpi-progress--good::after { content: 'On track'; }
+  .kpi-current-cell .kpi-progress--warning::after { content: 'Watch'; }
+  .kpi-current-cell .kpi-progress--poor::after { content: 'Off track'; }
 }

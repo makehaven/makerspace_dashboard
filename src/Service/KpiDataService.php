@@ -390,6 +390,12 @@ class KpiDataService {
    */
   private function applyReportingContext(string $kpiId, array $result): array {
     $result['period_basis'] ??= self::PERIOD_BASIS[$kpiId] ?? NULL;
+    if ($kpiId === 'kpi_net_income_education' && str_starts_with((string) ($result['current_period_label'] ?? ''), 'Projected Full Year')) {
+      $result['period_basis'] = 'projection';
+    }
+    if ($kpiId === 'kpi_total_first_time_workshop_participants') {
+      $result['description'] = 'Unique people whose earliest counted CiviCRM event registration was for a workshop, within the reporting period. This does not establish attendance or first contact with MakeHaven.';
+    }
 
     if (in_array($kpiId, self::MONTHLY_COUNT_KPIS, TRUE)) {
       $context = $this->buildMonthlyCountContext($result);
