@@ -607,6 +607,11 @@ function makerspace_dashboard_mail($key, &$message, $params) {
   if ($key === 'staff_briefing') {
     $message['subject'] = $params['subject'];
     $message['headers']['Content-Type'] = 'text/html; charset=UTF-8';
+    // Plain replies reach JR, who collects the feedback.
+    if (!empty($params['reply_to'])) {
+      $message['headers']['Reply-To'] = $params['reply_to'];
+      $message['reply-to'] = $params['reply_to'];
+    }
     $message['body'][] = \Drupal\Core\Render\Markup::create($params['html']);
   }
 }

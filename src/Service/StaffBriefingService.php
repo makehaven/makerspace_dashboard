@@ -77,6 +77,17 @@ class StaffBriefingService {
   public const DISCUSS_TOP = 3;
 
   /**
+   * Where feedback goes: the banner link, the footer buttons and Reply-To.
+   */
+  public const FEEDBACK_TO = 'jrlogan@makehaven.org';
+
+  /**
+   * Every feedback email's subject starts with this, so the replies can be
+   * found with one search: subject:"Monday briefing feedback".
+   */
+  public const FEEDBACK_SUBJECT = 'Monday briefing feedback';
+
+  /**
    * Discussion ranks: lower comes first. Safety and broken things lead.
    */
   public const RANK_URGENT = 1;
@@ -1144,11 +1155,12 @@ class StaffBriefingService {
       . '<div style="font-size:24px;font-weight:bold;margin:4px 0 2px">Last week, ' . $e($range) . '</div>'
       . '<div style="font-size:14px;opacity:.9">A quick look before Tuesday\'s staff meeting.</div></div>';
 
+    $mailto = static fn ($subject, $body = '') => 'mailto:' . self::FEEDBACK_TO . '?subject=' . rawurlencode(self::FEEDBACK_SUBJECT . ($subject !== '' ? ': ' . $subject : '')) . ($body !== '' ? '&body=' . rawurlencode($body) : '');
     if ($test) {
       $h .= '<div style="background:#fff6d9;border:1px solid #e9c46a;border-radius:10px;padding:14px 18px;margin:0 0 14px;font-size:14px">'
         . '<b>This is a test.</b> JR is trying out a Monday email that sums up the week before our staff meeting. '
         . 'Nothing here is new work for you, and it isn\'t a review of anyone. '
-        . 'Skim your own section, then tell JR what helped, what was confusing, and what to drop.</div>';
+        . 'Skim your own section, then <a href="' . $e($mailto('', "What helped:\n\nWhat was confusing:\n\nWhat to drop:\n\nWhat's missing:\n")) . '" style="color:' . $brand . ';font-weight:bold">tell JR</a> what helped, what was confusing, and what to drop. You can also just reply to this email.</div>';
     }
 
     // For Tuesday.
@@ -1196,7 +1208,7 @@ class StaffBriefingService {
     }
 
     // Footer: how to read it, and an easy way to answer.
-    $feedback = static fn ($label, $subject) => '<a href="mailto:jrlogan@makehaven.org?subject=' . rawurlencode('Monday briefing: ' . $subject) . '" style="display:inline-block;margin:0 6px 6px 0;padding:7px 12px;border-radius:16px;border:1px solid ' . $brand . ';color:' . $brand . ';text-decoration:none;font-size:13px">' . $label . '</a>';
+    $feedback = static fn ($label, $subject) => '<a href="' . $e($mailto($subject)) . '" style="display:inline-block;margin:0 6px 6px 0;padding:7px 12px;border-radius:16px;border:1px solid ' . $brand . ';color:' . $brand . ';text-decoration:none;font-size:13px">' . $label . '</a>';
     $h .= '<div style="' . $card . '"><div style="font-weight:bold;margin:0 0 8px">Was this useful?</div>'
       . $feedback('Useful', 'useful') . $feedback('Too long', 'too long') . $feedback('Confusing', 'confusing') . $feedback('Add something', 'please add')
       . '<p style="margin:8px 0 0;' . $small . '">"Typical" is a normal week over the last two months. A number in red is higher or lower than any of those weeks. The little bars under each name show the last nine weeks.</p></div>';
@@ -1371,7 +1383,7 @@ class StaffBriefingService {
     $sent = 0;
     foreach ($recipients as $key => $value) {
       [$to, $role] = is_int($key) ? [$value, NULL] : [$key, $value];
-      $params = ['subject' => $subject, 'html' => $this->renderHtml($briefing, $role)];
+      $params = ['subject' => $subject, 'html' => $this->renderHtml($briefing, $role), 'reply_to' => self::FEEDBACK_TO];
       $result = $this->mailManager->mail('makerspace_dashboard', 'staff_briefing', $to, 'en', $params);
       if (!empty($result['result'])) {
         $sent++;
