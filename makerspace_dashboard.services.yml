@@ -1532,3 +1532,18 @@ services:
       - '@string_translation'
     tags:
       - { name: makerspace_dashboard.chart_builder }
+
+  logger.channel.makerspace_dashboard:
+    parent: logger.channel_base
+    arguments: ['makerspace_dashboard']
+
+  makerspace_dashboard.staff_briefing:
+    class: Drupal\makerspace_dashboard\Service\StaffBriefingService
+    arguments:
+      - '@database'
+      - '@config.factory'
+      - '@state'
+      - '@datetime.time'
+      - '@plugin.manager.mail'
+      - '@logger.channel.makerspace_dashboard'
+      - '@?makerspace_dashboard.funnel_data'
