@@ -19,3 +19,9 @@ services:
       - '@makerspace_dashboard.kpi_data'
     tags:
       - { name: drush.command }
+  makerspace_dashboard.commands.staff_briefing:
+    class: Drupal\makerspace_dashboard\Commands\StaffBriefingCommands
+    arguments:
+      - '@makerspace_dashboard.staff_briefing'
+    tags:
+      - { name: drush.command }

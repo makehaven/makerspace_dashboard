@@ -589,4 +589,24 @@ function makerspace_dashboard_cron(): void {
       ['@message' => $e->getMessage()]
     );
   }
+
+  // Monday staff briefing email; off until recipients are set. Must never
+  // break the cron run it rides on.
+  try {
+    \Drupal::service('makerspace_dashboard.staff_briefing')->sendIfDue();
+  }
+  catch (\Throwable $e) {
+    \Drupal::logger('makerspace_dashboard')->error('Staff briefing failed: @message', ['@message' => $e->getMessage()]);
+  }
+}
+
+/**
+ * Implements hook_mail().
+ */
+function makerspace_dashboard_mail($key, &$message, $params) {
+  if ($key === 'staff_briefing') {
+    $message['subject'] = $params['subject'];
+    $message['headers']['Content-Type'] = 'text/html; charset=UTF-8';
+    $message['body'][] = \Drupal\Core\Render\Markup::create($params['html']);
+  }
 }
