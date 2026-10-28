@@ -9,7 +9,9 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Mail\MailManagerInterface;
 use Drupal\Core\State\StateInterface;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 use Drupal\makerspace_dashboard\Service\StaffBriefingService;
+use Drupal\makerspace_dashboard\Support\KpiStatus;
 use Drupal\Tests\UnitTestCase;
 use Psr\Log\LoggerInterface;
 
@@ -24,21 +26,64 @@ class StaffBriefingLineTest extends UnitTestCase {
   /**
    * A service whose protected line() can be called directly.
    */
-  protected function service(): object {
+  protected function service(?StateInterface $state = NULL, ?KpiDataService $kpi = NULL): object {
     return new class(
       $this->createMock(Connection::class),
       $this->createMock(ConfigFactoryInterface::class),
-      $this->createMock(StateInterface::class),
+      $state ?? $this->createMock(StateInterface::class),
       $this->createMock(TimeInterface::class),
       $this->createMock(MailManagerInterface::class),
       $this->createMock(LoggerInterface::class),
+      NULL,
+      $kpi,
     ) extends StaffBriefingService {
 
       public function lineFor(array $metric, array $series): array {
         return $this->line($metric, $series);
       }
 
+      public function goalsFor(array $map, \DateTimeImmutable $weekEnd): array {
+        return $this->goals($map, $weekEnd);
+      }
+
     };
+  }
+
+  /**
+   * Goals use the /kpi rule, and last week's recorded value rides along.
+   */
+  public function testGoalsCompareWithLastWeek(): void {
+    $kpi = $this->createMock(KpiDataService::class);
+    $kpi->method('getKpiData')->willReturn([
+      'kpi_total_active_members' => ['label' => 'Total # Active Members', 'current' => 794, 'goal_current_year' => 845, 'goal_current_year_label' => '2026', 'period_basis' => 'point', 'value_source' => 'calculated', 'refresh_status' => 'current'],
+      'kpi_tours' => ['label' => 'Tours', 'current' => 'TBD', 'value_source' => 'unavailable', 'refresh_status' => 'current'],
+    ]);
+    $kpi->expects($this->never())->method('warmSection');
+    $state = $this->createMock(StateInterface::class);
+    $state->method('get')->willReturn([
+      '2026-10-26' => ['kpi_total_active_members' => ['value' => 850.0, 'status' => KpiStatus::GOOD]],
+    ]);
+
+    $goals = $this->service($state, $kpi)->goalsFor(['overview' => ['kpi_total_active_members', 'kpi_tours']], new \DateTimeImmutable('2026-11-02'));
+    $this->assertSame(['kpi_total_active_members'], array_keys($goals), 'A KPI with no number is left out.');
+    $members = $goals['kpi_total_active_members'];
+    $this->assertSame(KpiStatus::WARNING, $members['status']);
+    $this->assertSame(KpiStatus::GOOD, $members['was_status']);
+    $this->assertSame('850', $members['was_text']);
+    $this->assertSame('now', $members['period']);
+  }
+
+  /**
+   * An expired stored KPI is recomputed rather than shown without a status.
+   */
+  public function testExpiredKpisAreRecomputed(): void {
+    $stale = ['kpi_x' => ['label' => 'X', 'current' => 5, 'goal_current_year' => 10, 'value_source' => 'calculated', 'refresh_status' => 'stale']];
+    $fresh = ['kpi_x' => ['refresh_status' => 'current'] + $stale['kpi_x']];
+    $kpi = $this->createMock(KpiDataService::class);
+    $kpi->method('getKpiData')->willReturnOnConsecutiveCalls($stale, $fresh);
+    $kpi->expects($this->once())->method('warmSection')->with('infrastructure');
+    $goals = $this->service(NULL, $kpi)->goalsFor(['infrastructure' => ['kpi_x']], new \DateTimeImmutable('2026-11-02'));
+    $this->assertSame(KpiStatus::POOR, $goals['kpi_x']['status']);
   }
 
   /**

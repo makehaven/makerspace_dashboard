@@ -1547,3 +1547,4 @@ services:
       - '@plugin.manager.mail'
       - '@logger.channel.makerspace_dashboard'
       - '@?makerspace_dashboard.funnel_data'
+      - '@?makerspace_dashboard.kpi_data'

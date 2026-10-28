@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\DashboardSection;
 
 use Drupal\makerspace_dashboard\Support\KpiFreshness;
+use Drupal\makerspace_dashboard\Support\KpiStatus;
 use Drupal\Component\Utility\Html;
 use Drupal\Core\Render\Markup;
 use Drupal\Core\Url;
@@ -519,43 +520,7 @@ SVG;
    *   The formatted value.
    */
   protected function formatKpiValue($value, ?string $format = NULL): string {
-    if ($value === NULL || $value === '' || $value === 'n/a') {
-      return (string) $this->t('n/a');
-    }
-    if ($format === 'percent' && is_numeric($value)) {
-      // Values with abs > 1.5 are percentage points; anything at or below is
-      // a 0-1 ratio. The 1.5 threshold matches normalizePercentOrAbsoluteValue
-      // (which drives the stoplight color), so a ratio above 1.0
-      // (e.g. 1.04 = 104%) displays as 104%, not 1.0%.
-      $normalized = (float) $value;
-      if (abs($normalized) > 1.5) {
-        $normalized = $normalized / 100;
-      }
-      $percentage = $normalized * 100;
-      $decimals = abs($percentage) < 10 ? 1 : 0;
-      return number_format($percentage, $decimals) . '%';
-    }
-    if ($format === 'integer' && is_numeric($value)) {
-      return number_format((float) $value, 0);
-    }
-    if ($format === 'currency' && is_numeric($value)) {
-      $float = (float) $value;
-      $decimals = abs($float) < 100 ? 2 : 0;
-      return ($float < 0 ? '-$' : '$') . number_format(abs($float), $decimals);
-    }
-    if (is_numeric($value)) {
-      $float = (float) $value;
-      $abs = abs($float);
-      $precision = 0;
-      if ($abs < 10) {
-        $precision = 2;
-      }
-      elseif ($abs < 100) {
-        $precision = 1;
-      }
-      return number_format($float, $precision);
-    }
-    return (string) $value;
+    return KpiStatus::format($value, $format) ?? (string) $this->t('n/a');
   }
 
   /**
@@ -882,66 +847,17 @@ SVG;
    *   Pass 1.0 (default) for point-in-time or trailing-period KPIs.
    */
   protected function determinePerformanceClass($current, $goal, ?string $format = NULL, string $goalDirection = 'higher', float $periodFraction = 1.0): ?string {
-    if ($goal === NULL || $current === NULL) {
-      return NULL;
-    }
-    $goalValue = $this->normalizePercentOrAbsoluteValue($goal, $format);
-    $currentValue = $this->normalizePercentOrAbsoluteValue($current, $format);
-    if ($goalValue === NULL || $currentValue === NULL || $goalValue == 0.0) {
-      return NULL;
-    }
-
-    // Scale the goal proportionally for accumulating YTD KPIs.
-    if ($periodFraction > 0.0 && $periodFraction < 1.0) {
-      $goalValue = $goalValue * $periodFraction;
-    }
-
-    $isPercent = ($format === 'percent') || abs($goalValue) <= 1.5;
-    $goalDirection = strtolower(trim($goalDirection));
-    $lowerIsBetter = in_array($goalDirection, ['lower', 'down', 'decrease'], TRUE);
-
-    if ($lowerIsBetter) {
-      if ($currentValue <= $goalValue) {
-        return 'kpi-progress--good';
-      }
-      if ($isPercent) {
-        if ($currentValue <= $goalValue + 0.08) {
-          return 'kpi-progress--warning';
-        }
-      }
-      elseif ($currentValue <= ($goalValue * 1.1)) {
-        return 'kpi-progress--warning';
-      }
-      return 'kpi-progress--poor';
-    }
-
-    if ($currentValue >= $goalValue) {
-      return 'kpi-progress--good';
-    }
-    if ($isPercent) {
-      if ($currentValue >= $goalValue - 0.08) {
-        return 'kpi-progress--warning';
-      }
-    }
-    elseif ($currentValue >= ($goalValue * 0.9)) {
-      return 'kpi-progress--warning';
-    }
-    return 'kpi-progress--poor';
+    $status = KpiStatus::status($current, $goal, $format, $goalDirection, $periodFraction);
+    return $status === NULL ? NULL : 'kpi-progress--' . $status;
   }
 
   /**
    * Normalizes values that may be stored as percentages or raw numbers.
    */
   protected function normalizePercentOrAbsoluteValue($value, ?string $format = NULL): ?float {
-    if (!is_numeric($value)) {
-      return NULL;
-    }
-    $numeric = (float) $value;
-    if ($format === 'percent' && abs($numeric) > 1.5 && abs($numeric) <= 100) {
-      return $numeric / 100;
-    }
-    return $numeric;
+    return KpiStatus::normalize($value, $format);
   }
+
 
   /**
    * Builds a container for a chart.

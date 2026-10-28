@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Drupal\makerspace_dashboard\Commands;
 
 use Drupal\makerspace_dashboard\Service\StaffBriefingService;
+use Drupal\makerspace_dashboard\Support\KpiStatus;
 use Drush\Commands\DrushCommands;
 
 /**
@@ -53,6 +54,9 @@ class StaffBriefingCommands extends DrushCommands {
       $this->output()->writeln("\n" . strtoupper($role['title']));
       foreach ($role['lines'] as $line) {
         $this->output()->writeln(sprintf('  %-44s %8s  (%s %s, usual %s)%s', $line['title'], $line['value_text'], $line['stock'] ? 'change' : 'prev', $line['last_text'], $line['avg_text'], $line['flag'] ? '  ← ' . $line['flag'] : ''));
+      }
+      foreach ($role['goals'] as $goal) {
+        $this->output()->writeln(sprintf('  [goal] %-37s %8s  goal %s %s%s (last week %s)', $goal['title'], $goal['value_text'], $goal['goal_text'], $goal['status'] ? '— ' . KpiStatus::LABELS[$goal['status']] : '', $goal['period'] ? ', ' . $goal['period'] : '', $goal['was_text']));
       }
       foreach ($role['lists'] as $list) {
         $this->output()->writeln('  ' . $list['title']);

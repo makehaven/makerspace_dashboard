@@ -10,6 +10,8 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Mail\MailManagerInterface;
 use Drupal\Core\State\StateInterface;
+use Drupal\makerspace_dashboard\Support\KpiFreshness;
+use Drupal\makerspace_dashboard\Support\KpiStatus;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -34,6 +36,12 @@ use Psr\Log\LoggerInterface;
  * under half full, a tool down a long time), are pulled up into "Worth
  * discussing".
  *
+ * Each role also gets its /kpi goals (2026 goal, on track / close / behind,
+ * using the same rule as the /kpi colors). Those barely move in a week, but
+ * they are the yardstick the weekly numbers are read against. Every cron send
+ * records the KPI values, so next week's email can show what moved and flag
+ * a KPI whose status changed.
+ *
  * Off until a recipient list is set:
  *   drush state:set makerspace_dashboard.staff_briefing.recipients "a@x.org,b@x.org"
  * Preview without sending: drush makerspace-dashboard:staff-briefing.
@@ -49,6 +57,28 @@ class StaffBriefingService {
    * Y-m-d of the Monday whose briefing was last sent by cron.
    */
   public const STATE_LAST_SENT = 'makerspace_dashboard.staff_briefing.last_sent';
+
+  /**
+   * KPI values at each send: [Y-m-d Monday => [kpi id => [value, status]]].
+   */
+  public const STATE_KPI_HISTORY = 'makerspace_dashboard.staff_briefing.kpi_history';
+
+  /**
+   * Plain names for the period a KPI value covers (KpiDataService
+   * period_basis), shown next to each goal so a 12-month figure is not read
+   * as last week's.
+   */
+  protected const PERIOD_LABELS = [
+    'rolling_12' => 'last 12 months',
+    'rolling_90' => 'last 90 days',
+    'ytd' => 'year to date',
+    'quarter' => 'last quarter',
+    'point' => 'now',
+    'cohort' => 'join cohorts',
+    'survey' => 'survey',
+    'multi_year' => 'multi-year',
+    'since' => 'since logging began',
+  ];
 
   /**
    * Hour (site timezone) on Monday after which cron may send.
@@ -98,6 +128,7 @@ class StaffBriefingService {
     protected MailManagerInterface $mailManager,
     protected LoggerInterface $logger,
     protected ?FunnelDataService $funnelData = NULL,
+    protected ?KpiDataService $kpiData = NULL,
   ) {}
 
   /**
@@ -119,7 +150,9 @@ class StaffBriefingService {
     // Recorded before sending: a send that dies half way must not repeat on
     // every cron tick for the rest of the day.
     $this->state->set(self::STATE_LAST_SENT, $monday);
-    $this->send($this->build(), $recipients);
+    $briefing = $this->build();
+    $this->recordKpis($briefing);
+    $this->send($briefing, $recipients);
   }
 
   /**
@@ -168,11 +201,19 @@ class StaffBriefingService {
         'title' => $def['title'],
         'link' => $def['link'],
         'lines' => $lines,
+        'goals' => $this->goals($def['goals'] ?? [], $weekEnd),
         'lists' => [],
       ];
     }
 
     $discuss = [];
+    foreach ($roles as $role) {
+      foreach ($role['goals'] as $goal) {
+        if ($goal['was_status'] !== NULL && $goal['status'] !== NULL && $goal['status'] !== $goal['was_status']) {
+          $discuss[] = sprintf('%s is now %s against its %s goal (was %s): %s vs goal %s.', $goal['title'], strtolower(KpiStatus::LABELS[$goal['status']]), $goal['goal_year'], strtolower(KpiStatus::LABELS[$goal['was_status']]), $goal['value_text'], $goal['goal_text']);
+        }
+      }
+    }
     $this->addLists($roles, $discuss, $weekEnd);
     foreach ($roles as $role) {
       foreach ($role['lines'] as $line) {
@@ -209,8 +250,13 @@ class StaffBriefingService {
       'director' => [
         'title' => 'Director',
         'link' => '/makerspace-dashboard/overview',
+        'goals' => [
+          'overview' => ['kpi_total_active_members'],
+          'outreach' => ['kpi_total_new_member_signups', 'kpi_tours', 'kpi_tours_to_member_conversion'],
+          'finance' => ['kpi_member_revenue_quarterly', 'kpi_reserve_funds_months', 'kpi_earned_income_sustaining_core'],
+          'development' => ['kpi_recurring_donors_count', 'kpi_annual_corporate_sponsorships', 'kpi_grant_pipeline_count', 'kpi_donor_retention_rate'],
+        ],
         'metrics' => [
-          'members' => ['title' => 'Members (not paused)', 'type' => 'snapshot', 'sql' => "COUNT(*) - SUM(stage = 'paused')"],
           'joins' => ['title' => 'New members', 'type' => 'window', 'requires' => 'profile', 'sql' => "SELECT COUNT(*) FROM profile WHERE type = 'main' AND created >= :s AND created < :e"],
           'ends' => ['title' => 'Memberships ended', 'type' => 'window', 'requires' => 'profile__field_member_end_date', 'sql' => "SELECT COUNT(*) FROM profile__field_member_end_date WHERE deleted = 0 AND field_member_end_date_value >= :sday AND field_member_end_date_value < :eday"],
           'paused' => ['title' => 'Paused members', 'type' => 'snapshot', 'sql' => "SUM(stage = 'paused')"],
@@ -221,6 +267,10 @@ class StaffBriefingService {
       'operations' => [
         'title' => 'Operations',
         'link' => '/makerspace-dashboard/operations',
+        'goals' => [
+          'retention' => ['kpi_first_year_member_retention', 'kpi_member_post_12_month_retention', 'kpi_retention_poc', 'kpi_active_participation', 'kpi_new_member_first_badge_28_days', 'kpi_member_nps', 'kpi_membership_diversity_bipoc'],
+          'outreach' => ['kpi_guest_waiver_to_member_conversion', 'kpi_event_participant_to_member_conversion'],
+        ],
         'metrics' => [
           'payment_failed' => ['title' => 'Members with a failed payment', 'type' => 'snapshot', 'sql' => 'SUM(payment_failed)'],
           'recovery' => ['title' => 'Members in the recovery queue', 'type' => 'snapshot', 'sql' => "SUM(stage = 'recovery')"],
@@ -234,6 +284,10 @@ class StaffBriefingService {
       'education' => [
         'title' => 'Education',
         'link' => '/makerspace-dashboard/education',
+        'goals' => [
+          'education' => ['kpi_workshop_attendees', 'kpi_workshop_capacity_utilization', 'kpi_program_capacity_utilization', 'kpi_education_nps', 'kpi_workshop_participants_bipoc', 'kpi_active_instructors_bipoc', 'kpi_net_income_education'],
+          'outreach' => ['kpi_total_first_time_workshop_participants'],
+        ],
         'metrics' => [
           'classes_held' => ['title' => 'Classes held', 'type' => 'window', 'requires' => 'civicrm_event', 'sql' => "SELECT COUNT(*) FROM civicrm_event WHERE is_active = 1 AND is_template = 0 AND event_type_id IN ($classTypes) AND start_date >= :sd AND start_date < :ed"],
           'class_seats' => ['title' => 'Class seats filled', 'type' => 'window', 'requires' => 'civicrm_event', 'sql' => "SELECT COUNT(*) FROM civicrm_participant p JOIN civicrm_event e ON e.id = p.event_id WHERE $counted AND e.is_active = 1 AND e.is_template = 0 AND e.event_type_id IN ($classTypes) AND e.start_date >= :sd AND e.start_date < :ed"],
@@ -247,6 +301,10 @@ class StaffBriefingService {
       'facility' => [
         'title' => 'Facility & safety',
         'link' => '/makerspace-dashboard/infrastructure',
+        'goals' => [
+          'infrastructure' => ['kpi_equipment_uptime_rate', 'kpi_equipment_investment'],
+          'entrepreneurship' => ['kpi_incubator_workspace_occupancy'],
+        ],
         'metrics' => [
           'visitors' => ['title' => 'Members who came in', 'type' => 'window', 'requires' => 'access_control_log__field_access_request_user', 'sql' => "SELECT COUNT(DISTINCT u.field_access_request_user_target_id) FROM access_control_log_field_data l JOIN access_control_log__field_access_request_result r ON r.entity_id = l.id JOIN access_control_log__field_access_request_user u ON u.entity_id = l.id WHERE l.type = 'access_control_request' AND l.created >= :s AND l.created < :e AND r.field_access_request_result_value = 1"],
           'swipes' => ['title' => 'Door and tool unlocks', 'type' => 'window', 'requires' => 'access_control_log__field_access_request_result', 'sql' => "SELECT COUNT(*) $granted AND r.field_access_request_result_value = 1"],
@@ -259,6 +317,93 @@ class StaffBriefingService {
         ],
       ],
     ];
+  }
+
+  /**
+   * A role's KPIs against their goals, as /kpi shows them.
+   *
+   * @param array $map
+   *   [dashboard section id => [kpi id, ...]].
+   * @param \DateTimeImmutable $weekEnd
+   *   The briefing's week end; last week's recorded values are shown beside.
+   *
+   * @return array
+   *   [kpi id => ['title', 'value_text', 'goal_text', 'goal_year', 'period',
+   *   'status' (KpiStatus constant|null), 'was_text', 'was_status']].
+   */
+  protected function goals(array $map, \DateTimeImmutable $weekEnd): array {
+    if (!$this->kpiData || !$map) {
+      return [];
+    }
+    $history = $this->state->get(self::STATE_KPI_HISTORY, []);
+    $previous = is_array($history) ? ($history[$weekEnd->modify('-7 days')->format('Y-m-d')] ?? []) : [];
+
+    $out = [];
+    foreach ($map as $section => $ids) {
+      try {
+        $data = $this->freshSection($section);
+      }
+      catch (\Throwable $e) {
+        $this->logger->error('Staff briefing could not read @section KPIs: @msg', ['@section' => $section, '@msg' => $e->getMessage()]);
+        continue;
+      }
+      foreach ($ids as $id) {
+        $kpi = $data[$id] ?? NULL;
+        if (!$kpi || !is_numeric($kpi['current'] ?? NULL)) {
+          continue;
+        }
+        $format = $kpi['display_format'] ?? NULL;
+        $comparable = KpiFreshness::canCompare($kpi);
+        $status = $comparable ? KpiStatus::status($kpi['current'], $kpi['goal_current_year'] ?? NULL, $format, (string) ($kpi['goal_direction'] ?? 'higher'), isset($kpi['period_fraction']) ? (float) $kpi['period_fraction'] : 1.0) : NULL;
+        $was = $previous[$id] ?? NULL;
+        $out[$id] = [
+          'title' => (string) ($kpi['label'] ?? $id),
+          'value' => (float) $kpi['current'],
+          'value_text' => KpiStatus::format($kpi['current'], $format) ?? '–',
+          'goal_text' => KpiStatus::format($kpi['goal_current_year'] ?? NULL, $format) ?? '–',
+          'goal_year' => (string) ($kpi['goal_current_year_label'] ?? date('Y')),
+          'period' => self::PERIOD_LABELS[$kpi['period_basis'] ?? ''] ?? '',
+          'status' => $status,
+          'was_text' => is_array($was) ? (KpiStatus::format($was['value'] ?? NULL, $format) ?? '–') : '–',
+          'was_status' => is_array($was) ? ($was['status'] ?? NULL) : NULL,
+        ];
+      }
+    }
+    return $out;
+  }
+
+  /**
+   * A section's KPIs, recomputed first if the stored copy has expired.
+   *
+   * KpiFreshness refuses to compare an expired value with its goal; the
+   * hourly warm queue may not have run before the Monday send.
+   */
+  protected function freshSection(string $section): array {
+    $data = $this->kpiData->getKpiData($section);
+    foreach ($data as $kpi) {
+      if (($kpi['refresh_status'] ?? '') !== 'current') {
+        $this->kpiData->warmSection($section);
+        return $this->kpiData->getKpiData($section);
+      }
+    }
+    return $data;
+  }
+
+  /**
+   * Remembers this week's KPI values for next week's comparison.
+   */
+  protected function recordKpis(array $briefing): void {
+    $values = [];
+    foreach ($briefing['roles'] as $role) {
+      foreach ($role['goals'] as $id => $goal) {
+        $values[$id] = ['value' => $goal['value'], 'status' => $goal['status']];
+      }
+    }
+    $history = $this->state->get(self::STATE_KPI_HISTORY, []);
+    $history = is_array($history) ? $history : [];
+    $history[$briefing['week_end']->format('Y-m-d')] = $values;
+    krsort($history);
+    $this->state->set(self::STATE_KPI_HISTORY, array_slice($history, 0, 12, TRUE));
   }
 
   /**
@@ -547,6 +692,21 @@ class StaffBriefingService {
             . '<td style="padding:4px 6px;text-align:right;' . $style . '">' . $e($line['value_text']) . '</td>'
             . '<td style="padding:4px 6px;text-align:right;color:#555">' . $e($line['last_text']) . '</td>'
             . '<td style="padding:4px 0 4px 6px;text-align:right;color:#555">' . $e($line['avg_text']) . '</td></tr>';
+        }
+        $h .= '</table>';
+      }
+      if ($role['goals']) {
+        $colors = [KpiStatus::GOOD => '#1e7b34', KpiStatus::WARNING => '#9a6700', KpiStatus::POOR => $brand];
+        $year = reset($role['goals'])['goal_year'];
+        $h .= '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:10px 0 0">';
+        $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">Against our ' . $e($year) . ' goals</td><td style="padding:3px 6px;text-align:right;width:84px">Now</td><td style="padding:3px 6px;text-align:right;width:84px">Goal</td><td style="padding:3px 6px;text-align:right;width:70px"></td><td style="padding:3px 0 3px 6px;text-align:right;width:84px">Last week</td></tr>';
+        foreach ($role['goals'] as $goal) {
+          $status = $goal['status'] ? '<span style="font-weight:bold;color:' . $colors[$goal['status']] . '">' . $e(KpiStatus::LABELS[$goal['status']]) . '</span>' : '';
+          $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($goal['title']) . ($goal['period'] ? '<br><span style="font-size:12px;color:#777">' . $e($goal['period']) . '</span>' : '') . '</td>'
+            . '<td style="padding:4px 6px;text-align:right">' . $e($goal['value_text']) . '</td>'
+            . '<td style="padding:4px 6px;text-align:right;color:#555">' . $e($goal['goal_text']) . '</td>'
+            . '<td style="padding:4px 6px;text-align:right;font-size:12px">' . $status . '</td>'
+            . '<td style="padding:4px 0 4px 6px;text-align:right;color:#555">' . $e($goal['was_text']) . '</td></tr>';
         }
         $h .= '</table>';
       }
