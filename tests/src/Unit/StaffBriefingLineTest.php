@@ -206,4 +206,19 @@ class StaffBriefingLineTest extends UnitTestCase {
     $this->assertSame(['jr@x.org' => 'director', 'kate@x.org' => 'operations', 'ash@x.org' => NULL], $parsed);
   }
 
+  /**
+   * A Tuesday item's details link to the tool, class or action they name.
+   */
+  public function testHeadlineLinksDetails(): void {
+    $headline = new \ReflectionMethod(StaffBriefingService::class, 'headline');
+    $e = static fn ($v) => htmlspecialchars((string) $v, ENT_QUOTES);
+    $html = $headline->invoke(NULL, [
+      'text' => '1 tool issue with no update past the follow-up window: Laser (reported concern, 20 days).',
+      'links' => [['Laser (reported concern, 20 days)', '/node/7']],
+    ], $e, 'https://www.makehaven.org');
+    $this->assertStringContainsString('<b>1 tool issue with no update past the follow-up window</b>', $html);
+    $this->assertStringContainsString('<a href="https://www.makehaven.org/node/7"', $html);
+    $this->assertStringContainsString('>Laser (reported concern, 20 days)</a>.', $html);
+  }
+
 }

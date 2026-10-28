@@ -359,7 +359,11 @@ class StaffBriefingService {
     $focus = $this->focus($weekEnd);
     $overdue = array_filter($focus['actions'] ?? [], static fn ($a) => $a['overdue']);
     if ($overdue) {
-      $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode('; ', array_map(static fn ($a) => sprintf('%s (%s, due %s)', $a['text'], $a['owner'], date('M j', strtotime($a['due']))), $overdue))));
+      $links = [];
+      foreach ($overdue as $a) {
+        $links[] = [sprintf('%s (%s, due %s)', $a['text'], $a['owner'], date('M j', strtotime($a['due']))), $a['url'] ?? ''];
+      }
+      $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode('; ', array_column($links, 0))), $links);
     }
     foreach ($focus['transitions'] as $t) {
       if (($t['to'] ?? '') === 'broken') {
@@ -451,7 +455,7 @@ class StaffBriefingService {
         ],
       ],
       'facility' => [
-        'title' => 'Facility & safety',
+        'title' => 'Shop & facility',
         'link' => '/makerspace-dashboard/infrastructure',
         'goals' => [
           'infrastructure' => ['kpi_equipment_uptime_rate', 'kpi_equipment_investment'],
@@ -549,6 +553,7 @@ class StaffBriefingService {
             'text' => (string) ($a['text'] ?? ''),
             'owner' => (string) ($a['owner'] ?? ''),
             'committee' => (string) ($a['committeeId'] ?? ''),
+            'url' => rtrim(dirname(self::GOVERNANCE_URL), '/') . (($a['committeeId'] ?? '') !== '' ? '/committees/' . rawurlencode((string) $a['committeeId']) : '/committees'),
             'due' => $due,
             'overdue' => $due < $today,
           ];
@@ -881,8 +886,8 @@ class StaffBriefingService {
   /**
    * One discussion item.
    */
-  protected function item(string $role, int $rank, string $text): array {
-    return ['text' => $text, 'role' => $role, 'rank' => $rank];
+  protected function item(string $role, int $rank, string $text, array $links = []): array {
+    return ['text' => $text, 'role' => $role, 'rank' => $rank, 'links' => $links];
   }
 
   /**
@@ -983,9 +988,10 @@ class StaffBriefingService {
     if ($schema->tableExists('node__field_fb_status')) {
       $open = $this->database->query("SELECT n.nid, n.title, n.created, s.field_fb_status_value status FROM {node_field_data} n JOIN {node__field_fb_status} s ON s.entity_id = n.nid WHERE n.type = 'feedback_ledger' AND s.field_fb_status_value IN (:st[]) ORDER BY n.created ASC", [':st[]' => self::FEEDBACK_OPEN])->fetchAll();
       $old = array_filter($open, static fn ($r) => $now - (int) $r->created > 14 * 86400);
-      $items = array_map(static fn ($r) => sprintf('%s — %s, %d days', $r->title, str_replace('_', ' ', $r->status), floor(($now - (int) $r->created) / 86400)), array_slice($old, 0, 8));
+      $items = array_map(static fn ($r) => ['text' => sprintf('%s — %s, %d days', $r->title, str_replace('_', ' ', $r->status), floor(($now - (int) $r->created) / 86400)), 'url' => '/node/' . $r->nid], array_slice($old, 0, 8));
       $roles['operations']['lists'][] = [
         'title' => sprintf('Feedback waiting on staff: %d open, %d older than two weeks', count($open), count($old)),
+        'url' => '/feedback-status',
         'items' => $items,
         'more' => count($old) > 8 ? sprintf('…and %d more on the feedback board.', count($old) - 8) : NULL,
         'empty' => 'Nothing older than two weeks.',
@@ -999,6 +1005,7 @@ class StaffBriefingService {
       if ($total > 0) {
         $roles['operations']['lists'][] = [
           'title' => sprintf('Storage: %d of %d units occupied, %d vacant', (int) ($counts['occupied'] ?? 0), $total, (int) ($counts['vacant'] ?? 0)),
+          'url' => '/admin/storage',
           'items' => [],
           'empty' => '',
         ];
@@ -1063,16 +1070,17 @@ class StaffBriefingService {
         $cap = (int) $r->cap;
         $isLow = $cap > 0 && ((int) $r->n / $cap) < self::LOW_FILL;
         $wait = (int) $r->w;
-        $items[] = ['text' => sprintf('%s — %s: %d%s%s', date('D M j', strtotime($r->start_date)), $r->title, (int) $r->n, $cap ? " of $cap" : ' registered', $wait ? ", $wait on the waitlist" : ''), 'warn' => $isLow];
+        $url = '/civicrm/event/info?reset=1&id=' . (int) $r->id;
+        $items[] = ['text' => sprintf('%s — %s: %d%s%s', date('D M j', strtotime($r->start_date)), $r->title, (int) $r->n, $cap ? " of $cap" : ' registered', $wait ? ", $wait on the waitlist" : ''), 'warn' => $isLow, 'url' => $url];
         if ($isLow) {
-          $low[] = sprintf('%s (%s, %d of %d)', $r->title, date('M j', strtotime($r->start_date)), (int) $r->n, $cap);
+          $low[] = [sprintf('%s (%s, %d of %d)', $r->title, date('M j', strtotime($r->start_date)), (int) $r->n, $cap), $url];
         }
         if ($wait) {
-          $waiting[] = sprintf('%s (%s): %d waiting', $r->title, date('M j', strtotime($r->start_date)), $wait);
+          $waiting[] = [sprintf('%s (%s): %d waiting', $r->title, date('M j', strtotime($r->start_date)), $wait), $url];
         }
       }
       if ($waiting) {
-        $discuss[] = $this->item('education', self::RANK_NOTABLE, 'Waitlists — demand for another session: ' . implode('; ', $waiting) . '.');
+        $discuss[] = $this->item('education', self::RANK_NOTABLE, 'Waitlists — demand for another session: ' . implode('; ', array_column($waiting, 0)) . '.', $waiting);
       }
       $roles['education']['lists'][] = [
         'title' => sprintf('Classes in the next two weeks: %d, %d under half full', count($rows), count($low)),
@@ -1080,7 +1088,7 @@ class StaffBriefingService {
         'empty' => 'No classes scheduled.',
       ];
       if ($low) {
-        $discuss[] = $this->item('education', self::RANK_NOTABLE, 'Classes under half full in the next two weeks: ' . implode('; ', $low) . '.');
+        $discuss[] = $this->item('education', self::RANK_NOTABLE, 'Classes under half full in the next two weeks: ' . implode('; ', array_column($low, 0)) . '.', $low);
       }
     }
 
@@ -1101,6 +1109,7 @@ class StaffBriefingService {
         $tools[] = [
           'days' => $days,
           'text' => $r->title,
+          'url' => '/node/' . $r->nid,
           'status' => $r->status,
           'new' => $since >= $now - 7 * 86400,
           'stale' => $limit > 0 && $days >= $limit,
@@ -1110,6 +1119,7 @@ class StaffBriefingService {
       $items = array_map(static fn ($t) => [
         'text' => sprintf('%s — %s, %s', $t['text'], $t['status'], $t['new'] ? 'new this week' : sprintf('no update in %d days', $t['days'])),
         'warn' => $t['stale'],
+        'url' => $t['url'],
       ], $tools);
       $roles['facility']['lists'][] = [
         'title' => sprintf('Tools not in normal service: %d', count($tools)),
@@ -1118,7 +1128,8 @@ class StaffBriefingService {
       ];
       $stale = array_filter($tools, static fn ($t) => $t['stale']);
       if ($stale) {
-        $discuss[] = $this->item('facility', self::RANK_STUCK, sprintf('%d tool %s with no update past the follow-up window: %s.', count($stale), count($stale) === 1 ? 'issue' : 'issues', implode('; ', array_map(static fn ($t) => sprintf('%s (%s, %d days)', $t['text'], strtolower($t['status']), $t['days']), $stale))));
+        $links = array_map(static fn ($t) => [sprintf('%s (%s, %d days)', $t['text'], strtolower($t['status']), $t['days']), $t['url']], array_values($stale));
+        $discuss[] = $this->item('facility', self::RANK_STUCK, sprintf('%d tool %s with no update past the follow-up window: %s.', count($stale), count($stale) === 1 ? 'issue' : 'issues', implode('; ', array_column($links, 0))), $links);
       }
     }
   }
@@ -1170,7 +1181,7 @@ class StaffBriefingService {
       foreach (array_values($briefing['discuss']) as $i => $item) {
         $h .= '<tr><td style="vertical-align:top;padding:4px 12px 10px 0;width:28px">'
           . '<div style="width:26px;height:26px;border-radius:13px;background:' . $brand . ';color:#ffffff;font-weight:bold;text-align:center;line-height:26px;font-size:14px">' . ($i + 1) . '</div></td>'
-          . '<td style="vertical-align:top;padding:4px 0 12px">' . self::headline($item['text'], $e)
+          . '<td style="vertical-align:top;padding:4px 0 12px">' . self::headline($item, $e, $base)
           . (isset($roleTitles[$item['role']]) ? ' <span style="' . $small . ';white-space:nowrap">· ' . $e($roleTitles[$item['role']]) . '</span>' : '') . '</td></tr>';
       }
       $h .= '</table>';
@@ -1220,12 +1231,31 @@ class StaffBriefingService {
   /**
    * "Headline: details" as a bold headline over smaller details.
    */
-  protected static function headline(string $text, callable $e): string {
-    $parts = explode(': ', $text, 2);
+  protected static function headline(array $item, callable $e, string $base): string {
+    $parts = explode(': ', $item['text'], 2);
     if (count($parts) < 2 || mb_strlen($parts[0]) > 90) {
-      return $e($text);
+      return $e($item['text']);
     }
-    return '<b>' . $e($parts[0]) . '</b><div style="font-size:13px;color:#6b625d;margin-top:2px">' . $e($parts[1]) . '</div>';
+    $details = !empty($item['links']) ? self::linked($item['links'], $e, $base) : $e($parts[1]);
+    return '<b>' . $e($parts[0]) . '</b><div style="font-size:13px;color:#6b625d;margin-top:2px">' . $details . '</div>';
+  }
+
+  /**
+   * [[label, url], ...] as links joined by semicolons.
+   */
+  protected static function linked(array $links, callable $e, string $base): string {
+    return implode('; ', array_map(static fn ($l) => self::link($l[0], $l[1] ?? '', $e, $base), $links)) . '.';
+  }
+
+  /**
+   * A label linked to a site path or full URL; plain text without one.
+   */
+  protected static function link(string $label, string $url, callable $e, string $base, string $color = '#2b2522'): string {
+    if ($url === '') {
+      return $e($label);
+    }
+    $href = str_starts_with($url, 'http') ? $url : $base . $url;
+    return '<a href="' . $e($href) . '" style="color:' . $color . '">' . $e($label) . '</a>';
   }
 
   /**
@@ -1275,13 +1305,13 @@ class StaffBriefingService {
     }
 
     foreach ($role['lists'] as $list) {
-      $h .= '<div style="margin:12px 0 4px;font-weight:bold">' . $e($list['title']) . '</div>';
+      $h .= '<div style="margin:12px 0 4px;font-weight:bold">' . self::link($list['title'], $list['url'] ?? '', $e, $base) . '</div>';
       if ($list['items']) {
         $h .= '<ul style="margin:0;padding-left:18px">';
         foreach (array_slice($list['items'], 0, $listCap) as $item) {
           $text = is_array($item) ? $item['text'] : $item;
           $warn = is_array($item) && !empty($item['warn']);
-          $h .= '<li style="margin:0 0 3px' . ($warn ? ';color:' . $s['brand'] : '') . '">' . $e($text) . '</li>';
+          $h .= '<li style="margin:0 0 3px' . ($warn ? ';color:' . $s['brand'] : '') . '">' . self::link($text, is_array($item) ? ($item['url'] ?? '') : '', $e, $base, $warn ? $s['brand'] : $s['ink']) . '</li>';
         }
         $h .= '</ul>';
         $hidden = count($list['items']) - $listCap;
@@ -1297,7 +1327,7 @@ class StaffBriefingService {
     if ($role['followup']) {
       $h .= '<div style="margin:14px 0 4px;background:#f6f2ee;border-radius:8px;padding:10px 14px"><div style="font-weight:bold;margin:0 0 4px">For a 1-on-1</div><ul style="margin:0;padding-left:18px">';
       foreach ($role['followup'] as $item) {
-        $h .= '<li style="margin:0 0 3px">' . $e($item['text']) . '</li>';
+        $h .= '<li style="margin:0 0 3px">' . (!empty($item['links']) ? self::headline($item, $e, $base) : $e($item['text'])) . '</li>';
       }
       $h .= '</ul></div>';
     }
@@ -1339,7 +1369,7 @@ class StaffBriefingService {
     if (!empty($focus['actions'])) {
       $h .= '<div style="' . $sub . '">Board and committee actions due</div><ul style="margin:0;padding-left:18px">';
       foreach ($focus['actions'] as $a) {
-        $h .= '<li style="margin:0 0 3px' . ($a['overdue'] ? ';color:' . $s['brand'] : '') . '">' . $e($a['text']) . ' <span style="' . $s['small'] . '">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
+        $h .= '<li style="margin:0 0 3px' . ($a['overdue'] ? ';color:' . $s['brand'] : '') . '">' . self::link($a['text'], $a['url'] ?? '', $e, $base, $a['overdue'] ? $s['brand'] : $s['ink']) . ' <span style="' . $s['small'] . '">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
       }
       $h .= '</ul>';
     }
