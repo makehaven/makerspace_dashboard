@@ -1272,6 +1272,23 @@ class StaffBriefingService {
       ];
     }
 
+    // Shop & facility: the lending library is its own node type with a
+    // replacement value; missing items are counted apart, since they are
+    // value the library has probably lost.
+    if ($schema->tableExists('node__field_library_item_replacement_v')) {
+      $lib = $this->database->query("SELECT IFNULL(st.field_library_item_status_value, '') status, COUNT(*) n, SUM(IFNULL(r.field_library_item_replacement_v_value, 0)) val FROM {node_field_data} n LEFT JOIN {node__field_library_item_status} st ON st.entity_id = n.nid AND st.deleted = 0 LEFT JOIN {node__field_library_item_replacement_v} r ON r.entity_id = n.nid AND r.deleted = 0 WHERE n.type = 'library_item' AND n.status = 1 GROUP BY status")->fetchAllAssoc('status');
+      $missing = $lib['missing'] ?? NULL;
+      unset($lib['missing']);
+      $added = $this->database->query("SELECT n.nid, n.title, r.field_library_item_replacement_v_value val FROM {node_field_data} n LEFT JOIN {node__field_library_item_replacement_v} r ON r.entity_id = n.nid AND r.deleted = 0 WHERE n.type = 'library_item' AND n.status = 1 AND n.created >= :s AND n.created < :e", [':s' => $now - 7 * 86400, ':e' => $now])->fetchAll();
+      $roles['facility']['lists'][] = [
+        'title' => sprintf('Lending library: %s across %d tools', self::format(array_sum(array_map(static fn ($r) => (float) $r->val, $lib)), TRUE), array_sum(array_map(static fn ($r) => (int) $r->n, $lib)))
+        . ($missing ? sprintf(', plus %d marked missing (%s)', (int) $missing->n, self::format((float) $missing->val, TRUE)) : ''),
+        'url' => '/library',
+        'items' => array_map(static fn ($r) => ['text' => sprintf('Added: %s — %s', $r->title, $r->val !== NULL ? self::format((float) $r->val, TRUE) : 'no value set'), 'url' => '/node/' . $r->nid], $added),
+        'empty' => '',
+      ];
+    }
+
     // Facility: tools not in normal service, and whether anyone is on it.
     // A "Reported Concern" does not take a tool down (JR 2026-10-28); one
     // that sits unresolved is the problem. "Unresolved" uses asset_status's
