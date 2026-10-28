@@ -129,7 +129,9 @@ final class KpiStatus {
         $normalized = $normalized / 100;
       }
       $percentage = $normalized * 100;
-      $decimals = abs($percentage) < 10 ? 1 : 0;
+      // Near 100% one decimal matters: 99.78% rounded to "100%" read as
+      // perfect uptime.
+      $decimals = (abs($percentage) < 10 || (abs($percentage) >= 99.5 && abs($percentage) < 100)) ? 1 : 0;
       return number_format($percentage, $decimals) . '%';
     }
     if ($format === 'integer' && is_numeric($value)) {

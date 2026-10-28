@@ -73,13 +73,13 @@ class StaffBriefingService {
   protected const GOAL_GROUPS = [
     'full_year' => [
       'title' => 'A full year of data',
-      'note' => 'The last 12 months, or this year projected. Reads as "if the year ended today", so it compares directly with the annual goal.',
-      'bases' => ['rolling_12', 'projected', 'last_year', ''],
+      'note' => 'The last 12 months (or since logging began, for newer measures), or this year projected. Reads as "if the year ended today", so it compares directly with the annual goal.',
+      'bases' => ['rolling_12', 'projected', 'last_year', 'since', ''],
     ],
     'now' => [
       'title' => 'Where we are today',
       'note' => 'Today\'s figure against where we want to be by December.',
-      'bases' => ['point', 'rolling_90', 'since'],
+      'bases' => ['point', 'rolling_90'],
     ],
     'so_far' => [
       'title' => 'This year so far',
@@ -771,24 +771,41 @@ class StaffBriefingService {
       }
     }
 
-    // Facility: tools that are not usable, and for how long.
+    // Facility: tools not in normal service, and whether anyone is on it.
+    // A "Reported Concern" does not take a tool down (JR 2026-10-28); one
+    // that sits unresolved is the problem. "Unresolved" uses asset_status's
+    // own stale thresholds (Reported Concern 14 days, Degraded 30, …), the
+    // same ones that nudge #broken, so the email and Slack agree.
     if ($schema->tableExists('node__field_item_status')) {
+      $thresholds = (array) ($this->configFactory->get('asset_status.settings')->get('stale_days') ?: ['Reported Concern' => 14]);
       $rows = $this->database->query("SELECT n.nid, n.title, n.changed, t.name status, (SELECT MAX(l.created) FROM {asset_log_entry} l WHERE l.asset = n.nid) logged FROM {node_field_data} n JOIN {node__field_item_status} s ON s.entity_id = n.nid AND s.deleted = 0 JOIN {taxonomy_term_field_data} t ON t.tid = s.field_item_status_target_id WHERE n.type = 'item' AND n.status = 1 AND t.name NOT IN (:ok[])", [':ok[]' => self::TOOL_STATUS_OK])->fetchAll();
       $tools = [];
       foreach ($rows as $r) {
+        // Any log entry (a note, a confirmation) counts as someone on it.
         $since = (int) ($r->logged ?: $r->changed);
-        $tools[] = ['days' => (int) floor(($now - $since) / 86400), 'text' => $r->title, 'status' => $r->status, 'new' => $since >= $now - 7 * 86400];
+        $days = (int) floor(($now - $since) / 86400);
+        $limit = (int) ($thresholds[$r->status] ?? 0);
+        $tools[] = [
+          'days' => $days,
+          'text' => $r->title,
+          'status' => $r->status,
+          'new' => $since >= $now - 7 * 86400,
+          'stale' => $limit > 0 && $days >= $limit,
+        ];
       }
       usort($tools, static fn ($a, $b) => $b['days'] <=> $a['days']);
-      $items = array_map(static fn ($t) => ['text' => sprintf('%s — %s, %s', $t['text'], $t['status'], $t['new'] ? 'new this week' : $t['days'] . ' days'), 'warn' => $t['days'] >= 30], $tools);
+      $items = array_map(static fn ($t) => [
+        'text' => sprintf('%s — %s, %s', $t['text'], $t['status'], $t['new'] ? 'new this week' : sprintf('no update in %d days', $t['days'])),
+        'warn' => $t['stale'],
+      ], $tools);
       $roles['facility']['lists'][] = [
-        'title' => sprintf('Tools not fully working: %d', count($tools)),
+        'title' => sprintf('Tools not in normal service: %d', count($tools)),
         'items' => $items,
         'empty' => 'Every tool is operational.',
       ];
-      $long = array_filter($tools, static fn ($t) => $t['days'] >= 30);
-      if ($long) {
-        $discuss[] = sprintf('%d %s down 30+ days: %s.', count($long), count($long) === 1 ? 'tool' : 'tools', implode('; ', array_map(static fn ($t) => $t['text'] . ' (' . $t['days'] . ' d)', $long)));
+      $stale = array_filter($tools, static fn ($t) => $t['stale']);
+      if ($stale) {
+        $discuss[] = sprintf('%d tool %s with no update past the follow-up window: %s.', count($stale), count($stale) === 1 ? 'issue' : 'issues', implode('; ', array_map(static fn ($t) => sprintf('%s (%s, %d days)', $t['text'], strtolower($t['status']), $t['days']), $stale)));
       }
     }
   }

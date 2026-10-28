@@ -44,6 +44,8 @@ class KpiStatusTest extends TestCase {
   public function testFormat(): void {
     $this->assertSame('29%', KpiStatus::format(0.2896, 'percent'));
     $this->assertSame('104%', KpiStatus::format(1.04, 'percent'));
+    $this->assertSame('99.8%', KpiStatus::format(0.99781, 'percent'), 'Near 100% is never rounded up to look perfect.');
+    $this->assertSame('100%', KpiStatus::format(1.0, 'percent'));
     $this->assertSame('$15,000', KpiStatus::format(15000, 'currency'));
     $this->assertSame('845', KpiStatus::format(845, NULL));
     $this->assertNull(KpiStatus::format(NULL));
