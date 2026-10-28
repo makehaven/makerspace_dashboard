@@ -511,12 +511,56 @@ class StaffBriefingService {
       'value' => $value,
       'value_text' => $valueText,
       'last_text' => $stock ? $changeText : self::format($last, $money),
+      'arrow_text' => self::arrow($stock ? $now : (($value !== NULL && $last !== NULL) ? $value - $last : NULL), $money),
+      // The nine weekly values (levels, also for stocks), oldest first.
+      'spark' => array_reverse(array_slice($series, 0, self::COMPARE_WEEKS + 1)),
       // A median of counts reads as a count: "107", not "106.5".
       'avg_text' => $stock ? self::signed(round($usual ?? 0.0), $money) : self::format($usual === NULL ? NULL : round($usual), $money),
       'stock' => $stock,
       'flag' => $flag,
       'discuss' => $discuss,
     ];
+  }
+
+  /**
+   * A change as an arrow: "▲ 4", "▼ 2", "same".
+   *
+   * Arrows are neutral (no green/red): up is good for joins and bad for
+   * failed payments, and color is kept for "outside the normal range".
+   */
+  public static function arrow(?float $change, bool $money = FALSE): string {
+    if ($change === NULL) {
+      return '';
+    }
+    if (abs($change) < 0.05) {
+      return 'same';
+    }
+    return ($change > 0 ? '▲ ' : '▼ ') . self::format(abs($change), $money);
+  }
+
+  /**
+   * Nine weeks as a tiny bar chart built from table cells.
+   *
+   * Mail clients strip SVG and scripts, so each bar is a div with a height
+   * inside a bottom-aligned cell. Bars start at zero (a flat line means flat
+   * numbers); history is light gray, the latest week dark, or the brand color
+   * when the line is flagged.
+   */
+  public static function sparkHtml(array $values, bool $flagged, string $brand): string {
+    $values = array_map(static fn ($v) => $v === NULL ? NULL : max(0.0, (float) $v), $values);
+    $max = max(array_filter($values, static fn ($v) => $v !== NULL) ?: [0.0]);
+    $height = 18;
+    $last = count($values) - 1;
+    $cells = '';
+    foreach (array_values($values) as $i => $v) {
+      $h = ($v === NULL || $max <= 0) ? 0 : max(1, (int) round($height * $v / $max));
+      $color = $i === $last ? ($flagged ? $brand : '#555555') : '#c4c4c4';
+      $bar = $h > 0
+        ? '<div style="width:5px;height:' . $h . 'px;background:' . $color . ';border-radius:1px 1px 0 0;font-size:0;line-height:0">&nbsp;</div>'
+        : '<div style="width:5px;height:1px;background:#e2e2e2;font-size:0;line-height:0">&nbsp;</div>';
+      $cells .= '<td style="vertical-align:bottom;padding:0 2px 0 0;height:' . $height . 'px">' . $bar . '</td>';
+    }
+    return '<table cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;margin-left:auto"><tr>' . $cells . '</tr></table>';
   }
 
   /**
@@ -673,8 +717,8 @@ class StaffBriefingService {
     foreach ($briefing['roles'] as $role) {
       $h .= '<h2 style="font-size:16px;margin:22px 0 6px;padding-top:10px;border-top:2px solid ' . $brand . '">' . $e($role['title']) . '</h2>';
       $groups = [
-        'Where things stand' => ['cols' => ['Now', 'Change', 'Usual change'], 'lines' => array_filter($role['lines'], static fn ($l) => $l['stock'])],
-        'Last week' => ['cols' => ['Last week', 'Week before', 'Usual'], 'lines' => array_filter($role['lines'], static fn ($l) => !$l['stock'])],
+        'Where things stand' => ['cols' => ['Now', 'This week', 'Usual change'], 'lines' => array_filter($role['lines'], static fn ($l) => $l['stock'])],
+        'Last week' => ['cols' => ['Last week', 'Change', 'Usual'], 'lines' => array_filter($role['lines'], static fn ($l) => !$l['stock'])],
       ];
       foreach ($groups as $label => $group) {
         if (!$group['lines']) {
@@ -682,16 +726,17 @@ class StaffBriefingService {
         }
         $h .= '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:6px 0 0">';
         $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">' . $e($label) . '</td>';
-        foreach ($group['cols'] as $i => $col) {
-          $h .= '<td style="padding:3px ' . ($i === 2 ? '0' : '6px') . ' 3px 6px;text-align:right;width:84px">' . $e($col) . '</td>';
+        foreach ($group['cols'] as $col) {
+          $h .= '<td style="padding:3px 6px;text-align:right;width:76px">' . $e($col) . '</td>';
         }
-        $h .= '</tr>';
+        $h .= '<td style="padding:3px 0 3px 6px;text-align:right;width:70px">9 weeks</td></tr>';
         foreach ($group['lines'] as $line) {
           $style = $line['flag'] ? 'font-weight:bold;color:' . $brand : '';
           $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($line['title']) . ($line['flag'] ? '<br><span style="font-size:12px;font-weight:normal;color:' . $brand . '">' . $e(ucfirst($line['flag'])) . '</span>' : '') . '</td>'
             . '<td style="padding:4px 6px;text-align:right;' . $style . '">' . $e($line['value_text']) . '</td>'
-            . '<td style="padding:4px 6px;text-align:right;color:#555">' . $e($line['last_text']) . '</td>'
-            . '<td style="padding:4px 0 4px 6px;text-align:right;color:#555">' . $e($line['avg_text']) . '</td></tr>';
+            . '<td style="padding:4px 6px;text-align:right;color:#666;font-size:13px;white-space:nowrap">' . $e($line['arrow_text']) . '</td>'
+            . '<td style="padding:4px 6px;text-align:right;color:#666">' . $e($line['avg_text']) . '</td>'
+            . '<td style="padding:4px 0 4px 6px;text-align:right;vertical-align:bottom">' . self::sparkHtml($line['spark'], (bool) $line['flag'], $brand) . '</td></tr>';
         }
         $h .= '</table>';
       }
@@ -699,7 +744,7 @@ class StaffBriefingService {
         $colors = [KpiStatus::GOOD => '#1e7b34', KpiStatus::WARNING => '#9a6700', KpiStatus::POOR => $brand];
         $year = reset($role['goals'])['goal_year'];
         $h .= '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:10px 0 0">';
-        $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">Against our ' . $e($year) . ' goals</td><td style="padding:3px 6px;text-align:right;width:84px">Now</td><td style="padding:3px 6px;text-align:right;width:84px">Goal</td><td style="padding:3px 6px;text-align:right;width:70px"></td><td style="padding:3px 0 3px 6px;text-align:right;width:84px">Last week</td></tr>';
+        $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">Against our ' . $e($year) . ' goals</td><td style="padding:3px 6px;text-align:right;width:76px">Now</td><td style="padding:3px 6px;text-align:right;width:76px">Goal</td><td style="padding:3px 6px;text-align:right;width:76px"></td><td style="padding:3px 0 3px 6px;text-align:right;width:70px">Last week</td></tr>';
         foreach ($role['goals'] as $goal) {
           $status = $goal['status'] ? '<span style="font-weight:bold;color:' . $colors[$goal['status']] . '">' . $e(KpiStatus::LABELS[$goal['status']]) . '</span>' : '';
           $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($goal['title']) . ($goal['period'] ? '<br><span style="font-size:12px;color:#777">' . $e($goal['period']) . '</span>' : '') . '</td>'

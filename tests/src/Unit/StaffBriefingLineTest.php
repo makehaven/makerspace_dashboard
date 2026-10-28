@@ -139,6 +139,25 @@ class StaffBriefingLineTest extends UnitTestCase {
   }
 
   /**
+   * Arrows are neutral words; the sparkline starts at zero and marks a flag.
+   */
+  public function testArrowAndSparkline(): void {
+    $this->assertSame('▲ 4', StaffBriefingService::arrow(4.0));
+    $this->assertSame('▼ $25', StaffBriefingService::arrow(-25.0, TRUE));
+    $this->assertSame('same', StaffBriefingService::arrow(0.0));
+    $this->assertSame('', StaffBriefingService::arrow(NULL));
+
+    $line = $this->service()->lineFor(['title' => 'Visitors', 'type' => 'window'], [198, 198, 197, 194, 195, 190, 185, 180, 175, 170]);
+    $this->assertSame('same', $line['arrow_text']);
+    $this->assertSame([175.0, 180.0, 185.0, 190.0, 195.0, 194.0, 197.0, 198.0, 198.0], array_map('floatval', $line['spark']), 'Nine weeks, oldest first.');
+
+    $html = StaffBriefingService::sparkHtml([10, 0, NULL, 20], TRUE, '#8b1919');
+    $this->assertSame(4, substr_count($html, '<td '));
+    $this->assertStringContainsString('height:9px', $html, 'Half the max is half the height: bars start at zero.');
+    $this->assertStringContainsString('height:18px;background:#8b1919', $html, 'The flagged latest week wears the brand color.');
+  }
+
+  /**
    * Money and signed formatting.
    */
   public function testFormatting(): void {
