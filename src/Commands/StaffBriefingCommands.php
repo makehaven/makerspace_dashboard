@@ -50,6 +50,12 @@ class StaffBriefingCommands extends DrushCommands {
     foreach ($data['discuss'] ?: ['Nothing outside its normal range.'] as $item) {
       $this->output()->writeln('  • ' . $item);
     }
+    if (!empty($data['changes'])) {
+      $this->output()->writeln("\nWHAT CHANGED ON THE WEBSITE");
+      foreach ($data['changes'] as $c) {
+        $this->output()->writeln(sprintf('  [%s] %s', $c['kind'], $c['title']));
+      }
+    }
     foreach ($data['roles'] as $role) {
       $this->output()->writeln("\n" . strtoupper($role['title']));
       foreach ($role['lines'] as $line) {

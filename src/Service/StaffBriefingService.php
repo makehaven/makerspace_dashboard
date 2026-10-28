@@ -12,6 +12,7 @@ use Drupal\Core\Mail\MailManagerInterface;
 use Drupal\Core\State\StateInterface;
 use Drupal\makerspace_dashboard\Support\KpiFreshness;
 use Drupal\makerspace_dashboard\Support\KpiStatus;
+use GuzzleHttp\ClientInterface;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -62,6 +63,23 @@ class StaffBriefingService {
    * KPI values at each send: [Y-m-d Monday => [kpi id => [value, status]]].
    */
   public const STATE_KPI_HISTORY = 'makerspace_dashboard.staff_briefing.kpi_history';
+
+  /**
+   * The Process Registry's machine-readable feed (built with its page).
+   *
+   * Override with makerspace_dashboard.settings:briefing_registry_url.
+   */
+  public const REGISTRY_URL = 'https://process.makehaven.org/registry.json';
+
+  /**
+   * Governance Dance's assistant endpoint (MCP over HTTP, stateless).
+   *
+   * Read with a connection token made in Governance Dance ("Connect an
+   * assistant"), stored as the Pantheon secret GOVERNANCE_DANCE_BRIEFING_TOKEN
+   * and mapped by settings.php to makerspace_dashboard.settings:
+   * briefing_governance_token. Only the read tools are ever called.
+   */
+  public const GOVERNANCE_URL = 'https://governance.makehaven.org/mcp';
 
   /**
    * How the goals table is grouped, so each KPI is read the right way.
@@ -162,6 +180,7 @@ class StaffBriefingService {
     protected ?FunnelDataService $funnelData = NULL,
     protected ?KpiDataService $kpiData = NULL,
     protected ?ListeningDataService $listeningData = NULL,
+    protected ?ClientInterface $httpClient = NULL,
   ) {}
 
   /**
@@ -256,11 +275,24 @@ class StaffBriefingService {
       }
     }
 
+    $focus = $this->focus($weekEnd);
+    $overdue = array_filter($focus['actions'] ?? [], static fn ($a) => $a['overdue']);
+    if ($overdue) {
+      $discuss[] = sprintf('%d board/committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode('; ', array_map(static fn ($a) => sprintf('%s (%s, due %s)', $a['text'], $a['owner'], date('M j', strtotime($a['due']))), $overdue)));
+    }
+    foreach ($focus['transitions'] as $t) {
+      if (($t['to'] ?? '') === 'broken') {
+        $discuss[] = sprintf('Process now broken: %s (was %s).', $t['name'] ?? '', $t['from'] ?? '');
+      }
+    }
+
     return [
       'week_start' => $weekEnd->modify('-7 days'),
       'week_end' => $weekEnd,
       'roles' => $roles,
       'discuss' => $discuss,
+      'changes' => $this->websiteChanges($weekEnd),
+      'focus' => $focus,
     ];
   }
 
@@ -351,6 +383,193 @@ class StaffBriefingService {
         ],
       ],
     ];
+  }
+
+  /**
+   * Priority and process health: the What's next board and the registry.
+   *
+   * Pinned and urgent board items come straight from the feedback ledger
+   * (Drupal owns them). The board's ranking lives only in the registry's
+   * board.js, with live votes, so the email links to it rather than
+   * re-ranking here. Process state changes come from the registry's
+   * registry.json; when it cannot be fetched that part is left out.
+   *
+   * @return array
+   *   ['board' => [['title', 'why', 'url']], 'transitions' => [['name',
+   *   'from', 'to', 'date']], 'broken' => [name, ...], 'counts' => [...]].
+   */
+  protected function focus(\DateTimeImmutable $weekEnd): array {
+    $out = ['board' => [], 'transitions' => [], 'broken' => [], 'counts' => []];
+
+    $schema = $this->database->schema();
+    if ($schema->tableExists('node__field_fb_pinned') && $schema->tableExists('node__field_fb_urgent')) {
+      $rows = $this->database->query("SELECT n.nid, n.title, IFNULL(p.field_fb_pinned_value, 0) pinned, IFNULL(u.field_fb_urgent_value, 0) urgent, r.field_fb_pin_reason_value reason FROM {node_field_data} n LEFT JOIN {node__field_fb_pinned} p ON p.entity_id = n.nid LEFT JOIN {node__field_fb_urgent} u ON u.entity_id = n.nid LEFT JOIN {node__field_fb_pin_reason} r ON r.entity_id = n.nid LEFT JOIN {node__field_fb_status} st ON st.entity_id = n.nid WHERE n.type = 'feedback_ledger' AND n.status = 1 AND (p.field_fb_pinned_value = 1 OR u.field_fb_urgent_value = 1) AND IFNULL(st.field_fb_status_value, '') NOT IN ('shipped', 'wont_do', 'superseded', 'not_actioned') ORDER BY pinned DESC, urgent DESC, n.created ASC")->fetchAll();
+      foreach ($rows as $r) {
+        $out['board'][] = [
+          'title' => (string) $r->title,
+          'why' => trim(($r->pinned ? 'Pinned' : '') . ($r->pinned && $r->urgent ? ', ' : '') . ($r->urgent ? 'urgent' : '') . ($r->reason ? ': ' . $r->reason : '')),
+          'url' => '/node/' . $r->nid,
+        ];
+      }
+    }
+
+    $out += $this->governance($weekEnd);
+
+    $feed = $this->registryFeed();
+    if ($feed) {
+      $start = $weekEnd->modify('-7 days')->format('Y-m-d');
+      $end = $weekEnd->format('Y-m-d');
+      foreach ((array) ($feed['transitions'] ?? []) as $t) {
+        $date = (string) ($t['date'] ?? '');
+        if ($date >= $start && $date < $end) {
+          $out['transitions'][] = $t;
+        }
+      }
+      foreach ((array) ($feed['processes'] ?? []) as $p) {
+        if (($p['state'] ?? '') === 'broken') {
+          $out['broken'][] = (string) $p['name'];
+        }
+      }
+      $out['counts'] = (array) ($feed['counts'] ?? []);
+    }
+    return $out;
+  }
+
+  /**
+   * Board and committee work from Governance Dance.
+   *
+   * Open actions that are overdue or due within two weeks of the briefing,
+   * and meetings in the coming week. Empty when no token is configured or
+   * the call fails: the briefing never waits on, or breaks for, another app.
+   *
+   * @return array
+   *   ['actions' => [['text', 'owner', 'committee', 'due', 'overdue']],
+   *   'meetings' => [['title', 'when', 'url']], 'undated' => int].
+   */
+  protected function governance(\DateTimeImmutable $weekEnd): array {
+    $out = ['actions' => [], 'meetings' => [], 'undated' => 0];
+    $actions = $this->governanceCall('list_actions', []);
+    if (is_array($actions)) {
+      $soon = $weekEnd->modify('+14 days')->format('Y-m-d');
+      $today = $weekEnd->format('Y-m-d');
+      foreach ($actions as $a) {
+        $due = (string) ($a['dueDate'] ?? '');
+        if ($due === '') {
+          $out['undated']++;
+          continue;
+        }
+        if ($due < $soon) {
+          $out['actions'][] = [
+            'text' => (string) ($a['text'] ?? ''),
+            'owner' => (string) ($a['owner'] ?? ''),
+            'committee' => (string) ($a['committeeId'] ?? ''),
+            'due' => $due,
+            'overdue' => $due < $today,
+          ];
+        }
+      }
+      usort($out['actions'], static fn ($x, $y) => strcmp($x['due'], $y['due']));
+    }
+    $meetings = $this->governanceCall('list_meetings', ['when' => 'upcoming', 'limit' => 15]);
+    if (is_array($meetings)) {
+      $until = $weekEnd->modify('+7 days')->getTimestamp();
+      foreach ($meetings as $m) {
+        $at = strtotime((string) ($m['scheduledAt'] ?? ''));
+        if ($at && $at >= $weekEnd->getTimestamp() && $at < $until) {
+          $out['meetings'][] = [
+            'title' => (string) ($m['title'] ?? ''),
+            'when' => (new \DateTimeImmutable('@' . $at))->setTimezone($this->timezone())->format('D M j, g:ia'),
+            'url' => (string) ($m['url'] ?? ''),
+          ];
+        }
+      }
+    }
+    return $out;
+  }
+
+  /**
+   * Calls one read tool on Governance Dance; NULL on any failure.
+   */
+  protected function governanceCall(string $tool, array $arguments): ?array {
+    $settings = $this->configFactory->get('makerspace_dashboard.settings');
+    $token = trim((string) $settings->get('briefing_governance_token'));
+    if (!$this->httpClient || $token === '' || !in_array($tool, ['list_actions', 'list_meetings'], TRUE)) {
+      return NULL;
+    }
+    try {
+      $response = $this->httpClient->request('POST', (string) ($settings->get('briefing_governance_url') ?: self::GOVERNANCE_URL), [
+        'headers' => [
+          'Authorization' => 'Bearer ' . $token,
+          'Accept' => 'application/json, text/event-stream',
+        ],
+        'json' => ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'tools/call', 'params' => ['name' => $tool, 'arguments' => (object) $arguments]],
+        'timeout' => 20,
+        'http_errors' => FALSE,
+      ]);
+      $body = json_decode((string) $response->getBody(), TRUE);
+      $text = $body['result']['content'][0]['text'] ?? NULL;
+      if ($response->getStatusCode() !== 200 || !is_string($text) || !empty($body['result']['isError'])) {
+        $this->logger->notice('Staff briefing: Governance Dance @tool failed (HTTP @code).', ['@tool' => $tool, '@code' => $response->getStatusCode()]);
+        return NULL;
+      }
+      $data = json_decode($text, TRUE);
+      return is_array($data) ? $data : NULL;
+    }
+    catch (\Throwable $e) {
+      $this->logger->notice('Staff briefing: Governance Dance @tool failed: @msg', ['@tool' => $tool, '@msg' => $e->getMessage()]);
+      return NULL;
+    }
+  }
+
+  /**
+   * Fetches registry.json, or NULL when unreachable or malformed.
+   */
+  protected function registryFeed(): ?array {
+    if (!$this->httpClient) {
+      return NULL;
+    }
+    $url = (string) ($this->configFactory->get('makerspace_dashboard.settings')->get('briefing_registry_url') ?: self::REGISTRY_URL);
+    try {
+      $response = $this->httpClient->request('GET', $url, ['timeout' => 10, 'http_errors' => FALSE]);
+      if ($response->getStatusCode() !== 200) {
+        return NULL;
+      }
+      $data = json_decode((string) $response->getBody(), TRUE);
+      return is_array($data) && isset($data['processes']) ? $data : NULL;
+    }
+    catch (\Throwable $e) {
+      $this->logger->notice('Staff briefing could not read the process registry: @msg', ['@msg' => $e->getMessage()]);
+      return NULL;
+    }
+  }
+
+  /**
+   * What's New entries dated in the week: what shipped on the website.
+   *
+   * Every deploy writes these for members (/whats-new), so the staff email
+   * repeats the same plain-language lines rather than a second summary.
+   *
+   * @return array
+   *   [['title', 'kind' (Added|Changed|Fixed|Removed), 'url'], ...].
+   */
+  protected function websiteChanges(\DateTimeImmutable $weekEnd): array {
+    if (!$this->database->schema()->tableExists('node__field_cl_date')) {
+      return [];
+    }
+    $rows = $this->database->query("SELECT n.nid, n.title, c.field_cl_category_value kind, u.field_cl_url_uri uri FROM {node_field_data} n JOIN {node__field_cl_date} d ON d.entity_id = n.nid LEFT JOIN {node__field_cl_category} c ON c.entity_id = n.nid LEFT JOIN {node__field_cl_url} u ON u.entity_id = n.nid WHERE n.type = 'changelog_entry' AND n.status = 1 AND d.field_cl_date_value >= :s AND d.field_cl_date_value < :e ORDER BY FIELD(c.field_cl_category_value, 'added', 'changed', 'fixed', 'removed'), n.nid", [
+      ':s' => $weekEnd->modify('-7 days')->format('Y-m-d'),
+      ':e' => $weekEnd->format('Y-m-d'),
+    ])->fetchAll();
+    $out = [];
+    foreach ($rows as $r) {
+      $uri = (string) $r->uri;
+      $out[] = [
+        'title' => (string) $r->title,
+        'kind' => ucfirst((string) ($r->kind ?: 'changed')),
+        'url' => str_starts_with($uri, 'internal:') ? substr($uri, 9) : ($uri !== '' ? $uri : '/whats-new'),
+      ];
+    }
+    return $out;
   }
 
   /**
@@ -833,6 +1052,61 @@ class StaffBriefingService {
     }
     else {
       $h .= '<p style="margin:0 0 8px">Nothing outside its normal range this week.</p>';
+    }
+
+    if (!empty($briefing['changes'])) {
+      $h .= '<h2 style="font-size:16px;margin:18px 0 6px">What changed on the website</h2><ul style="margin:0 0 8px;padding-left:20px">';
+      foreach (array_slice($briefing['changes'], 0, 12) as $c) {
+        $url = str_starts_with($c['url'], 'http') ? $c['url'] : $base . $c['url'];
+        $h .= '<li style="margin:0 0 3px"><span style="font-size:11px;font-weight:bold;color:#555;text-transform:uppercase;letter-spacing:.03em">' . $e($c['kind']) . '</span> <a href="' . $e($url) . '" style="color:#222">' . $e($c['title']) . '</a></li>';
+      }
+      $h .= '</ul>';
+      $more = count($briefing['changes']) - 12;
+      $h .= '<p style="margin:0;font-size:12px"><a href="' . $e($base . '/whats-new') . '" style="color:' . $brand . '">' . ($more > 0 ? $e("…and $more more on What's New") : "All changes on What's New") . '</a></p>';
+    }
+
+    $focus = $briefing['focus'] ?? [];
+    if (!empty($focus['board']) || !empty($focus['transitions']) || !empty($focus['broken']) || !empty($focus['actions']) || !empty($focus['meetings'])) {
+      $h .= '<h2 style="font-size:16px;margin:18px 0 6px">Priorities and processes</h2>';
+      if (!empty($focus['meetings'])) {
+        $h .= '<p style="margin:6px 0 2px;font-weight:bold">Board and committee meetings this week</p><ul style="margin:0;padding-left:20px">';
+        foreach ($focus['meetings'] as $m) {
+          $title = $m['url'] !== '' ? '<a href="' . $e($m['url']) . '" style="color:#222">' . $e($m['title']) . '</a>' : $e($m['title']);
+          $h .= '<li style="margin:0 0 2px">' . $e($m['when']) . ' — ' . $title . '</li>';
+        }
+        $h .= '</ul>';
+      }
+      if (!empty($focus['actions'])) {
+        $h .= '<p style="margin:10px 0 2px;font-weight:bold">Board and committee actions due</p><ul style="margin:0;padding-left:20px">';
+        foreach ($focus['actions'] as $a) {
+          $h .= '<li style="margin:0 0 2px' . ($a['overdue'] ? ';color:' . $brand : '') . '">' . $e($a['text']) . ' <span style="color:#777;font-size:12px">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
+        }
+        $h .= '</ul>';
+      }
+      if (!empty($focus['undated'])) {
+        $h .= '<p style="margin:4px 0 0;font-size:12px;color:#777">' . $e(sprintf('%d more open board and committee actions have no due date (Governance Dance).', $focus['undated'])) . '</p>';
+      }
+      if (!empty($focus['board'])) {
+        $h .= '<p style="margin:6px 0 2px;font-weight:bold">Pinned and urgent on the What\'s next board</p><ul style="margin:0;padding-left:20px">';
+        foreach ($focus['board'] as $b) {
+          $h .= '<li style="margin:0 0 2px"><a href="' . $e($base . $b['url']) . '" style="color:#222">' . $e($b['title']) . '</a> <span style="color:#777;font-size:12px">' . $e($b['why']) . '</span></li>';
+        }
+        $h .= '</ul>';
+      }
+      if (!empty($focus['transitions'])) {
+        $h .= '<p style="margin:10px 0 2px;font-weight:bold">Processes that changed state</p><ul style="margin:0;padding-left:20px">';
+        foreach ($focus['transitions'] as $t) {
+          $warn = ($t['to'] ?? '') === 'broken';
+          $h .= '<li style="margin:0 0 2px' . ($warn ? ';color:' . $brand : '') . '">' . $e($t['name'] ?? '') . ': ' . $e($t['from'] ?? '') . ' → <b>' . $e($t['to'] ?? '') . '</b></li>';
+        }
+        $h .= '</ul>';
+      }
+      if (!empty($focus['broken'])) {
+        $h .= '<p style="margin:10px 0 2px;color:' . $brand . '"><b>Broken right now:</b> ' . $e(implode('; ', $focus['broken'])) . '</p>';
+      }
+      $c = $focus['counts'] ?? [];
+      $h .= '<p style="margin:6px 0 0;font-size:12px"><a href="https://process.makehaven.org/" style="color:' . $brand . '">What\'s next and every process on process.makehaven.org</a>'
+        . (isset($c['changing'], $c['watch']) ? $e(sprintf(' · %d changing, %d on watch', $c['changing'], $c['watch'])) : '') . '</p>';
     }
 
     foreach ($briefing['roles'] as $role) {

@@ -1549,3 +1549,4 @@ services:
       - '@?makerspace_dashboard.funnel_data'
       - '@?makerspace_dashboard.kpi_data'
       - '@?makerspace_dashboard.listening_data'
+      - '@?http_client'
