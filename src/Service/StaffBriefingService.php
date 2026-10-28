@@ -433,6 +433,7 @@ class StaffBriefingService {
           'onboarding' => ['title' => 'New members still onboarding', 'type' => 'snapshot', 'sql' => "SUM(stage = 'onboarding')"],
           'join_form' => ['title' => 'Join form submissions', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => "SELECT COUNT(*) FROM webform_submission WHERE uri LIKE '%join-makehaven%' AND created >= :s AND created < :e"],
           'store' => ['title' => 'Store sales (line items)', 'type' => 'window', 'requires' => 'material_transaction_field_data', 'sql' => "SELECT COUNT(*) FROM material_transaction_field_data WHERE created >= :s AND created < :e"],
+          'appointments' => ['title' => 'Facilitator appointments booked', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'appointment' AND created >= :s AND created < :e"],
         ],
       ],
       'education' => [
@@ -450,7 +451,6 @@ class StaffBriefingService {
           'event_income' => ['title' => 'Event fee income', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id = 4 AND receive_date >= :sd AND receive_date < :ed"],
           'quizzes' => ['title' => 'Badge quizzes completed', 'type' => 'window', 'requires' => 'quiz_result', 'sql' => "SELECT COUNT(*) FROM quiz_result WHERE is_invalid = 0 AND time_end >= :s AND time_end < :e"],
           'badges' => ['title' => 'Badges earned', 'type' => 'window', 'requires' => 'node__field_badge_status', 'sql' => "SELECT COUNT(*) FROM node_field_data n JOIN node__field_badge_status s ON s.entity_id = n.nid WHERE n.type = 'badge_request' AND s.field_badge_status_value = 'active' AND n.created >= :s AND n.created < :e"],
-          'appointments' => ['title' => 'Facilitator appointments booked', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'appointment' AND created >= :s AND created < :e"],
         ],
       ],
       'facility' => [
@@ -1028,6 +1028,29 @@ class StaffBriefingService {
         'items' => $items,
         'more' => trim((count($stuck) > 8 ? sprintf('…and %d more on the feedback board. ', count($stuck) - 8) : '') . sprintf('%d more %s waiting on the reporter for details.', count($open) - count($onUs), count($open) - count($onUs) === 1 ? 'is' : 'are')),
         'empty' => 'Every open item was updated in the last two weeks.',
+      ];
+    }
+
+    // Operations: volunteer outreach is Kate's (JR 10-28). Open tasks nobody
+    // has signed up for, and ones flagged as needing attention.
+    if ($schema->tableExists('node__field_task_status')) {
+      $tasks = $this->database->query("SELECT n.nid, n.title, n.created, s.field_task_status_value status FROM {node_field_data} n JOIN {node__field_task_status} s ON s.entity_id = n.nid LEFT JOIN {node__field_task_claimed_by} c ON c.entity_id = n.nid WHERE n.type = 'task' AND n.status = 1 AND ((s.field_task_status_value = 'open' AND c.entity_id IS NULL) OR s.field_task_status_value = 'incomplete') GROUP BY n.nid, n.title, n.created, s.field_task_status_value ORDER BY s.field_task_status_value = 'incomplete' DESC, n.created ASC")->fetchAll();
+      // Most open tasks are chores posted years ago (2018) and never closed;
+      // listing them would bury this season's asks, so they are only counted.
+      $old = array_filter($tasks, static fn ($t) => $t->status === 'open' && $now - (int) $t->created > 180 * 86400);
+      $tasks = array_values(array_diff_key($tasks, $old));
+      $roles['operations']['lists'][] = [
+        'title' => sprintf('Volunteer tasks from the last six months with no one signed up: %d', count(array_filter($tasks, static fn ($t) => $t->status === 'open'))),
+        'url' => '/volunteer',
+        'more' => $old ? sprintf('%d older open tasks (posted over six months ago) may need closing or reposting.', count($old)) : NULL,
+        'items' => array_map(static fn ($t) => [
+          'text' => $t->status === 'incomplete'
+            ? $t->title . ' — marked incomplete, needs attention'
+            : sprintf('%s — open %d days', $t->title, floor(($now - (int) $t->created) / 86400)),
+          'warn' => $t->status === 'incomplete',
+          'url' => '/node/' . $t->nid,
+        ], $tasks),
+        'empty' => 'Every open task has a volunteer.',
       ];
     }
 
