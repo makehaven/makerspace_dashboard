@@ -1250,6 +1250,28 @@ class StaffBriefingService {
       }
     }
 
+    // Shop & facility: what the tools are worth, and what changed it last
+    // week. Value is the item's field_item_value; a tool leaves the total when
+    // its status is confirmed "Gone" (logged in asset_log_entry since Feb 2026).
+    if ($schema->tableExists('node__field_item_value') && $schema->tableExists('node__field_item_status')) {
+      $total = $this->database->query("SELECT COUNT(*) n, SUM(IFNULL(v.field_item_value_value, 0)) val, SUM(v.entity_id IS NULL) unvalued FROM {node_field_data} n JOIN {node__field_item_status} s ON s.entity_id = n.nid AND s.deleted = 0 JOIN {taxonomy_term_field_data} t ON t.tid = s.field_item_status_target_id LEFT JOIN {node__field_item_value} v ON v.entity_id = n.nid AND v.deleted = 0 WHERE n.type = 'item' AND n.status = 1 AND t.name <> 'Gone'")->fetchObject();
+      $added = $this->database->query("SELECT n.nid, n.title, v.field_item_value_value val FROM {node_field_data} n LEFT JOIN {node__field_item_value} v ON v.entity_id = n.nid AND v.deleted = 0 WHERE n.type = 'item' AND n.status = 1 AND n.created >= :s AND n.created < :e ORDER BY v.field_item_value_value DESC", [':s' => $now - 7 * 86400, ':e' => $now])->fetchAll();
+      $retired = $schema->tableExists('asset_log_entry') ? $this->database->query("SELECT DISTINCT n.nid, n.title, v.field_item_value_value val FROM {asset_log_entry} l JOIN {taxonomy_term_field_data} t ON t.tid = l.confirmed_status JOIN {node_field_data} n ON n.nid = l.asset LEFT JOIN {node__field_item_value} v ON v.entity_id = n.nid AND v.deleted = 0 WHERE l.type = 'status_change' AND t.name = 'Gone' AND l.created >= :s AND l.created < :e", [':s' => $now - 7 * 86400, ':e' => $now])->fetchAll() : [];
+      $sum = static fn ($rows) => array_sum(array_map(static fn ($r) => (float) $r->val, $rows));
+      $money = static fn ($r) => $r->val !== NULL ? self::format((float) $r->val, TRUE) : 'no value set';
+      $items = array_merge(
+        array_map(static fn ($r) => ['text' => sprintf('Added: %s — %s', $r->title, $money($r)), 'url' => '/node/' . $r->nid], $added),
+        array_map(static fn ($r) => ['text' => sprintf('Retired: %s — %s', $r->title, $money($r)), 'url' => '/node/' . $r->nid], $retired),
+      );
+      $roles['facility']['lists'][] = [
+        'title' => sprintf('Tools in the shop: %s across %d tools', self::format((float) $total->val, TRUE), (int) $total->n)
+        . ($items ? sprintf('; last week %s added, %s retired', self::format($sum($added), TRUE), self::format($sum($retired), TRUE)) : ''),
+        'items' => $items,
+        'more' => (int) $total->unvalued ? sprintf('%d tools have no value recorded.', (int) $total->unvalued) : NULL,
+        'empty' => 'None added or retired last week.',
+      ];
+    }
+
     // Facility: tools not in normal service, and whether anyone is on it.
     // A "Reported Concern" does not take a tool down (JR 2026-10-28); one
     // that sits unresolved is the problem. "Unresolved" uses asset_status's
