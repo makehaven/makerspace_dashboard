@@ -180,4 +180,30 @@ class StaffBriefingLineTest extends UnitTestCase {
     $this->assertSame('–', StaffBriefingService::format(NULL));
   }
 
+  /**
+   * Only three items reach Tuesday: safety and stuck things first.
+   */
+  public function testRankDiscussKeepsThreeForTuesday(): void {
+    $item = static fn ($role, $rank, $text) => ['text' => $text, 'role' => $role, 'rank' => $rank];
+    [$tuesday, $rest] = StaffBriefingService::rankDiscuss([
+      $item('education', StaffBriefingService::RANK_NOTABLE, 'waitlist'),
+      $item('facility', StaffBriefingService::RANK_STUCK, 'stale tool'),
+      $item('operations', StaffBriefingService::RANK_NOTABLE, 'failed payments'),
+      $item('facility', StaffBriefingService::RANK_URGENT, 'safety report'),
+      $item('education', StaffBriefingService::RANK_NOTABLE, 'low fill'),
+    ], 3);
+    $this->assertSame(['safety report', 'stale tool', 'waitlist'], array_column($tuesday, 'text'));
+    $this->assertSame(['failed payments'], array_column($rest['operations'], 'text'));
+    $this->assertSame(['low fill'], array_column($rest['education'], 'text'));
+    $this->assertArrayNotHasKey('facility', $rest);
+  }
+
+  /**
+   * Recipients may carry a role; bad addresses and unknown roles are dropped.
+   */
+  public function testParseRecipients(): void {
+    $parsed = StaffBriefingService::parseRecipients('jr@x.org=Director, kate@x.org=operations ash@x.org=chef nope', ['director', 'operations']);
+    $this->assertSame(['jr@x.org' => 'director', 'kate@x.org' => 'operations', 'ash@x.org' => NULL], $parsed);
+  }
+
 }

@@ -34,23 +34,24 @@ use Psr\Log\LoggerInterface;
  * drag the comparison. Weekly counts are small (about five new members a week), so
  * flagging every change would be noise that staff learn to skip. The flagged
  * lines, plus anything that is plainly a to-do (a safety report, a class
- * under half full, a tool down a long time), are pulled up into "Worth
- * discussing".
+ * under half full, a tool down a long time), are ranked for discussion.
  *
- * Each role also gets its /kpi goals (2026 goal, on track / close / behind,
- * using the same rule as the /kpi colors). Those barely move in a week, but
- * they are the yardstick the weekly numbers are read against. Every cron send
- * records the KPI values, so next week's email can show what moved and flag
+ * Each role also gets a one-line count of its /kpi goals (on track / close /
+ * behind, using the same rule as the /kpi colors); the full goal table is for
+ * a monthly roundup, since goals barely move in a week. Only DISCUSS_TOP
+ * items go to "For Tuesday"; the rest land in each role's "For a 1-on-1"
+ * box. Every cron send records the KPI values, so next week's email can show what moved and flag
  * a KPI whose status changed.
  *
- * Off until a recipient list is set:
- *   drush state:set makerspace_dashboard.staff_briefing.recipients "a@x.org,b@x.org"
+ * Off until a recipient list is set. A role after "=" puts that person's
+ * own section first:
+ *   drush state:set makerspace_dashboard.staff_briefing.recipients "a@x.org=director,b@x.org=operations"
  * Preview without sending: drush makerspace-dashboard:staff-briefing.
  */
 class StaffBriefingService {
 
   /**
-   * Comma-separated recipient emails. Empty = the cron send is off.
+   * Comma-separated recipients, each "email" or "email=role". Empty = off.
    */
   public const STATE_RECIPIENTS = 'makerspace_dashboard.staff_briefing.recipients';
 
@@ -63,6 +64,24 @@ class StaffBriefingService {
    * KPI values at each send: [Y-m-d Monday => [kpi id => [value, status]]].
    */
   public const STATE_KPI_HISTORY = 'makerspace_dashboard.staff_briefing.kpi_history';
+
+  /**
+   * FALSE once staff have agreed to the format; until then it says "test".
+   */
+  public const STATE_TEST = 'makerspace_dashboard.staff_briefing.test';
+
+  /**
+   * Items shown under "For Tuesday". The staff meeting is short; the rest go
+   * to each person's section for a 1-on-1.
+   */
+  public const DISCUSS_TOP = 3;
+
+  /**
+   * Discussion ranks: lower comes first. Safety and broken things lead.
+   */
+  public const RANK_URGENT = 1;
+  public const RANK_STUCK = 2;
+  public const RANK_NOTABLE = 3;
 
   /**
    * The Process Registry's machine-readable feed (built with its page).
@@ -204,7 +223,7 @@ class StaffBriefingService {
     $this->state->set(self::STATE_LAST_SENT, $monday);
     $briefing = $this->build();
     $this->recordKpis($briefing);
-    $this->send($briefing, $recipients);
+    $this->send($briefing, $this->recipientRoles());
   }
 
   /**
@@ -214,9 +233,57 @@ class StaffBriefingService {
    *   Valid email addresses.
    */
   public function recipients(): array {
-    $raw = (string) $this->state->get(self::STATE_RECIPIENTS, '');
-    $list = array_filter(array_map('trim', preg_split('/[,\s]+/', $raw) ?: []));
-    return array_values(array_filter($list, static fn ($m) => filter_var($m, FILTER_VALIDATE_EMAIL)));
+    return array_keys($this->recipientRoles());
+  }
+
+  /**
+   * The recipient list from state, with each person's role.
+   *
+   * @return array
+   *   [email => role key, or NULL for everyone's sections in the usual order].
+   */
+  public function recipientRoles(): array {
+    return self::parseRecipients((string) $this->state->get(self::STATE_RECIPIENTS, ''), array_keys($this->definitions()));
+  }
+
+  /**
+   * Parses "a@x.org=operations, b@x.org" into [email => role|null].
+   *
+   * An unknown role is dropped (the person still gets the email).
+   */
+  public static function parseRecipients(string $raw, array $roles): array {
+    $out = [];
+    foreach (array_filter(array_map('trim', preg_split('/[,\s]+/', $raw) ?: [])) as $entry) {
+      [$mail, $role] = array_pad(explode('=', $entry, 2), 2, NULL);
+      if (!filter_var($mail, FILTER_VALIDATE_EMAIL)) {
+        continue;
+      }
+      $role = $role === NULL ? NULL : strtolower(trim($role));
+      $out[$mail] = in_array($role, $roles, TRUE) ? $role : NULL;
+    }
+    return $out;
+  }
+
+  /**
+   * Splits discussion items into the few for Tuesday and the rest by role.
+   *
+   * @param array $items
+   *   [['text', 'role', 'rank'], ...] in the order they were found.
+   * @param int $top
+   *   How many go to Tuesday.
+   *
+   * @return array
+   *   [tuesday items, [role => [items for a 1-on-1]]]. Ties keep their order.
+   */
+  public static function rankDiscuss(array $items, int $top): array {
+    $order = array_keys($items);
+    usort($order, static fn ($a, $b) => [$items[$a]['rank'], $a] <=> [$items[$b]['rank'], $b]);
+    $sorted = array_map(static fn ($k) => $items[$k], $order);
+    $rest = [];
+    foreach (array_slice($sorted, $top) as $item) {
+      $rest[$item['role']][] = $item;
+    }
+    return [array_slice($sorted, 0, $top), $rest];
   }
 
   /**
@@ -255,22 +322,25 @@ class StaffBriefingService {
         'lines' => $lines,
         'goals' => $this->goals($def['goals'] ?? [], $weekEnd),
         'lists' => [],
+        'followup' => [],
       ];
     }
 
     $discuss = [];
-    foreach ($roles as $role) {
+    $severity = [KpiStatus::GOOD => 0, KpiStatus::WARNING => 1, KpiStatus::POOR => 2];
+    foreach ($roles as $roleKey => $role) {
       foreach ($role['goals'] as $goal) {
         if ($goal['was_status'] !== NULL && $goal['status'] !== NULL && $goal['status'] !== $goal['was_status']) {
-          $discuss[] = sprintf('%s is now %s against its %s goal (was %s): %s vs goal %s.', $goal['title'], strtolower(KpiStatus::LABELS[$goal['status']]), $goal['goal_year'], strtolower(KpiStatus::LABELS[$goal['was_status']]), $goal['value_text'], $goal['goal_text']);
+          $worse = $severity[$goal['status']] > ($severity[$goal['was_status']] ?? 0);
+          $discuss[] = $this->item($roleKey, $worse ? self::RANK_STUCK : self::RANK_NOTABLE, sprintf('%s is now %s against its %s goal (was %s): %s vs goal %s.', $goal['title'], strtolower(KpiStatus::LABELS[$goal['status']]), $goal['goal_year'], strtolower(KpiStatus::LABELS[$goal['was_status']]), $goal['value_text'], $goal['goal_text']));
         }
       }
     }
     $this->addLists($roles, $discuss, $weekEnd);
-    foreach ($roles as $role) {
+    foreach ($roles as $roleKey => $role) {
       foreach ($role['lines'] as $line) {
         if ($line['flag'] !== NULL) {
-          $discuss[] = $line['discuss'];
+          $discuss[] = $this->item($roleKey, $line['urgent'] ? self::RANK_URGENT : self::RANK_NOTABLE, $line['discuss']);
         }
       }
     }
@@ -278,19 +348,24 @@ class StaffBriefingService {
     $focus = $this->focus($weekEnd);
     $overdue = array_filter($focus['actions'] ?? [], static fn ($a) => $a['overdue']);
     if ($overdue) {
-      $discuss[] = sprintf('%d board/committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode('; ', array_map(static fn ($a) => sprintf('%s (%s, due %s)', $a['text'], $a['owner'], date('M j', strtotime($a['due']))), $overdue)));
+      $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode('; ', array_map(static fn ($a) => sprintf('%s (%s, due %s)', $a['text'], $a['owner'], date('M j', strtotime($a['due']))), $overdue))));
     }
     foreach ($focus['transitions'] as $t) {
       if (($t['to'] ?? '') === 'broken') {
-        $discuss[] = sprintf('Process now broken: %s (was %s).', $t['name'] ?? '', $t['from'] ?? '');
+        $discuss[] = $this->item('director', self::RANK_URGENT, sprintf('Process now broken: %s (was %s).', $t['name'] ?? '', $t['from'] ?? ''));
       }
+    }
+
+    [$tuesday, $followup] = self::rankDiscuss($discuss, self::DISCUSS_TOP);
+    foreach ($followup as $roleKey => $items) {
+      $roles[$roleKey]['followup'] = $items;
     }
 
     return [
       'week_start' => $weekEnd->modify('-7 days'),
       'week_end' => $weekEnd,
       'roles' => $roles,
-      'discuss' => $discuss,
+      'discuss' => $tuesday,
       'changes' => $this->websiteChanges($weekEnd),
       'focus' => $focus,
     ];
@@ -788,7 +863,15 @@ class StaffBriefingService {
       'stock' => $stock,
       'flag' => $flag,
       'discuss' => $discuss,
+      'urgent' => !empty($metric['always_discuss']),
     ];
+  }
+
+  /**
+   * One discussion item.
+   */
+  protected function item(string $role, int $rank, string $text): array {
+    return ['text' => $text, 'role' => $role, 'rank' => $rank];
   }
 
   /**
@@ -815,7 +898,7 @@ class StaffBriefingService {
    * numbers); history is light gray, the latest week dark, or the brand color
    * when the line is flagged.
    */
-  public static function sparkHtml(array $values, bool $flagged, string $brand): string {
+  public static function sparkHtml(array $values, bool $flagged, string $brand, bool $right = TRUE): string {
     $values = array_map(static fn ($v) => $v === NULL ? NULL : max(0.0, (float) $v), $values);
     $max = max(array_filter($values, static fn ($v) => $v !== NULL) ?: [0.0]);
     $height = 18;
@@ -829,7 +912,7 @@ class StaffBriefingService {
         : '<div style="width:5px;height:1px;background:#e2e2e2;font-size:0;line-height:0">&nbsp;</div>';
       $cells .= '<td style="vertical-align:bottom;padding:0 2px 0 0;height:' . $height . 'px">' . $bar . '</td>';
     }
-    return '<table cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;margin-left:auto"><tr>' . $cells . '</tr></table>';
+    return '<table cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse' . ($right ? ';margin-left:auto' : '') . '"><tr>' . $cells . '</tr></table>';
   }
 
   /**
@@ -881,7 +964,7 @@ class StaffBriefingService {
         'empty' => 'None tripped this week.',
       ];
       if ($items) {
-        $discuss[] = 'Website early-warning alarms tripped: ' . count($items) . ' (see Director).';
+        $discuss[] = $this->item('director', self::RANK_URGENT, 'Website early-warning alarms tripped: ' . count($items) . '.');
       }
     }
 
@@ -978,7 +1061,7 @@ class StaffBriefingService {
         }
       }
       if ($waiting) {
-        $discuss[] = 'Waitlists — demand for another session: ' . implode('; ', $waiting) . '.';
+        $discuss[] = $this->item('education', self::RANK_NOTABLE, 'Waitlists — demand for another session: ' . implode('; ', $waiting) . '.');
       }
       $roles['education']['lists'][] = [
         'title' => sprintf('Classes in the next two weeks: %d, %d under half full', count($rows), count($low)),
@@ -986,7 +1069,7 @@ class StaffBriefingService {
         'empty' => 'No classes scheduled.',
       ];
       if ($low) {
-        $discuss[] = 'Classes under half full in the next two weeks: ' . implode('; ', $low) . '.';
+        $discuss[] = $this->item('education', self::RANK_NOTABLE, 'Classes under half full in the next two weeks: ' . implode('; ', $low) . '.');
       }
     }
 
@@ -1024,179 +1107,271 @@ class StaffBriefingService {
       ];
       $stale = array_filter($tools, static fn ($t) => $t['stale']);
       if ($stale) {
-        $discuss[] = sprintf('%d tool %s with no update past the follow-up window: %s.', count($stale), count($stale) === 1 ? 'issue' : 'issues', implode('; ', array_map(static fn ($t) => sprintf('%s (%s, %d days)', $t['text'], strtolower($t['status']), $t['days']), $stale)));
+        $discuss[] = $this->item('facility', self::RANK_STUCK, sprintf('%d tool %s with no update past the follow-up window: %s.', count($stale), count($stale) === 1 ? 'issue' : 'issues', implode('; ', array_map(static fn ($t) => sprintf('%s (%s, %d days)', $t['text'], strtolower($t['status']), $t['days']), $stale))));
       }
     }
   }
 
   /**
    * Renders the email body (inline styles: mail clients drop <style>).
+   *
+   * @param array $briefing
+   *   From build().
+   * @param string|null $forRole
+   *   The reader's role: their section comes first, the others follow under
+   *   "The rest of the team". NULL keeps the usual order.
    */
-  public function renderHtml(array $briefing): string {
+  public function renderHtml(array $briefing, ?string $forRole = NULL): string {
     $base = rtrim((string) ($this->configFactory->get('makerspace_dashboard.settings')->get('briefing_base_url') ?: 'https://www.makehaven.org'), '/');
     $e = static fn ($s) => Html::escape((string) $s);
     $brand = '#8b1919';
-    $range = $briefing['week_start']->format('M j') . ' – ' . $briefing['week_end']->modify('-1 day')->format('M j, Y');
+    $ink = '#2b2522';
+    $muted = '#6b625d';
+    $line = '#ece6e1';
+    $range = $briefing['week_start']->format('M j') . ' – ' . $briefing['week_end']->modify('-1 day')->format('M j');
+    $test = (bool) $this->state->get(self::STATE_TEST, TRUE);
+    $card = 'background:#ffffff;border-radius:10px;padding:18px 20px;margin:0 0 14px;border:1px solid ' . $line;
+    $h2 = 'font-size:17px;margin:0 0 10px;color:' . $ink;
+    $small = 'font-size:12px;color:' . $muted;
+    $roleTitles = array_map(static fn ($r) => $r['title'], $briefing['roles']);
 
-    $h = '<div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#222;max-width:680px;margin:0 auto;line-height:1.45">';
-    $h .= '<h1 style="font-size:20px;color:' . $brand . ';margin:0 0 4px">Staff briefing: week of ' . $e($range) . '</h1>';
-    $h .= '<p style="margin:0 0 16px;color:#555">Last week\'s numbers, for Tuesday\'s meeting. "Usual" is the middle of the 8 weeks before; a number is flagged only when it is outside all 8.</p>';
+    $h = '<div style="background:#f6f2ee;padding:16px 8px;font-family:Arial,Helvetica,sans-serif;font-size:15px;color:' . $ink . ';line-height:1.5">';
+    $h .= '<div style="max-width:640px;margin:0 auto">';
 
-    $h .= '<h2 style="font-size:16px;margin:16px 0 6px">Worth discussing</h2>';
+    // Header.
+    $h .= '<div style="background:' . $brand . ';color:#ffffff;border-radius:10px;padding:18px 20px;margin:0 0 14px">'
+      . '<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.85">MakeHaven · Monday briefing' . ($test ? ' · test' : '') . '</div>'
+      . '<div style="font-size:24px;font-weight:bold;margin:4px 0 2px">Last week, ' . $e($range) . '</div>'
+      . '<div style="font-size:14px;opacity:.9">A quick look before Tuesday\'s staff meeting.</div></div>';
+
+    if ($test) {
+      $h .= '<div style="background:#fff6d9;border:1px solid #e9c46a;border-radius:10px;padding:14px 18px;margin:0 0 14px;font-size:14px">'
+        . '<b>This is a test.</b> JR is trying out a Monday email that sums up the week before our staff meeting. '
+        . 'Nothing here is new work for you, and it isn\'t a review of anyone. '
+        . 'Skim your own section, then tell JR what helped, what was confusing, and what to drop.</div>';
+    }
+
+    // For Tuesday.
+    $h .= '<div style="' . $card . '"><h2 style="' . $h2 . '">For Tuesday</h2>';
     if ($briefing['discuss']) {
-      $h .= '<ul style="margin:0 0 8px;padding-left:20px">';
-      foreach ($briefing['discuss'] as $item) {
-        $h .= '<li style="margin:0 0 4px">' . $e($item) . '</li>';
+      $h .= '<table cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;width:100%">';
+      foreach (array_values($briefing['discuss']) as $i => $item) {
+        $h .= '<tr><td style="vertical-align:top;padding:4px 12px 10px 0;width:28px">'
+          . '<div style="width:26px;height:26px;border-radius:13px;background:' . $brand . ';color:#ffffff;font-weight:bold;text-align:center;line-height:26px;font-size:14px">' . ($i + 1) . '</div></td>'
+          . '<td style="vertical-align:top;padding:4px 0 12px">' . self::headline($item['text'], $e)
+          . (isset($roleTitles[$item['role']]) ? ' <span style="' . $small . ';white-space:nowrap">· ' . $e($roleTitles[$item['role']]) . '</span>' : '') . '</td></tr>';
       }
-      $h .= '</ul>';
+      $h .= '</table>';
+      $more = array_sum(array_map(static fn ($r) => count($r['followup']), $briefing['roles']));
+      if ($more) {
+        $h .= '<p style="margin:2px 0 0;' . $small . '">' . $e(sprintf('%d more %s in the sections below, for 1-on-1s.', $more, $more === 1 ? 'item is' : 'items are')) . '</p>';
+      }
     }
     else {
-      $h .= '<p style="margin:0 0 8px">Nothing outside its normal range this week.</p>';
+      $h .= '<p style="margin:0">Nothing unusual last week.</p>';
     }
-
-    if (!empty($briefing['changes'])) {
-      $h .= '<h2 style="font-size:16px;margin:18px 0 6px">What changed on the website</h2><ul style="margin:0 0 8px;padding-left:20px">';
-      foreach (array_slice($briefing['changes'], 0, 12) as $c) {
-        $url = str_starts_with($c['url'], 'http') ? $c['url'] : $base . $c['url'];
-        $h .= '<li style="margin:0 0 3px"><span style="font-size:11px;font-weight:bold;color:#555;text-transform:uppercase;letter-spacing:.03em">' . $e($c['kind']) . '</span> <a href="' . $e($url) . '" style="color:#222">' . $e($c['title']) . '</a></li>';
-      }
-      $h .= '</ul>';
-      $more = count($briefing['changes']) - 12;
-      $h .= '<p style="margin:0;font-size:12px"><a href="' . $e($base . '/whats-new') . '" style="color:' . $brand . '">' . ($more > 0 ? $e("…and $more more on What's New") : "All changes on What's New") . '</a></p>';
-    }
-
-    $focus = $briefing['focus'] ?? [];
-    if (!empty($focus['board']) || !empty($focus['transitions']) || !empty($focus['broken']) || !empty($focus['actions']) || !empty($focus['meetings'])) {
-      $h .= '<h2 style="font-size:16px;margin:18px 0 6px">Priorities and processes</h2>';
-      if (!empty($focus['meetings'])) {
-        $h .= '<p style="margin:6px 0 2px;font-weight:bold">Board and committee meetings this week</p><ul style="margin:0;padding-left:20px">';
-        foreach ($focus['meetings'] as $m) {
-          $title = $m['url'] !== '' ? '<a href="' . $e($m['url']) . '" style="color:#222">' . $e($m['title']) . '</a>' : $e($m['title']);
-          $h .= '<li style="margin:0 0 2px">' . $e($m['when']) . ' — ' . $title . '</li>';
-        }
-        $h .= '</ul>';
-      }
-      if (!empty($focus['actions'])) {
-        $h .= '<p style="margin:10px 0 2px;font-weight:bold">Board and committee actions due</p><ul style="margin:0;padding-left:20px">';
-        foreach ($focus['actions'] as $a) {
-          $h .= '<li style="margin:0 0 2px' . ($a['overdue'] ? ';color:' . $brand : '') . '">' . $e($a['text']) . ' <span style="color:#777;font-size:12px">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
-        }
-        $h .= '</ul>';
-      }
-      if (!empty($focus['undated'])) {
-        $h .= '<p style="margin:4px 0 0;font-size:12px;color:#777">' . $e(sprintf('%d more open board and committee actions have no due date (Governance Dance).', $focus['undated'])) . '</p>';
-      }
-      if (!empty($focus['board'])) {
-        $h .= '<p style="margin:6px 0 2px;font-weight:bold">Pinned and urgent on the What\'s next board</p><ul style="margin:0;padding-left:20px">';
-        foreach ($focus['board'] as $b) {
-          $h .= '<li style="margin:0 0 2px"><a href="' . $e($base . $b['url']) . '" style="color:#222">' . $e($b['title']) . '</a> <span style="color:#777;font-size:12px">' . $e($b['why']) . '</span></li>';
-        }
-        $h .= '</ul>';
-      }
-      if (!empty($focus['transitions'])) {
-        $h .= '<p style="margin:10px 0 2px;font-weight:bold">Processes that changed state</p><ul style="margin:0;padding-left:20px">';
-        foreach ($focus['transitions'] as $t) {
-          $warn = ($t['to'] ?? '') === 'broken';
-          $h .= '<li style="margin:0 0 2px' . ($warn ? ';color:' . $brand : '') . '">' . $e($t['name'] ?? '') . ': ' . $e($t['from'] ?? '') . ' → <b>' . $e($t['to'] ?? '') . '</b></li>';
-        }
-        $h .= '</ul>';
-      }
-      if (!empty($focus['broken'])) {
-        $h .= '<p style="margin:10px 0 2px;color:' . $brand . '"><b>Broken right now:</b> ' . $e(implode('; ', $focus['broken'])) . '</p>';
-      }
-      $c = $focus['counts'] ?? [];
-      $h .= '<p style="margin:6px 0 0;font-size:12px"><a href="https://process.makehaven.org/" style="color:' . $brand . '">What\'s next and every process on process.makehaven.org</a>'
-        . (isset($c['changing'], $c['watch']) ? $e(sprintf(' · %d changing, %d on watch', $c['changing'], $c['watch'])) : '') . '</p>';
-    }
-
-    foreach ($briefing['roles'] as $role) {
-      $h .= '<h2 style="font-size:16px;margin:22px 0 6px;padding-top:10px;border-top:2px solid ' . $brand . '">' . $e($role['title']) . '</h2>';
-      $groups = [
-        'Where things stand' => ['cols' => ['Now', 'This week', 'Usual change'], 'lines' => array_filter($role['lines'], static fn ($l) => $l['stock'])],
-        'Last week' => ['cols' => ['Last week', 'Change', 'Usual'], 'lines' => array_filter($role['lines'], static fn ($l) => !$l['stock'])],
-      ];
-      foreach ($groups as $label => $group) {
-        if (!$group['lines']) {
-          continue;
-        }
-        $h .= '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:6px 0 0">';
-        $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">' . $e($label) . '</td>';
-        foreach ($group['cols'] as $col) {
-          $h .= '<td style="padding:3px 6px;text-align:right;width:76px">' . $e($col) . '</td>';
-        }
-        $h .= '<td style="padding:3px 0 3px 6px;text-align:right;width:70px">9 weeks</td></tr>';
-        foreach ($group['lines'] as $line) {
-          $style = $line['flag'] ? 'font-weight:bold;color:' . $brand : '';
-          $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($line['title']) . ($line['flag'] ? '<br><span style="font-size:12px;font-weight:normal;color:' . $brand . '">' . $e(ucfirst($line['flag'])) . '</span>' : '') . '</td>'
-            . '<td style="padding:4px 6px;text-align:right;' . $style . '">' . $e($line['value_text']) . '</td>'
-            . '<td style="padding:4px 6px;text-align:right;color:#666;font-size:13px;white-space:nowrap">' . $e($line['arrow_text']) . '</td>'
-            . '<td style="padding:4px 6px;text-align:right;color:#666">' . $e($line['avg_text']) . '</td>'
-            . '<td style="padding:4px 0 4px 6px;text-align:right;vertical-align:bottom">' . self::sparkHtml($line['spark'], (bool) $line['flag'], $brand) . '</td></tr>';
-        }
-        $h .= '</table>';
-      }
-      if ($role['goals']) {
-        $colors = [KpiStatus::GOOD => '#1e7b34', KpiStatus::WARNING => '#9a6700', KpiStatus::POOR => $brand];
-        $year = reset($role['goals'])['goal_year'];
-        $h .= '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:10px 0 0">';
-        $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">Against our ' . $e($year) . ' goals</td><td style="padding:3px 6px;text-align:right;width:76px">Now</td><td style="padding:3px 6px;text-align:right;width:76px">Goal</td><td style="padding:3px 6px;text-align:right;width:76px"></td><td style="padding:3px 0 3px 6px;text-align:right;width:70px">Last week</td></tr>';
-        foreach (self::GOAL_GROUPS as $groupKey => $group) {
-          $members = array_filter($role['goals'], static fn ($g) => $g['group'] === $groupKey);
-          if (!$members) {
-            continue;
-          }
-          $h .= '<tr><td colspan="5" style="padding:8px 0 2px;font-size:12px;color:#444"><span style="font-weight:bold">' . $e($group['title']) . '.</span> <span style="color:#777">' . $e($group['note']) . '</span></td></tr>';
-          foreach ($members as $goal) {
-            $status = $goal['status'] ? '<span style="font-weight:bold;color:' . $colors[$goal['status']] . '">' . $e(KpiStatus::LABELS[$goal['status']]) . '</span>' : '';
-            $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($goal['title']) . ($goal['period'] ? '<br><span style="font-size:12px;color:#777">' . $e($goal['period']) . '</span>' : '') . '</td>'
-              . '<td style="padding:4px 6px;text-align:right">' . $e($goal['value_text']) . '</td>'
-              . '<td style="padding:4px 6px;text-align:right;color:#555">' . $e($goal['goal_text']) . '</td>'
-              . '<td style="padding:4px 6px;text-align:right;font-size:12px">' . $status . '</td>'
-              . '<td style="padding:4px 0 4px 6px;text-align:right;color:#555">' . $e($goal['was_text']) . '</td></tr>';
-          }
-        }
-        $h .= '</table>';
-      }
-      foreach ($role['lists'] as $list) {
-        $h .= '<p style="margin:12px 0 4px;font-weight:bold">' . $e($list['title']) . '</p>';
-        if ($list['items']) {
-          $h .= '<ul style="margin:0;padding-left:20px">';
-          foreach ($list['items'] as $item) {
-            $text = is_array($item) ? $item['text'] : $item;
-            $warn = is_array($item) && !empty($item['warn']);
-            $h .= '<li style="margin:0 0 2px' . ($warn ? ';color:' . $brand : '') . '">' . $e($text) . '</li>';
-          }
-          $h .= '</ul>';
-          if (!empty($list['more'])) {
-            $h .= '<p style="margin:2px 0 0;color:#555">' . $e($list['more']) . '</p>';
-          }
-        }
-        elseif ($list['empty'] !== '') {
-          $h .= '<p style="margin:0;color:#555">' . $e($list['empty']) . '</p>';
-        }
-      }
-      $h .= '<p style="margin:8px 0 0;font-size:12px"><a href="' . $e($base . $role['link']) . '" style="color:' . $brand . '">More on the ' . $e($role['title']) . ' dashboard</a></p>';
-    }
-
-    $h .= '<p style="margin:24px 0 0;font-size:12px;color:#777">Sent every Monday morning by the website. Weeks run Monday to Sunday. Tell JR what you would add or drop.</p>';
     $h .= '</div>';
+
+    // Sections: the reader's own first.
+    $order = array_keys($briefing['roles']);
+    if ($forRole !== NULL && isset($briefing['roles'][$forRole])) {
+      $order = array_merge([$forRole], array_diff($order, [$forRole]));
+    }
+    $sections = [];
+    foreach ($order as $key) {
+      // Other people's lists are shortened; the reader's own are kept.
+      $cap = ($forRole === NULL || $key === $forRole) ? 10 : 3;
+      $sections[$key] = $this->renderRole($briefing['roles'][$key], $key === $forRole, $base, $e, compact('brand', 'ink', 'muted', 'line', 'card', 'h2', 'small'), $cap);
+    }
+    $mine = ($forRole !== NULL && isset($sections[$forRole])) ? array_shift($sections) : '';
+    $h .= $mine;
+
+    $h .= $this->renderNews($briefing, $base, $e, compact('brand', 'ink', 'muted', 'line', 'card', 'h2', 'small'));
+
+    if ($sections) {
+      if ($mine !== '') {
+        $h .= '<div style="margin:22px 4px 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:' . $muted . '">The rest of the team</div>';
+      }
+      $h .= implode('', $sections);
+    }
+
+    // Footer: how to read it, and an easy way to answer.
+    $feedback = static fn ($label, $subject) => '<a href="mailto:jrlogan@makehaven.org?subject=' . rawurlencode('Monday briefing: ' . $subject) . '" style="display:inline-block;margin:0 6px 6px 0;padding:7px 12px;border-radius:16px;border:1px solid ' . $brand . ';color:' . $brand . ';text-decoration:none;font-size:13px">' . $label . '</a>';
+    $h .= '<div style="' . $card . '"><div style="font-weight:bold;margin:0 0 8px">Was this useful?</div>'
+      . $feedback('Useful', 'useful') . $feedback('Too long', 'too long') . $feedback('Confusing', 'confusing') . $feedback('Add something', 'please add')
+      . '<p style="margin:8px 0 0;' . $small . '">"Typical" is a normal week over the last two months. A number in red is higher or lower than any of those weeks. The little bars under each name show the last nine weeks.</p></div>';
+    $h .= '<p style="margin:6px 4px 0;' . $small . '">Sent by the website on Monday mornings. Weeks run Monday to Sunday.</p>';
+    $h .= '</div></div>';
     return $h;
   }
 
   /**
-   * Sends the briefing to each recipient.
+   * "Headline: details" as a bold headline over smaller details.
+   */
+  protected static function headline(string $text, callable $e): string {
+    $parts = explode(': ', $text, 2);
+    if (count($parts) < 2 || mb_strlen($parts[0]) > 90) {
+      return $e($text);
+    }
+    return '<b>' . $e($parts[0]) . '</b><div style="font-size:13px;color:#6b625d;margin-top:2px">' . $e($parts[1]) . '</div>';
+  }
+
+  /**
+   * One role's card: numbers, goal summary, lists, and 1-on-1 items.
+   */
+  protected function renderRole(array $role, bool $mine, string $base, callable $e, array $s, int $listCap = 10): string {
+    $h = '<div style="' . $s['card'] . ($mine ? ';border-top:4px solid ' . $s['brand'] : '') . '">';
+    $h .= ($mine ? '<div style="' . $s['small'] . ';text-transform:uppercase;letter-spacing:.06em">Your area</div>' : '')
+      . '<h2 style="' . $s['h2'] . '">' . $e($role['title']) . '</h2>';
+
+    $groups = [
+      'Right now' => ['cols' => ['Now', 'Last week', 'Typical'], 'lines' => array_filter($role['lines'], static fn ($l) => $l['stock'])],
+      'Last week' => ['cols' => ['Count', 'vs. before', 'Typical'], 'lines' => array_filter($role['lines'], static fn ($l) => !$l['stock'])],
+    ];
+    foreach ($groups as $label => $group) {
+      if (!$group['lines']) {
+        continue;
+      }
+      $h .= '<table cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;width:100%;margin:4px 0 10px">';
+      $h .= '<tr style="' . $s['small'] . '"><td style="padding:2px 6px 4px 0;font-weight:bold;text-transform:uppercase;letter-spacing:.05em">' . $e($label) . '</td>';
+      foreach ($group['cols'] as $col) {
+        $h .= '<td style="padding:2px 0 4px 8px;text-align:right;width:58px">' . $e($col) . '</td>';
+      }
+      $h .= '</tr>';
+      foreach ($group['lines'] as $l) {
+        $flag = (bool) $l['flag'];
+        $h .= '<tr style="border-top:1px solid ' . $s['line'] . '"><td style="padding:8px 0">' . $e($l['title'])
+          . ($flag ? '<div style="font-size:12px;color:' . $s['brand'] . '">' . $e(ucfirst($l['flag'])) . '</div>' : '')
+          . '<div style="margin-top:4px">' . self::sparkHtml($l['spark'], $flag, $s['brand'], FALSE) . '</div></td>'
+          . '<td style="padding:8px 0 8px 8px;text-align:right;font-weight:bold;font-size:16px;' . ($flag ? 'color:' . $s['brand'] : '') . '">' . $e($l['value_text']) . '</td>'
+          . '<td style="padding:8px 0 8px 8px;text-align:right;font-size:13px;color:' . $s['muted'] . ';white-space:nowrap">' . $e($l['arrow_text']) . '</td>'
+          . '<td style="padding:8px 0 8px 8px;text-align:right;font-size:13px;color:' . $s['muted'] . '">' . $e($l['avg_text']) . '</td></tr>';
+      }
+      $h .= '</table>';
+    }
+
+    // Goals: one line. The full table belongs to the monthly roundup.
+    if ($role['goals']) {
+      $counts = array_count_values(array_filter(array_map(static fn ($g) => $g['status'], $role['goals'])));
+      $chip = static fn ($n, $text, $bg, $fg) => $n ? '<span style="display:inline-block;margin:0 4px 4px 0;padding:2px 9px;border-radius:12px;background:' . $bg . ';color:' . $fg . ';font-size:13px;white-space:nowrap">' . $n . ' ' . $text . '</span>' : '';
+      $year = reset($role['goals'])['goal_year'];
+      $h .= '<div style="margin:2px 0 8px;font-size:13px"><span style="color:' . $s['muted'] . '">' . $e($year) . ' goals: </span>'
+        . $chip($counts[KpiStatus::GOOD] ?? 0, 'on track', '#e5f3e8', '#1e6b31')
+        . $chip($counts[KpiStatus::WARNING] ?? 0, 'close', '#fbf0d5', '#7a5300')
+        . $chip($counts[KpiStatus::POOR] ?? 0, 'behind', '#f7e1e1', $s['brand'])
+        . ' <a href="' . $e($base . '/kpi') . '" style="color:' . $s['brand'] . ';white-space:nowrap">see goals</a></div>';
+    }
+
+    foreach ($role['lists'] as $list) {
+      $h .= '<div style="margin:12px 0 4px;font-weight:bold">' . $e($list['title']) . '</div>';
+      if ($list['items']) {
+        $h .= '<ul style="margin:0;padding-left:18px">';
+        foreach (array_slice($list['items'], 0, $listCap) as $item) {
+          $text = is_array($item) ? $item['text'] : $item;
+          $warn = is_array($item) && !empty($item['warn']);
+          $h .= '<li style="margin:0 0 3px' . ($warn ? ';color:' . $s['brand'] : '') . '">' . $e($text) . '</li>';
+        }
+        $h .= '</ul>';
+        $hidden = count($list['items']) - $listCap;
+        if ($hidden > 0 || !empty($list['more'])) {
+          $h .= '<div style="margin:2px 0 0;' . $s['small'] . '">' . $e($hidden > 0 ? "+$hidden more on the dashboard." : $list['more']) . '</div>';
+        }
+      }
+      elseif ($list['empty'] !== '') {
+        $h .= '<div style="color:' . $s['muted'] . '">' . $e($list['empty']) . '</div>';
+      }
+    }
+
+    if ($role['followup']) {
+      $h .= '<div style="margin:14px 0 4px;background:#f6f2ee;border-radius:8px;padding:10px 14px"><div style="font-weight:bold;margin:0 0 4px">For a 1-on-1</div><ul style="margin:0;padding-left:18px">';
+      foreach ($role['followup'] as $item) {
+        $h .= '<li style="margin:0 0 3px">' . $e($item['text']) . '</li>';
+      }
+      $h .= '</ul></div>';
+    }
+
+    $h .= '<div style="margin:10px 0 0;font-size:13px"><a href="' . $e($base . $role['link']) . '" style="color:' . $s['brand'] . '">Open the ' . $e($role['title']) . ' dashboard →</a></div>';
+    return $h . '</div>';
+  }
+
+  /**
+   * Website changes, board and committee work, and process changes.
+   */
+  protected function renderNews(array $briefing, string $base, callable $e, array $s): string {
+    $h = '';
+    if (!empty($briefing['changes'])) {
+      $h .= '<div style="' . $s['card'] . '"><h2 style="' . $s['h2'] . '">New on the website</h2><ul style="margin:0;padding-left:18px">';
+      foreach (array_slice($briefing['changes'], 0, 8) as $c) {
+        $url = str_starts_with($c['url'], 'http') ? $c['url'] : $base . $c['url'];
+        $h .= '<li style="margin:0 0 4px"><a href="' . $e($url) . '" style="color:' . $s['ink'] . '">' . $e($c['title']) . '</a> <span style="' . $s['small'] . '">' . $e(strtolower($c['kind'])) . '</span></li>';
+      }
+      $h .= '</ul>';
+      $more = count($briefing['changes']) - 8;
+      $h .= '<div style="margin:6px 0 0;font-size:13px"><a href="' . $e($base . '/whats-new') . '" style="color:' . $s['brand'] . '">' . ($more > 0 ? $e("$more more on What's New →") : "Everything on What's New →") . '</a></div></div>';
+    }
+
+    $focus = $briefing['focus'] ?? [];
+    if (empty($focus['board']) && empty($focus['transitions']) && empty($focus['broken']) && empty($focus['actions']) && empty($focus['meetings'])) {
+      return $h;
+    }
+    $sub = 'margin:12px 0 4px;font-weight:bold';
+    $h .= '<div style="' . $s['card'] . '"><h2 style="' . $s['h2'] . '">Board, priorities and processes</h2>';
+    if (!empty($focus['meetings'])) {
+      $h .= '<div style="' . $sub . ';margin-top:0">Meetings this week</div><ul style="margin:0;padding-left:18px">';
+      foreach ($focus['meetings'] as $m) {
+        $title = $m['url'] !== '' ? '<a href="' . $e($m['url']) . '" style="color:' . $s['ink'] . '">' . $e($m['title']) . '</a>' : $e($m['title']);
+        $h .= '<li style="margin:0 0 3px">' . $title . ' <span style="' . $s['small'] . '">' . $e($m['when']) . '</span></li>';
+      }
+      $h .= '</ul>';
+    }
+    if (!empty($focus['actions'])) {
+      $h .= '<div style="' . $sub . '">Board and committee actions due</div><ul style="margin:0;padding-left:18px">';
+      foreach ($focus['actions'] as $a) {
+        $h .= '<li style="margin:0 0 3px' . ($a['overdue'] ? ';color:' . $s['brand'] : '') . '">' . $e($a['text']) . ' <span style="' . $s['small'] . '">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
+      }
+      $h .= '</ul>';
+    }
+    if (!empty($focus['board'])) {
+      $h .= '<div style="' . $sub . '">Pinned and urgent on the What\'s next board</div><ul style="margin:0;padding-left:18px">';
+      foreach ($focus['board'] as $b) {
+        $h .= '<li style="margin:0 0 3px"><a href="' . $e($base . $b['url']) . '" style="color:' . $s['ink'] . '">' . $e($b['title']) . '</a> <span style="' . $s['small'] . '">' . $e($b['why']) . '</span></li>';
+      }
+      $h .= '</ul>';
+    }
+    if (!empty($focus['transitions'])) {
+      $h .= '<div style="' . $sub . '">Processes that changed</div><ul style="margin:0;padding-left:18px">';
+      foreach ($focus['transitions'] as $t) {
+        $warn = ($t['to'] ?? '') === 'broken';
+        $h .= '<li style="margin:0 0 3px' . ($warn ? ';color:' . $s['brand'] : '') . '">' . $e($t['name'] ?? '') . ': ' . $e($t['from'] ?? '') . ' → <b>' . $e($t['to'] ?? '') . '</b></li>';
+      }
+      $h .= '</ul>';
+    }
+    if (!empty($focus['broken'])) {
+      $h .= '<div style="margin:10px 0 0;color:' . $s['brand'] . '"><b>Broken right now:</b> ' . $e(implode('; ', $focus['broken'])) . '</div>';
+    }
+    $h .= '<div style="margin:10px 0 0;font-size:13px"><a href="https://process.makehaven.org/" style="color:' . $s['brand'] . '">All processes on process.makehaven.org →</a></div></div>';
+    return $h;
+  }
+
+  /**
+   * Sends the briefing to each recipient, their own section first.
+   *
+   * @param array $briefing
+   *   From build().
+   * @param array $recipients
+   *   [email => role|null], or a plain list of emails.
    *
    * @return int
    *   How many messages the mail system accepted.
    */
   public function send(array $briefing, array $recipients): int {
     $range = $briefing['week_start']->format('M j') . '–' . $briefing['week_end']->modify('-1 day')->format('M j');
-    $params = [
-      'subject' => 'Staff briefing: week of ' . $range,
-      'html' => $this->renderHtml($briefing),
-    ];
+    $test = (bool) $this->state->get(self::STATE_TEST, TRUE);
+    $subject = ($test ? '[Test] ' : '') . 'Monday briefing: last week, ' . $range;
     $sent = 0;
-    foreach ($recipients as $to) {
+    foreach ($recipients as $key => $value) {
+      [$to, $role] = is_int($key) ? [$value, NULL] : [$key, $value];
+      $params = ['subject' => $subject, 'html' => $this->renderHtml($briefing, $role)];
       $result = $this->mailManager->mail('makerspace_dashboard', 'staff_briefing', $to, 'en', $params);
       if (!empty($result['result'])) {
         $sent++;
