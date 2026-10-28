@@ -221,4 +221,15 @@ class StaffBriefingLineTest extends UnitTestCase {
     $this->assertStringContainsString('>Laser (reported concern, 20 days)</a>.', $html);
   }
 
+  /**
+   * What's New entries get an area from the page they link to.
+   */
+  public function testAreaFor(): void {
+    $this->assertSame('Membership', StaffBriefingService::areaFor('/membership/address/confirm'));
+    $this->assertSame('Classes & instructors', StaffBriefingService::areaFor('/become-instructor'));
+    $this->assertSame('Shop & tools', StaffBriefingService::areaFor('/library/borrowed'));
+    $this->assertSame('Member businesses', StaffBriefingService::areaFor('https://www.makehaven.org/commission?x=1'));
+    $this->assertSame('Website', StaffBriefingService::areaFor('/whats-new'));
+  }
+
 }

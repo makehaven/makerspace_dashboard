@@ -417,6 +417,7 @@ class StaffBriefingService {
           'paused' => ['title' => 'Paused members', 'type' => 'snapshot', 'sql' => "SUM(stage = 'paused')"],
           'tours' => ['title' => 'People who toured', 'type' => 'tours'],
           'donations' => ['title' => 'Donations, campaign gifts and sponsorships', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id IN (1, 3, 5) AND receive_date >= :sd AND receive_date < :ed"],
+          'feedback' => ['title' => 'Website feedback reports', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'feedback_ledger' AND created >= :s AND created < :e"],
         ],
       ],
       'operations' => [
@@ -431,9 +432,7 @@ class StaffBriefingService {
           'recovery' => ['title' => 'Members in the recovery queue', 'type' => 'snapshot', 'sql' => "SUM(stage = 'recovery')"],
           'onboarding' => ['title' => 'New members still onboarding', 'type' => 'snapshot', 'sql' => "SUM(stage = 'onboarding')"],
           'join_form' => ['title' => 'Join form submissions', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => "SELECT COUNT(*) FROM webform_submission WHERE uri LIKE '%join-makehaven%' AND created >= :s AND created < :e"],
-          'feedback' => ['title' => 'Website feedback reports', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'feedback_ledger' AND created >= :s AND created < :e"],
           'store' => ['title' => 'Store sales (line items)', 'type' => 'window', 'requires' => 'material_transaction_field_data', 'sql' => "SELECT COUNT(*) FROM material_transaction_field_data WHERE created >= :s AND created < :e"],
-          'lending' => ['title' => 'Lending library checkouts', 'type' => 'window', 'requires' => 'library_transaction__field_library_action', 'sql' => "SELECT COUNT(*) FROM library_transaction_field_data t JOIN library_transaction__field_library_action a ON a.entity_id = t.id WHERE a.field_library_action_value = 'withdraw' AND t.created >= :s AND t.created < :e"],
         ],
       ],
       'education' => [
@@ -466,6 +465,7 @@ class StaffBriefingService {
           'swipes' => ['title' => 'Door and tool unlocks', 'type' => 'window', 'requires' => 'access_control_log__field_access_request_result', 'sql' => "SELECT COUNT(*) $granted AND r.field_access_request_result_value = 1"],
           'denied' => ['title' => 'Denied swipes', 'type' => 'window', 'requires' => 'access_control_log__field_access_request_result', 'sql' => "SELECT COUNT(*) $granted AND r.field_access_request_result_value = 0"],
           'reservations' => ['title' => 'Equipment reservations made', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'reservation' AND created >= :s AND created < :e"],
+          'lending' => ['title' => 'Lending library checkouts', 'type' => 'window', 'requires' => 'library_transaction__field_library_action', 'sql' => "SELECT COUNT(*) FROM library_transaction_field_data t JOIN library_transaction__field_library_action a ON a.entity_id = t.id WHERE a.field_library_action_value = 'withdraw' AND t.created >= :s AND t.created < :e"],
           'tool_changes' => ['title' => 'Tool status log entries', 'type' => 'window', 'requires' => 'asset_log_entry', 'sql' => "SELECT COUNT(*) FROM asset_log_entry WHERE created >= :s AND created < :e"],
           'broken_reports' => ['title' => 'Broken equipment reports', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform([self::WEBFORM_BROKEN_EQUIPMENT])],
           'safety_reports' => ['title' => 'Safety concern and accident reports', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform([self::WEBFORM_SAFETY_REPORT]), 'always_discuss' => TRUE],
@@ -654,13 +654,42 @@ class StaffBriefingService {
     $out = [];
     foreach ($rows as $r) {
       $uri = (string) $r->uri;
+      $url = str_starts_with($uri, 'internal:') ? substr($uri, 9) : ($uri !== '' ? $uri : '/whats-new');
       $out[] = [
         'title' => (string) $r->title,
         'kind' => ucfirst((string) ($r->kind ?: 'changed')),
-        'url' => str_starts_with($uri, 'internal:') ? substr($uri, 9) : ($uri !== '' ? $uri : '/whats-new'),
+        'url' => $url,
+        'area' => self::areaFor($url),
       ];
     }
     return $out;
+  }
+
+  /**
+   * What part of MakeHaven a website path belongs to, for a reader's eye.
+   *
+   * What's New entries carry no area field; the page they link to says it.
+   */
+  public static function areaFor(string $url): string {
+    $path = strtolower((string) (parse_url($url, PHP_URL_PATH) ?? ''));
+    $areas = [
+      'Membership' => ['/membership', '/join', '/start', '/user', '/member', '/referral', '/pause'],
+      'Giving' => ['/give', '/donate', '/sponsor', '/support'],
+      'Classes & instructors' => ['/become-instructor', '/instructor', '/events', '/civicrm/event', '/workshop', '/class', '/gems', '/meetup'],
+      'Shop & tools' => ['/library', '/appointment', '/badge', '/tool', '/equipment', '/reservation', '/item', '/battery'],
+      'Store & supplies' => ['/store', '/material', '/supplies', '/inventory'],
+      'Member businesses' => ['/business', '/commission', '/shop-our-makers', '/opportunit'],
+      'Storage & workspace' => ['/storage', '/workspace'],
+      'Staff tools' => ['/admin', '/staff', '/makerspace-dashboard', '/kpi', '/team'],
+    ];
+    foreach ($areas as $area => $prefixes) {
+      foreach ($prefixes as $prefix) {
+        if (str_starts_with($path, $prefix)) {
+          return $area;
+        }
+      }
+    }
+    return 'Website';
   }
 
   /**
@@ -985,20 +1014,23 @@ class StaffBriefingService {
     }
 
     // Operations: feedback waiting on staff.
+    // Director: website feedback is the website's backlog (JR's), not member
+    // operations. Age counts from the last update, not the report: an item
+    // someone is answering is not stuck. "Needs info" waits on the reporter.
     if ($schema->tableExists('node__field_fb_status')) {
-      $open = $this->database->query("SELECT n.nid, n.title, n.created, s.field_fb_status_value status FROM {node_field_data} n JOIN {node__field_fb_status} s ON s.entity_id = n.nid WHERE n.type = 'feedback_ledger' AND s.field_fb_status_value IN (:st[]) ORDER BY n.created ASC", [':st[]' => self::FEEDBACK_OPEN])->fetchAll();
-      $old = array_filter($open, static fn ($r) => $now - (int) $r->created > 14 * 86400);
-      $items = array_map(static fn ($r) => ['text' => sprintf('%s — %s, %d days', $r->title, str_replace('_', ' ', $r->status), floor(($now - (int) $r->created) / 86400)), 'url' => '/node/' . $r->nid], array_slice($old, 0, 8));
-      $roles['operations']['lists'][] = [
-        'title' => sprintf('Feedback waiting on staff: %d open, %d older than two weeks', count($open), count($old)),
+      $open = $this->database->query("SELECT n.nid, n.title, n.changed, s.field_fb_status_value status FROM {node_field_data} n JOIN {node__field_fb_status} s ON s.entity_id = n.nid WHERE n.type = 'feedback_ledger' AND s.field_fb_status_value IN (:st[]) ORDER BY n.changed ASC", [':st[]' => self::FEEDBACK_OPEN])->fetchAll();
+      $onUs = array_filter($open, static fn ($r) => $r->status !== 'needs_info');
+      $stuck = array_values(array_filter($onUs, static fn ($r) => $now - (int) $r->changed > 14 * 86400));
+      $items = array_map(static fn ($r) => ['text' => sprintf('%s — %s, no update in %d days', $r->title, str_replace('_', ' ', $r->status), floor(($now - (int) $r->changed) / 86400)), 'url' => '/node/' . $r->nid], array_slice($stuck, 0, 8));
+      $roles['director']['lists'][] = [
+        'title' => sprintf('Website feedback waiting on us: %d, %d with no update in two weeks', count($onUs), count($stuck)),
         'url' => '/feedback-status',
         'items' => $items,
-        'more' => count($old) > 8 ? sprintf('…and %d more on the feedback board.', count($old) - 8) : NULL,
-        'empty' => 'Nothing older than two weeks.',
+        'more' => trim((count($stuck) > 8 ? sprintf('…and %d more on the feedback board. ', count($stuck) - 8) : '') . sprintf('%d more %s waiting on the reporter for details.', count($open) - count($onUs), count($open) - count($onUs) === 1 ? 'is' : 'are')),
+        'empty' => 'Every open item was updated in the last two weeks.',
       ];
     }
 
-    // Operations: storage units in use.
     if ($schema->tableExists('storage_unit__field_storage_status')) {
       $counts = $this->database->query("SELECT field_storage_status_value, COUNT(*) FROM {storage_unit__field_storage_status} WHERE deleted = 0 GROUP BY field_storage_status_value")->fetchAllKeyed();
       $total = array_sum(array_map('intval', $counts));
@@ -1033,7 +1065,7 @@ class StaffBriefingService {
           }
           $quiet[] = ['text' => sprintf('%s — nothing in %d days', $source['label'], $days), 'warn' => $state === 'dead'];
         }
-        $roles['operations']['lists'][] = [
+        $roles['director']['lists'][] = [
           'title' => sprintf('Feedback channels that went quiet recently: %d', count($quiet)),
           'items' => $quiet,
           'more' => $longSilent ? sprintf('%d more have been silent over six months (Listening dashboard).', $longSilent) : NULL,
@@ -1345,7 +1377,8 @@ class StaffBriefingService {
       $h .= '<div style="' . $s['card'] . '"><h2 style="' . $s['h2'] . '">New on the website</h2><ul style="margin:0;padding-left:18px">';
       foreach (array_slice($briefing['changes'], 0, 8) as $c) {
         $url = str_starts_with($c['url'], 'http') ? $c['url'] : $base . $c['url'];
-        $h .= '<li style="margin:0 0 4px"><a href="' . $e($url) . '" style="color:' . $s['ink'] . '">' . $e($c['title']) . '</a> <span style="' . $s['small'] . '">' . $e(strtolower($c['kind'])) . '</span></li>';
+        $h .= '<li style="margin:0 0 6px"><span style="display:inline-block;padding:0 7px;border-radius:9px;background:#f6f2ee;font-size:11px;color:' . $s['muted'] . ';text-transform:uppercase;letter-spacing:.04em">' . $e($c['area'] ?? 'Website') . '</span> '
+          . '<a href="' . $e($url) . '" style="color:' . $s['ink'] . '">' . $e($c['title']) . '</a> <span style="' . $s['small'] . '">' . $e(strtolower($c['kind'])) . '</span></li>';
       }
       $h .= '</ul>';
       $more = count($briefing['changes']) - 8;
