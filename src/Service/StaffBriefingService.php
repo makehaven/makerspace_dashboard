@@ -417,6 +417,8 @@ class StaffBriefingService {
           'paused' => ['title' => 'Paused members', 'type' => 'snapshot', 'sql' => "SUM(stage = 'paused')"],
           'tours' => ['title' => 'People who toured', 'type' => 'tours'],
           'donations' => ['title' => 'Donations, campaign gifts and sponsorships', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id IN (1, 3, 5) AND receive_date >= :sd AND receive_date < :ed"],
+          'contractor_hours' => ['title' => 'Contractor hours logged', 'type' => 'window', 'requires' => 'payment_request__field_hours', 'sql' => "SELECT IFNULL(SUM(h.field_hours_value), 0) FROM payment_request_field_data r JOIN payment_request__field_hours h ON h.entity_id = r.id WHERE r.type = 'payment' AND NOT EXISTS (SELECT 1 FROM payment_request__field_event ev WHERE ev.entity_id = r.id) AND NOT EXISTS (SELECT 1 FROM payment_request__field_class_date cd WHERE cd.entity_id = r.id) AND r.created >= :s AND r.created < :e"],
+          'safety_reports' => ['title' => 'Safety concern and accident reports', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform([self::WEBFORM_SAFETY_REPORT]), 'always_discuss' => TRUE],
           'feedback' => ['title' => 'Website feedback reports', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'feedback_ledger' AND created >= :s AND created < :e"],
         ],
       ],
@@ -468,7 +470,6 @@ class StaffBriefingService {
           'lending' => ['title' => 'Lending library checkouts', 'type' => 'window', 'requires' => 'library_transaction__field_library_action', 'sql' => "SELECT COUNT(*) FROM library_transaction_field_data t JOIN library_transaction__field_library_action a ON a.entity_id = t.id WHERE a.field_library_action_value = 'withdraw' AND t.created >= :s AND t.created < :e"],
           'tool_changes' => ['title' => 'Tool status log entries', 'type' => 'window', 'requires' => 'asset_log_entry', 'sql' => "SELECT COUNT(*) FROM asset_log_entry WHERE created >= :s AND created < :e"],
           'broken_reports' => ['title' => 'Broken equipment reports', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform([self::WEBFORM_BROKEN_EQUIPMENT])],
-          'safety_reports' => ['title' => 'Safety concern and accident reports', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform([self::WEBFORM_SAFETY_REPORT]), 'always_discuss' => TRUE],
           'guests' => ['title' => 'Guest waivers signed', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform(self::WEBFORM_GUEST_WAIVERS)],
         ],
       ],
@@ -913,6 +914,20 @@ class StaffBriefingService {
   }
 
   /**
+   * Display names for user ids: the CiviCRM contact name, else the username.
+   */
+  protected function payeeNames(array $uids): array {
+    if (!$uids) {
+      return [];
+    }
+    $civi = $this->database->schema()->tableExists('civicrm_uf_match');
+    $sql = $civi
+      ? "SELECT u.uid, COALESCE(NULLIF(c.display_name, ''), u.name) FROM {users_field_data} u LEFT JOIN {civicrm_uf_match} m ON m.uf_id = u.uid LEFT JOIN {civicrm_contact} c ON c.id = m.contact_id WHERE u.uid IN (:u[])"
+      : "SELECT uid, name FROM {users_field_data} WHERE uid IN (:u[])";
+    return array_map('strval', $this->database->query($sql, [':u[]' => array_values(array_unique($uids))])->fetchAllKeyed());
+  }
+
+  /**
    * One discussion item.
    */
   protected function item(string $role, int $rank, string $text, array $links = []): array {
@@ -1014,6 +1029,68 @@ class StaffBriefingService {
     }
 
     // Operations: feedback waiting on staff.
+    // Director and Shop & facility: each safety report, so the safety officer
+    // (the director, JR 10-28) and the shop both see them.
+    if ($schema->tableExists('webform_submission')) {
+      $reports = $this->database->query("SELECT sid, created FROM {webform_submission} WHERE webform_id = :w AND created >= :s AND created < :e ORDER BY created", [
+        ':w' => self::WEBFORM_SAFETY_REPORT,
+        ':s' => $now - 7 * 86400,
+        ':e' => $now,
+      ])->fetchAll();
+      if ($reports) {
+        $list = [
+          'title' => sprintf('Safety and accident reports last week: %d', count($reports)),
+          'items' => array_map(static fn ($r) => [
+            'text' => 'Report from ' . date('D M j, g:ia', (int) $r->created),
+            'url' => '/admin/structure/webform/manage/' . self::WEBFORM_SAFETY_REPORT . '/submission/' . $r->sid,
+            'warn' => TRUE,
+          ], $reports),
+          'empty' => '',
+        ];
+        $roles['director']['lists'][] = $list;
+        $roles['facility']['lists'][] = $list;
+      }
+    }
+
+    // Director: member satisfaction — why the people who left last week left.
+    if ($schema->tableExists('profile__field_member_end_reason')) {
+      $reasons = $this->database->query("SELECT IFNULL(r.field_member_end_reason_value, 'not recorded') reason, COUNT(*) n FROM {profile__field_member_end_date} d LEFT JOIN {profile__field_member_end_reason} r ON r.entity_id = d.entity_id AND r.deleted = 0 WHERE d.deleted = 0 AND d.field_member_end_date_value >= :s AND d.field_member_end_date_value < :e GROUP BY reason ORDER BY n DESC", [
+        ':s' => $weekEnd->modify('-7 days')->format('Y-m-d'),
+        ':e' => $weekEnd->format('Y-m-d'),
+      ])->fetchAllKeyed();
+      $labels = [];
+      foreach ((array) $this->configFactory->get('field.storage.profile.field_member_end_reason')->get('settings.allowed_values') as $option) {
+        $labels[$option['value'] ?? ''] = $option['label'] ?? '';
+      }
+      $roles['director']['lists'][] = [
+        'title' => sprintf('Why members left last week: %d', array_sum(array_map('intval', $reasons))),
+        'items' => array_map(static fn ($reason, $n) => sprintf('%s: %d', $labels[$reason] ?? ucfirst((string) $reason), $n), array_keys($reasons), $reasons),
+        'empty' => 'No memberships ended.',
+      ];
+    }
+
+    // Director: contractors moving forward. Hours logged last week by person,
+    // and anyone who logged hours earlier but none in the last three weeks.
+    // Requests tied to a class (event or class date) are instructor pay.
+    if ($schema->tableExists('payment_request__field_hours') && $schema->tableExists('payment_request__field_payee')) {
+      $rows = $this->database->query("SELECT p.field_payee_target_id uid, MAX(r.created) last, SUM(CASE WHEN r.created >= :week THEN h.field_hours_value ELSE 0 END) week_hours FROM {payment_request_field_data} r JOIN {payment_request__field_payee} p ON p.entity_id = r.id JOIN {payment_request__field_hours} h ON h.entity_id = r.id WHERE r.type = 'payment' AND NOT EXISTS (SELECT 1 FROM {payment_request__field_event} ev WHERE ev.entity_id = r.id) AND NOT EXISTS (SELECT 1 FROM {payment_request__field_class_date} cd WHERE cd.entity_id = r.id) AND r.created >= :since AND r.created < :now GROUP BY p.field_payee_target_id", [
+        ':week' => $now - 7 * 86400,
+        ':since' => $now - 56 * 86400,
+        ':now' => $now,
+      ])->fetchAll();
+      $names = $this->payeeNames(array_map(static fn ($r) => (int) $r->uid, $rows));
+      $working = array_filter($rows, static fn ($r) => (float) $r->week_hours > 0);
+      usort($working, static fn ($a, $b) => $b->week_hours <=> $a->week_hours);
+      $quiet = array_filter($rows, static fn ($r) => (int) $r->last < $now - 21 * 86400);
+      $roles['director']['lists'][] = [
+        'title' => sprintf('Contractors who logged hours last week: %d', count($working)),
+        'url' => '/admin/content/payment-requests',
+        'items' => array_map(static fn ($r) => sprintf('%s — %s h', $names[(int) $r->uid] ?? ('user ' . $r->uid), self::format((float) $r->week_hours)), $working),
+        'more' => $quiet ? 'No hours in three weeks (worked earlier in the last two months): ' . implode(', ', array_map(static fn ($r) => $names[(int) $r->uid] ?? ('user ' . $r->uid), $quiet)) . '.' : NULL,
+        'empty' => 'No hours logged last week.',
+      ];
+    }
+
     // Director: website feedback is the website's backlog (JR's), not member
     // operations. Age counts from the last update, not the report: an item
     // someone is answering is not stuck. "Needs info" waits on the reporter.
