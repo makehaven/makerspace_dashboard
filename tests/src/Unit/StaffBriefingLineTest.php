@@ -71,6 +71,10 @@ class StaffBriefingLineTest extends UnitTestCase {
     $this->assertSame(KpiStatus::GOOD, $members['was_status']);
     $this->assertSame('850', $members['was_text']);
     $this->assertSame('now', $members['period']);
+    $this->assertSame('now', $members['group']);
+    $this->assertSame('full_year', StaffBriefingService::goalGroup('projected'), 'A full-year projection reads with the 12-month figures.');
+    $this->assertSame('slow', StaffBriefingService::goalGroup('cohort'));
+    $this->assertSame('so_far', StaffBriefingService::goalGroup('ytd'));
   }
 
   /**
@@ -127,6 +131,15 @@ class StaffBriefingLineTest extends UnitTestCase {
     $jump = $this->service()->lineFor(['title' => 'Onboarding', 'type' => 'snapshot'], [30, 24, 24, 23, 25, 22, 24, 23, 24, 23]);
     $this->assertSame('biggest weekly rise in 9 weeks', $jump['flag']);
     $this->assertStringContainsString('(+6 this week)', $jump['discuss']);
+  }
+
+  /**
+   * A biased history (booked fees) shows its sparkline but is never flagged.
+   */
+  public function testNoFlagMetricIsNeverFlagged(): void {
+    $line = $this->service()->lineFor(['title' => 'Booked', 'type' => 'window', 'format' => 'money', 'no_flag' => TRUE], [5614, 4166, 3000, 2650, 2500, 2700, 2400, 2600, 2650, 2000]);
+    $this->assertNull($line['flag']);
+    $this->assertCount(9, $line['spark']);
   }
 
   /**

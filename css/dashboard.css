@@ -441,6 +441,8 @@
 .kpi-basis--rolling-12 { color: #1e40af; background-color: #dbeafe; }
 .kpi-basis--rolling-90 { color: #075985; background-color: #e0f2fe; }
 .kpi-basis--ytd { color: #92400e; background-color: #fef3c7; }
+.kpi-basis--projected { color: #92400e; background-color: #fef3c7; }
+.kpi-basis--last-year { color: #374151; background-color: #e5e7eb; }
 .kpi-basis--quarter { color: #5b21b6; background-color: #ede9fe; }
 .kpi-basis--cohort { color: #115e59; background-color: #ccfbf1; }
 .kpi-basis--survey { color: #9d174d; background-color: #fce7f3; }

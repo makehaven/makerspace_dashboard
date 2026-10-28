@@ -64,6 +64,36 @@ class StaffBriefingService {
   public const STATE_KPI_HISTORY = 'makerspace_dashboard.staff_briefing.kpi_history';
 
   /**
+   * How the goals table is grouped, so each KPI is read the right way.
+   *
+   * KPIs keep their natural period (retention only works by join cohort, NPS
+   * only by survey); grouping them with a one-line reading note stops a
+   * 12-month total, today's count and a cohort rate from looking alike.
+   */
+  protected const GOAL_GROUPS = [
+    'full_year' => [
+      'title' => 'A full year of data',
+      'note' => 'The last 12 months, or this year projected. Reads as "if the year ended today", so it compares directly with the annual goal.',
+      'bases' => ['rolling_12', 'projected', 'last_year', ''],
+    ],
+    'now' => [
+      'title' => 'Where we are today',
+      'note' => 'Today\'s figure against where we want to be by December.',
+      'bases' => ['point', 'rolling_90', 'since'],
+    ],
+    'so_far' => [
+      'title' => 'This year so far',
+      'note' => 'A share of this year\'s results to date, or the latest quarter. Fair to compare with the goal at any point in the year.',
+      'bases' => ['ytd', 'quarter'],
+    ],
+    'slow' => [
+      'title' => 'Slow measures',
+      'note' => 'Retention by join group (people who joined 1–2 years ago) and survey scores. They move over months, not weeks.',
+      'bases' => ['cohort', 'survey', 'multi_year'],
+    ],
+  ];
+
+  /**
    * Plain names for the period a KPI value covers (KpiDataService
    * period_basis), shown next to each goal so a 12-month figure is not read
    * as last week's.
@@ -72,6 +102,8 @@ class StaffBriefingService {
     'rolling_12' => 'last 12 months',
     'rolling_90' => 'last 90 days',
     'ytd' => 'year to date',
+    'projected' => 'projected full year',
+    'last_year' => 'last full year',
     'quarter' => 'last quarter',
     'point' => 'now',
     'cohort' => 'join cohorts',
@@ -129,6 +161,7 @@ class StaffBriefingService {
     protected LoggerInterface $logger,
     protected ?FunnelDataService $funnelData = NULL,
     protected ?KpiDataService $kpiData = NULL,
+    protected ?ListeningDataService $listeningData = NULL,
   ) {}
 
   /**
@@ -292,6 +325,7 @@ class StaffBriefingService {
           'classes_held' => ['title' => 'Classes held', 'type' => 'window', 'requires' => 'civicrm_event', 'sql' => "SELECT COUNT(*) FROM civicrm_event WHERE is_active = 1 AND is_template = 0 AND event_type_id IN ($classTypes) AND start_date >= :sd AND start_date < :ed"],
           'class_seats' => ['title' => 'Class seats filled', 'type' => 'window', 'requires' => 'civicrm_event', 'sql' => "SELECT COUNT(*) FROM civicrm_participant p JOIN civicrm_event e ON e.id = p.event_id WHERE $counted AND e.is_active = 1 AND e.is_template = 0 AND e.event_type_id IN ($classTypes) AND e.start_date >= :sd AND e.start_date < :ed"],
           'registrations' => ['title' => 'Event registrations taken', 'type' => 'window', 'requires' => 'civicrm_participant', 'sql' => "SELECT COUNT(*) FROM civicrm_participant p WHERE $counted AND p.register_date >= :sd AND p.register_date < :ed"],
+          'booked' => ['title' => 'Class fees booked for the next 30 days', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_participant', 'no_flag' => TRUE, 'sql' => "SELECT IFNULL(SUM(p.fee_amount), 0) FROM civicrm_participant p JOIN civicrm_event e ON e.id = p.event_id WHERE $counted AND e.is_active = 1 AND e.is_template = 0 AND p.register_date < :ed AND e.start_date >= :ed AND e.start_date < :ed30"],
           'event_income' => ['title' => 'Event fee income', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id = 4 AND receive_date >= :sd AND receive_date < :ed"],
           'quizzes' => ['title' => 'Badge quizzes completed', 'type' => 'window', 'requires' => 'quiz_result', 'sql' => "SELECT COUNT(*) FROM quiz_result WHERE is_invalid = 0 AND time_end >= :s AND time_end < :e"],
           'badges' => ['title' => 'Badges earned', 'type' => 'window', 'requires' => 'node__field_badge_status', 'sql' => "SELECT COUNT(*) FROM node_field_data n JOIN node__field_badge_status s ON s.entity_id = n.nid WHERE n.type = 'badge_request' AND s.field_badge_status_value = 'active' AND n.created >= :s AND n.created < :e"],
@@ -363,6 +397,7 @@ class StaffBriefingService {
           'goal_text' => KpiStatus::format($kpi['goal_current_year'] ?? NULL, $format) ?? '–',
           'goal_year' => (string) ($kpi['goal_current_year_label'] ?? date('Y')),
           'period' => self::PERIOD_LABELS[$kpi['period_basis'] ?? ''] ?? '',
+          'group' => self::goalGroup((string) ($kpi['period_basis'] ?? '')),
           'status' => $status,
           'was_text' => is_array($was) ? (KpiStatus::format($was['value'] ?? NULL, $format) ?? '–') : '–',
           'was_status' => is_array($was) ? ($was['status'] ?? NULL) : NULL,
@@ -370,6 +405,18 @@ class StaffBriefingService {
       }
     }
     return $out;
+  }
+
+  /**
+   * The GOAL_GROUPS key for a KPI period basis.
+   */
+  public static function goalGroup(string $basis): string {
+    foreach (self::GOAL_GROUPS as $key => $group) {
+      if (in_array($basis, $group['bases'], TRUE)) {
+        return $key;
+      }
+    }
+    return 'full_year';
   }
 
   /**
@@ -444,7 +491,7 @@ class StaffBriefingService {
     $out = [];
     foreach ($weeks as [$start, $end]) {
       $args = [];
-      foreach ([':s' => $start->getTimestamp(), ':e' => $end->getTimestamp(), ':sd' => $start->format('Y-m-d H:i:s'), ':ed' => $end->format('Y-m-d H:i:s'), ':sday' => $start->format('Y-m-d'), ':eday' => $end->format('Y-m-d')] as $ph => $v) {
+      foreach ([':s' => $start->getTimestamp(), ':e' => $end->getTimestamp(), ':sd' => $start->format('Y-m-d H:i:s'), ':ed' => $end->format('Y-m-d H:i:s'), ':sday' => $start->format('Y-m-d'), ':eday' => $end->format('Y-m-d'), ':ed30' => $end->modify('+30 days')->format('Y-m-d H:i:s')] as $ph => $v) {
         if (preg_match('/' . preg_quote($ph, '/') . '\b/', $sql)) {
           $args[$ph] = $v;
         }
@@ -484,7 +531,10 @@ class StaffBriefingService {
     $usual = self::median($history);
 
     $flag = NULL;
-    if ($now !== NULL && count($history) >= self::COMPARE_WEEKS) {
+    // 'no_flag': the history is biased, so a range check would mislead. Past
+    // weeks of booked fees only count registrations still active today
+    // (later cancellations vanish), which understates every past week.
+    if ($now !== NULL && count($history) >= self::COMPARE_WEEKS && empty($metric['no_flag'])) {
       $span = count($history) + 1;
       if ($now > max($history)) {
         $flag = $stock ? "biggest weekly rise in $span weeks" : "highest in $span weeks";
@@ -629,6 +679,52 @@ class StaffBriefingService {
       ];
     }
 
+    // Operations: storage units in use.
+    if ($schema->tableExists('storage_unit__field_storage_status')) {
+      $counts = $this->database->query("SELECT field_storage_status_value, COUNT(*) FROM {storage_unit__field_storage_status} WHERE deleted = 0 GROUP BY field_storage_status_value")->fetchAllKeyed();
+      $total = array_sum(array_map('intval', $counts));
+      if ($total > 0) {
+        $roles['operations']['lists'][] = [
+          'title' => sprintf('Storage: %d of %d units occupied, %d vacant', (int) ($counts['occupied'] ?? 0), $total, (int) ($counts['vacant'] ?? 0)),
+          'items' => [],
+          'empty' => '',
+        ];
+      }
+    }
+
+    // Operations: feedback channels that have gone quiet. A channel going
+    // silent (a broken form, a dead link) writes no error; this is how the
+    // Listening dashboard catches it.
+    if ($this->listeningData) {
+      try {
+        // Only channels that went quiet in the last ~6 months are listed:
+        // long-dead ones (a 2022 evaluation form) would repeat every week.
+        $quiet = [];
+        $longSilent = 0;
+        foreach ($this->listeningData->getSources() as $source) {
+          $state = (string) ($source['liveness']['value'] ?? '');
+          if (!in_array($state, ['dormant', 'dead'], TRUE)) {
+            continue;
+          }
+          $days = (int) ($source['days_silent'] ?? 0);
+          if ($days > 180) {
+            $longSilent++;
+            continue;
+          }
+          $quiet[] = ['text' => sprintf('%s — nothing in %d days', $source['label'], $days), 'warn' => $state === 'dead'];
+        }
+        $roles['operations']['lists'][] = [
+          'title' => sprintf('Feedback channels that went quiet recently: %d', count($quiet)),
+          'items' => $quiet,
+          'more' => $longSilent ? sprintf('%d more have been silent over six months (Listening dashboard).', $longSilent) : NULL,
+          'empty' => 'Every active feedback channel is receiving submissions.',
+        ];
+      }
+      catch (\Throwable $e) {
+        $this->logger->error('Staff briefing could not read feedback channels: @msg', ['@msg' => $e->getMessage()]);
+      }
+    }
+
     // Education: recent badge requests still waiting for a checkout. Only
     // the last 30 days: thousands of older requests were never closed and
     // are not a queue anyone works.
@@ -643,19 +739,27 @@ class StaffBriefingService {
 
     // Education: classes in the next two weeks, low fill flagged.
     if ($schema->tableExists('civicrm_event')) {
-      $rows = $this->database->query("SELECT e.id, e.title, e.start_date, e.max_participants cap, (SELECT COUNT(*) FROM civicrm_participant p WHERE p.event_id = e.id AND p.is_test = 0 AND p.status_id IN (SELECT id FROM civicrm_participant_status_type WHERE is_counted = 1)) n FROM civicrm_event e WHERE e.is_active = 1 AND e.is_template = 0 AND e.event_type_id IN (" . implode(',', self::CLASS_EVENT_TYPES) . ") AND e.start_date >= :s AND e.start_date < :e ORDER BY e.start_date", [
+      $rows = $this->database->query("SELECT e.id, e.title, e.start_date, e.max_participants cap, (SELECT COUNT(*) FROM civicrm_participant p WHERE p.event_id = e.id AND p.is_test = 0 AND p.status_id IN (SELECT id FROM civicrm_participant_status_type WHERE is_counted = 1)) n, (SELECT COUNT(*) FROM civicrm_participant p JOIN civicrm_participant_status_type st ON st.id = p.status_id WHERE p.event_id = e.id AND p.is_test = 0 AND st.name = 'On waitlist') w FROM civicrm_event e WHERE e.is_active = 1 AND e.is_template = 0 AND e.event_type_id IN (" . implode(',', self::CLASS_EVENT_TYPES) . ") AND e.start_date >= :s AND e.start_date < :e ORDER BY e.start_date", [
         ':s' => $weekEnd->format('Y-m-d H:i:s'),
         ':e' => $weekEnd->modify('+14 days')->format('Y-m-d H:i:s'),
       ])->fetchAll();
       $items = [];
       $low = [];
+      $waiting = [];
       foreach ($rows as $r) {
         $cap = (int) $r->cap;
         $isLow = $cap > 0 && ((int) $r->n / $cap) < self::LOW_FILL;
-        $items[] = ['text' => sprintf('%s — %s: %d%s', date('D M j', strtotime($r->start_date)), $r->title, (int) $r->n, $cap ? " of $cap" : ' registered'), 'warn' => $isLow];
+        $wait = (int) $r->w;
+        $items[] = ['text' => sprintf('%s — %s: %d%s%s', date('D M j', strtotime($r->start_date)), $r->title, (int) $r->n, $cap ? " of $cap" : ' registered', $wait ? ", $wait on the waitlist" : ''), 'warn' => $isLow];
         if ($isLow) {
           $low[] = sprintf('%s (%s, %d of %d)', $r->title, date('M j', strtotime($r->start_date)), (int) $r->n, $cap);
         }
+        if ($wait) {
+          $waiting[] = sprintf('%s (%s): %d waiting', $r->title, date('M j', strtotime($r->start_date)), $wait);
+        }
+      }
+      if ($waiting) {
+        $discuss[] = 'Waitlists — demand for another session: ' . implode('; ', $waiting) . '.';
       }
       $roles['education']['lists'][] = [
         'title' => sprintf('Classes in the next two weeks: %d, %d under half full', count($rows), count($low)),
@@ -745,13 +849,20 @@ class StaffBriefingService {
         $year = reset($role['goals'])['goal_year'];
         $h .= '<table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;margin:10px 0 0">';
         $h .= '<tr style="color:#666;font-size:12px"><td style="padding:3px 6px 3px 0;font-weight:bold">Against our ' . $e($year) . ' goals</td><td style="padding:3px 6px;text-align:right;width:76px">Now</td><td style="padding:3px 6px;text-align:right;width:76px">Goal</td><td style="padding:3px 6px;text-align:right;width:76px"></td><td style="padding:3px 0 3px 6px;text-align:right;width:70px">Last week</td></tr>';
-        foreach ($role['goals'] as $goal) {
-          $status = $goal['status'] ? '<span style="font-weight:bold;color:' . $colors[$goal['status']] . '">' . $e(KpiStatus::LABELS[$goal['status']]) . '</span>' : '';
-          $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($goal['title']) . ($goal['period'] ? '<br><span style="font-size:12px;color:#777">' . $e($goal['period']) . '</span>' : '') . '</td>'
-            . '<td style="padding:4px 6px;text-align:right">' . $e($goal['value_text']) . '</td>'
-            . '<td style="padding:4px 6px;text-align:right;color:#555">' . $e($goal['goal_text']) . '</td>'
-            . '<td style="padding:4px 6px;text-align:right;font-size:12px">' . $status . '</td>'
-            . '<td style="padding:4px 0 4px 6px;text-align:right;color:#555">' . $e($goal['was_text']) . '</td></tr>';
+        foreach (self::GOAL_GROUPS as $groupKey => $group) {
+          $members = array_filter($role['goals'], static fn ($g) => $g['group'] === $groupKey);
+          if (!$members) {
+            continue;
+          }
+          $h .= '<tr><td colspan="5" style="padding:8px 0 2px;font-size:12px;color:#444"><span style="font-weight:bold">' . $e($group['title']) . '.</span> <span style="color:#777">' . $e($group['note']) . '</span></td></tr>';
+          foreach ($members as $goal) {
+            $status = $goal['status'] ? '<span style="font-weight:bold;color:' . $colors[$goal['status']] . '">' . $e(KpiStatus::LABELS[$goal['status']]) . '</span>' : '';
+            $h .= '<tr style="border-top:1px solid #eee"><td style="padding:4px 6px 4px 0">' . $e($goal['title']) . ($goal['period'] ? '<br><span style="font-size:12px;color:#777">' . $e($goal['period']) . '</span>' : '') . '</td>'
+              . '<td style="padding:4px 6px;text-align:right">' . $e($goal['value_text']) . '</td>'
+              . '<td style="padding:4px 6px;text-align:right;color:#555">' . $e($goal['goal_text']) . '</td>'
+              . '<td style="padding:4px 6px;text-align:right;font-size:12px">' . $status . '</td>'
+              . '<td style="padding:4px 0 4px 6px;text-align:right;color:#555">' . $e($goal['was_text']) . '</td></tr>';
+          }
         }
         $h .= '</table>';
       }

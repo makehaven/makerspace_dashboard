@@ -350,7 +350,6 @@ class KpiDataService {
     'kpi_annual_corporate_sponsorships' => 'rolling_12',
     'kpi_earned_income_sustaining_core' => 'ytd',
     'kpi_revenue_per_member_index' => 'ytd',
-    'kpi_net_income_education' => 'ytd',
     'kpi_member_referral_rate' => 'ytd',
     'kpi_member_revenue_quarterly' => 'quarter',
     'kpi_member_post_12_month_retention' => 'cohort',
@@ -3591,6 +3590,11 @@ class KpiDataService {
       $periodLabel,
       1.0
     );
+
+    // Not year to date: posted quarters are annualized, or last year's total
+    // stands in before any quarter is posted. A "year to date" chip made a
+    // full-year projection read as a partial year.
+    $result['period_basis'] = $completedQuarters === 0 ? 'last_year' : 'projected';
 
     // Append TTM as a context chip in the Details column so readers can compare
     // the annualized projection against 12 months of known actuals side-by-side.
