@@ -1091,6 +1091,32 @@ class StaffBriefingService {
       ];
     }
 
+    // Director: finance. Payment requests approved in accounting but not
+    // yet paid, and drafts never sent to accounting. Ages count from the
+    // request: the Xero sync touches every approved row (all nine on
+    // 2026-10-13), so "last changed" would hide requests unpaid since
+    // February. Approved and unpaid for a month is stuck.
+    if ($schema->tableExists('payment_request__field_status')) {
+      $rows = $this->database->query("SELECT st.field_status_value status, COUNT(*) n, SUM(COALESCE(a.field_amount_value, h.field_hours_value * rt.field_hourly_rate_value, 0)) amount, MIN(r.created) oldest FROM {payment_request_field_data} r JOIN {payment_request__field_status} st ON st.entity_id = r.id LEFT JOIN {payment_request__field_amount} a ON a.entity_id = r.id LEFT JOIN {payment_request__field_hours} h ON h.entity_id = r.id LEFT JOIN {payment_request__field_hourly_rate} rt ON rt.entity_id = r.id WHERE st.field_status_value IN ('draft', 'submitted', 'approved') AND r.created >= :since GROUP BY st.field_status_value", [':since' => $now - 365 * 86400])->fetchAllAssoc('status');
+      $line = static fn ($row, $label) => $row ? sprintf('%s: %d (%s), the oldest requested %d days ago', $label, $row->n, self::format((float) $row->amount, TRUE), floor(($now - (int) $row->oldest) / 86400)) : NULL;
+      $approved = $rows['approved'] ?? NULL;
+      $stuck = $approved && ($now - (int) $approved->oldest) > 30 * 86400;
+      $items = array_values(array_filter([
+        $line($rows['submitted'] ?? NULL, 'Waiting for approval in accounting'),
+        $approved ? ['text' => $line($approved, 'Approved, not yet paid'), 'warn' => $stuck] : NULL,
+        $line($rows['draft'] ?? NULL, 'Drafts not yet sent to accounting'),
+      ]));
+      $roles['director']['lists'][] = [
+        'title' => 'Payment requests in progress',
+        'url' => '/admin/content/payment-requests',
+        'items' => $items,
+        'empty' => 'Nothing waiting: every payment request is paid.',
+      ];
+      if ($stuck) {
+        $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('Payment requests approved but unpaid: %d (%s), the oldest requested %d days ago.', $approved->n, self::format((float) $approved->amount, TRUE), floor(($now - (int) $approved->oldest) / 86400)));
+      }
+    }
+
     // Director: website feedback is the website's backlog (JR's), not member
     // operations. Age counts from the last update, not the report: an item
     // someone is answering is not stuck. "Needs info" waits on the reporter.
