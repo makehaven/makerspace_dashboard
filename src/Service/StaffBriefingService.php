@@ -192,8 +192,10 @@ class StaffBriefingService {
 
   /**
    * Feedback statuses that mean staff still owe a decision or a reply.
+   *
+   * "Forwarded" is a closure: the item went to a person or team, not the site.
    */
-  protected const FEEDBACK_OPEN = ['received', 'reviewing', 'forwarded', 'needs_info'];
+  protected const FEEDBACK_OPEN = ['received', 'reviewing', 'needs_info'];
 
   /**
    * Tool statuses that are not "down" (parked on purpose, or fine).
@@ -1125,11 +1127,12 @@ class StaffBriefingService {
       $onUs = array_filter($open, static fn ($r) => $r->status !== 'needs_info');
       $stuck = array_values(array_filter($onUs, static fn ($r) => $now - (int) $r->changed > 14 * 86400));
       $items = array_map(static fn ($r) => ['text' => sprintf('%s — %s, no update in %d days', $r->title, str_replace('_', ' ', $r->status), floor(($now - (int) $r->changed) / 86400)), 'url' => '/node/' . $r->nid], array_slice($stuck, 0, 8));
+      $queued = (int) $this->database->query("SELECT COUNT(*) FROM {node__field_fb_status} WHERE bundle = 'feedback_ledger' AND field_fb_status_value IN ('planned', 'in_progress')")->fetchField();
       $roles['director']['lists'][] = [
         'title' => sprintf('Website feedback waiting on us: %d, %d with no update in two weeks', count($onUs), count($stuck)),
         'url' => '/feedback-status',
         'items' => $items,
-        'more' => trim((count($stuck) > 8 ? sprintf('…and %d more on the feedback board. ', count($stuck) - 8) : '') . sprintf('%d more %s waiting on the reporter for details.', count($open) - count($onUs), count($open) - count($onUs) === 1 ? 'is' : 'are')),
+        'more' => trim((count($stuck) > 8 ? sprintf('…and %d more on the feedback board. ', count($stuck) - 8) : '') . sprintf('%d more %s waiting on the reporter for details. %d planned or in progress.', count($open) - count($onUs), count($open) - count($onUs) === 1 ? 'is' : 'are', $queued)),
         'empty' => 'Every open item was updated in the last two weeks.',
       ];
     }
