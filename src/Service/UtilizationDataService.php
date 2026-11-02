@@ -290,7 +290,9 @@ class UtilizationDataService {
     }
     elseif ($segmentKey === 'female_nb') {
       $rosterQuery->innerJoin('civicrm_contact', 'c', 'c.id = ufm.contact_id');
-      $rosterQuery->condition('c.gender_id', [1, 3, 4, 5, 6], 'IN');
+      // 1 Woman, 4 Nonbinary, 6 I use another term, 8 Genderqueer or
+      // genderfluid; 3 Other is retired but still on legacy records.
+      $rosterQuery->condition('c.gender_id', [1, 3, 4, 6, 8], 'IN');
     }
 
     $rosterQuery->distinct();

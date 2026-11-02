@@ -363,8 +363,8 @@ class MemberDemographicLocationDataService {
       'male' => [2],
       // The Drupal "other" option is labeled Non-binary.
       'other' => [3, 4],
-      'transgender' => [5],
       'self_describe' => [6],
+      'genderqueer' => [8],
     ];
     return $map[$genderValue] ?? [];
   }
@@ -379,12 +379,17 @@ class MemberDemographicLocationDataService {
     }
     $aliases = [
       'female' => 'female',
+      'woman' => 'female',
       'male' => 'male',
+      'man' => 'male',
+      'genderqueer or genderfluid' => 'genderqueer',
+      'genderqueer' => 'genderqueer',
+      'i use another term' => 'self_describe',
+      'prefer not to say' => 'decline',
       'non-binary' => 'other',
       'non_binary' => 'other',
       'nonbinary' => 'other',
       'other' => 'other',
-      'transgender' => 'transgender',
       'prefer to self-describe' => 'self_describe',
       'prefer_to_self_describe' => 'self_describe',
       'self_describe' => 'self_describe',

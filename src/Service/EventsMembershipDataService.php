@@ -2902,7 +2902,9 @@ class EventsMembershipDataService {
 
     return str_contains($normalized, 'non')
       || str_contains($normalized, 'nb')
-      || str_contains($normalized, 'gender');
+      || str_contains($normalized, 'gender')
+      || str_contains($normalized, 'another term')
+      || str_contains($normalized, 'self-describe');
   }
 
   /**

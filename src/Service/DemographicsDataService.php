@@ -382,19 +382,8 @@ class DemographicsDataService {
     foreach ($distribution as $row) {
       $count = (int) ($row['count'] ?? 0);
       $total += $count;
-      $label = isset($row['label']) ? strtolower((string) $row['label']) : '';
-      if (str_contains($label, 'male') && !str_contains($label, 'fe')) {
-        $buckets['Male'] += $count;
-      }
-      elseif (str_contains($label, 'female')) {
-        $buckets['Female'] += $count;
-      }
-      elseif (str_contains($label, 'non') || str_contains($label, 'nb') || str_contains($label, 'gender')) {
-        $buckets['Non-Binary'] += $count;
-      }
-      else {
-        $buckets['Other/Unknown'] += $count;
-      }
+      $label = isset($row['label']) ? mb_strtolower(trim((string) $row['label'])) : '';
+      $buckets[$this->genderBoardBucket($label)] += $count;
     }
 
     $percentages = [];
@@ -403,6 +392,32 @@ class DemographicsDataService {
     }
 
     return $percentages;
+  }
+
+  /**
+   * Maps a gender label (CiviCRM or legacy profile) to a board bucket.
+   *
+   * CiviCRM labels changed 2026-11 (Female/Male -> Woman/Man, "Prefer to
+   * Self-describe" -> "I use another term", new "Genderqueer or genderfluid"),
+   * so both old and new labels are matched exactly rather than by substring
+   * ("woman" contains "man"). Anyone outside Woman/Man who described their
+   * gender counts as Non-Binary (the DEI committee's "Nonbinary and
+   * gender-diverse" group); no answer, prefer not to say, and the retired
+   * "Other" option stay Other/Unknown.
+   */
+  protected function genderBoardBucket(string $label): string {
+    if (in_array($label, ['woman', 'female'], TRUE)) {
+      return 'Female';
+    }
+    if (in_array($label, ['man', 'male'], TRUE)) {
+      return 'Male';
+    }
+    if ($label === '' || $label === 'other' || $label === 'not provided'
+      || str_starts_with($label, 'other (')
+      || str_contains($label, 'prefer not') || $label === 'decline') {
+      return 'Other/Unknown';
+    }
+    return 'Non-Binary';
   }
 
   /**
