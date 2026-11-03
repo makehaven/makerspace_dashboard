@@ -88,13 +88,15 @@ class GovernanceBoardDataService {
         case 5:
         case 6:
         case 8:
+        case 9:
           $genderCounts['Non-Binary']++; break;
         default:
           $genderCounts['Other/Unknown']++; break;
       }
       // 1=Woman, 2=Man, 3=Other (retired), 4=Nonbinary, 5=Transgender
       // (removed 2026-10), 6=I use another term, 8=Genderqueer or
-      // genderfluid; 7/0/unset = undisclosed.
+      // genderfluid, 9=Agender, 10=Unsure or questioning (Other/Unknown);
+      // 7/0/unset = undisclosed.
       if ($genderId >= 1 && $genderId <= 6) {
         $genderKnown++;
         if (in_array($genderId, [1, 3, 4, 5, 6], TRUE)) {

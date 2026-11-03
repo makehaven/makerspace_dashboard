@@ -398,12 +398,13 @@ class DemographicsDataService {
    * Maps a gender label (CiviCRM or legacy profile) to a board bucket.
    *
    * CiviCRM labels changed 2026-11 (Female/Male -> Woman/Man, "Prefer to
-   * Self-describe" -> "I use another term", new "Genderqueer or genderfluid"),
-   * so both old and new labels are matched exactly rather than by substring
-   * ("woman" contains "man"). Anyone outside Woman/Man who described their
-   * gender counts as Non-Binary (the DEI committee's "Nonbinary and
-   * gender-diverse" group); no answer, prefer not to say, and the retired
-   * "Other" option stay Other/Unknown.
+   * Self-describe" -> "I use another term", new Agender, "Genderqueer or
+   * genderfluid" and "Unsure or questioning"), so both old and new labels are
+   * matched exactly rather than by substring ("woman" contains "man"). Anyone
+   * outside Woman/Man who described their gender counts as Non-Binary (the
+   * DEI committee's "Nonbinary and gender-diverse" group). The board has no
+   * Questioning bucket, so "Unsure or questioning" joins no answer, prefer
+   * not to say and the retired "Other" in Other/Unknown.
    */
   protected function genderBoardBucket(string $label): string {
     if (in_array($label, ['woman', 'female'], TRUE)) {
@@ -414,7 +415,8 @@ class DemographicsDataService {
     }
     if ($label === '' || $label === 'other' || $label === 'not provided'
       || str_starts_with($label, 'other (')
-      || str_contains($label, 'prefer not') || $label === 'decline') {
+      || str_contains($label, 'prefer not') || $label === 'decline'
+      || str_contains($label, 'questioning')) {
       return 'Other/Unknown';
     }
     return 'Non-Binary';

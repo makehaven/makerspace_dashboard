@@ -365,6 +365,8 @@ class MemberDemographicLocationDataService {
       'other' => [3, 4],
       'self_describe' => [6],
       'genderqueer' => [8],
+      'agender' => [9],
+      'questioning' => [10],
     ];
     return $map[$genderValue] ?? [];
   }
@@ -384,6 +386,9 @@ class MemberDemographicLocationDataService {
       'man' => 'male',
       'genderqueer or genderfluid' => 'genderqueer',
       'genderqueer' => 'genderqueer',
+      'agender' => 'agender',
+      'unsure or questioning' => 'questioning',
+      'questioning' => 'questioning',
       'i use another term' => 'self_describe',
       'prefer not to say' => 'decline',
       'non-binary' => 'other',
