@@ -1643,3 +1643,8 @@
   }
 }
 
+
+/* Quiet the OpenStreetMap base map so the data circles stand out. */
+.makerspace-dashboard-map-tile {
+  filter: saturate(0.3) brightness(1.04);
+}

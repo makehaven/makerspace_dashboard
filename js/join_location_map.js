@@ -39,9 +39,11 @@
 
     var defaultView = { coords: [41.3083, -72.9279], zoom: 8 };
     var map = L.map(mapElement).setView(defaultView.coords, defaultView.zoom);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-      subdomains: 'abcd',
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+      className: 'makerspace-dashboard-map-tile',
+      referrerPolicy: 'strict-origin-when-cross-origin',
     }).addTo(map);
 
     var datasetCache = {};
@@ -131,7 +133,7 @@
           radius: Math.min(20, 6 + Math.sqrt(Math.max(1, coords.count || 1)) * 3),
           color: filter.color || '#ff9800',
           fillColor: filter.color || '#ff9800',
-          fillOpacity: 0.9,
+          fillOpacity: 0.55,
           weight: 2,
         });
         marker.bindTooltip(Drupal.t('@count member(s)', { '@count': Math.max(1, coords.count || 1) }), { direction: 'top' });

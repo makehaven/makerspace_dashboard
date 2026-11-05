@@ -54,9 +54,11 @@
           });
         }
 
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-          attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>, &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-          subdomains: 'abcd',
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+          maxZoom: 19,
+          className: 'makerspace-dashboard-map-tile',
+          referrerPolicy: 'strict-origin-when-cross-origin',
         }).addTo(map);
 
         fetch(locationsUrl, { credentials: 'same-origin' })
@@ -172,7 +174,7 @@
                 radius: Math.min(20, 6 + Math.sqrt(weight) * 3),
                 color: '#f57c00',
                 fillColor: '#ff9800',
-                fillOpacity: 0.85,
+                fillOpacity: 0.55,
                 weight: 2,
               });
               marker.bindTooltip(Drupal.t('@count member(s)', { '@count': weight }), {
