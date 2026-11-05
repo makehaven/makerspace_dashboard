@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\Chart\Builder\Education;
 
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
+use Drupal\makerspace_dashboard\Support\PublicCounts;
 
 /**
  * Summarizes demographics for active instructors.
@@ -56,6 +57,7 @@ class EducationActiveInstructorDemographicsChartBuilder extends EducationEventsC
       ]),
       (string) $this->t('Includes Drupal users with the Instructor role linked to CiviCRM events via the instructor field.'),
       (string) $this->t('Demographics pulled from CiviCRM contact gender and demographics custom fields.'),
+      (string) $this->t('Instructors are named on our site, so any group with fewer than 5 is combined to protect privacy.'),
     ];
 
     return $this->newDefinition(
@@ -124,6 +126,7 @@ class EducationActiveInstructorDemographicsChartBuilder extends EducationEventsC
     }
 
     arsort($counts);
+    $counts = PublicCounts::rollUp($counts, (string) $this->t('Groups under 5, combined'));
     if ($allowOther && count($counts) > 6) {
       $primary = array_slice($counts, 0, 5, TRUE);
       $other = array_sum(array_slice($counts, 5));

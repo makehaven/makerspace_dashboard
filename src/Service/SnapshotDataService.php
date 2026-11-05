@@ -72,7 +72,7 @@ class SnapshotDataService {
     $granularity = $this->normalizeGranularity($granularity);
 
     $cacheIdParts = [
-      'makerspace_dashboard:snapshot:membership',
+      'makerspace_dashboard:snapshot:membership:recorded',
       $granularity,
       $includeTests ? 'with_tests' : 'production',
     ];
@@ -115,6 +115,12 @@ class SnapshotDataService {
 
     if (!$includeTests && $hasTestFlag) {
       $query->condition('s.is_test', 0);
+    }
+
+    // Hand-run backfills copied today's roster into past months (823 members
+    // for eight months running). See self::ROSTER_STATE_KPIS.
+    if ($schema->fieldExists('ms_snapshot', 'source')) {
+      $query->condition('s.source', 'manual_drush', '<>');
     }
 
     $query->orderBy('s.snapshot_date', 'ASC');
@@ -310,6 +316,30 @@ class SnapshotDataService {
   }
 
   /**
+   * KPIs whose hand-run backfills do not record what was true at the time.
+   *
+   * These read the roster as it stands, so backfilling them repeats today's
+   * state down the months: 823 members for eight months running, and a
+   * participation rate that climbs only because lapsed members are missing
+   * from the old months. Their history starts with the first scheduled
+   * snapshot, 2026-04. The rows stay in the table; they are only left out here.
+   * Event-dated KPIs such as tours or sign-ups can be backfilled and are fine.
+   */
+  public const ROSTER_STATE_KPIS = [
+    'kpi_active_participation',
+    'kpi_active_participation_bipoc',
+    'kpi_active_participation_female_nb',
+    'kpi_shop_utilization',
+    'kpi_total_active_members',
+    'kpi_membership_diversity_bipoc',
+    'kpi_tours_to_member_conversion',
+    'meeting_to_member_conversion',
+    'kpi_active_incubator_ventures',
+    'active_members_bipoc_count',
+    'active_members_reported_ethnicity_count',
+  ];
+
+  /**
    * Returns the stored KPI metric series for a given KPI ID.
    */
   public function getKpiMetricSeries(string $kpiId, bool $includeTests = FALSE, ?array $snapshotTypes = NULL, ?int $limit = NULL): array {
@@ -319,7 +349,7 @@ class SnapshotDataService {
     }
 
     $cacheIdParts = [
-      'makerspace_dashboard:snapshot:kpi',
+      'makerspace_dashboard:snapshot:kpi:recorded',
       $kpiId,
       $includeTests ? 'with_tests' : 'production',
     ];
@@ -350,6 +380,10 @@ class SnapshotDataService {
     }
     $query->fields('s', $snapshotFields);
     $query->condition('k.kpi_id', $kpiId);
+
+    if (in_array($kpiId, self::ROSTER_STATE_KPIS, TRUE) && $schema->fieldExists('ms_snapshot', 'source')) {
+      $query->condition('s.source', 'manual_drush', '<>');
+    }
 
     if ($snapshotTypes) {
       $query->condition('s.snapshot_type', $snapshotTypes, 'IN');

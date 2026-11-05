@@ -3,6 +3,7 @@
 namespace Drupal\makerspace_dashboard\Chart\Builder\Dei;
 
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
+use Drupal\makerspace_dashboard\Support\PublicCounts;
 
 /**
  * Displays stacked ethnicity composition for top towns.
@@ -24,17 +25,30 @@ class DeiTownEthnicityChartBuilder extends DeiChartBuilderBase {
       return NULL;
     }
 
+    $series = [];
+    foreach ($ethnicities as $label) {
+      $series[$label] = [];
+      foreach ($towns as $town) {
+        $series[$label][] = (int) ($town['distribution'][$label] ?? 0);
+      }
+    }
+    $safe = PublicCounts::rollUpColumns($series);
+
     $datasets = [];
     $palette = $this->defaultColorPalette();
-    foreach ($ethnicities as $index => $label) {
-      $data = [];
-      foreach ($towns as $town) {
-        $data[] = (int) ($town['distribution'][$label] ?? 0);
-      }
+    foreach (array_values(array_keys($safe['series'])) as $index => $label) {
       $datasets[] = [
         'label' => $label,
-        'data' => $data,
+        'data' => $safe['series'][$label],
         'backgroundColor' => $palette[$index % count($palette)],
+        'stack' => 'town_ethnicity',
+      ];
+    }
+    if (array_filter($safe['combined'])) {
+      $datasets[] = [
+        'label' => (string) $this->t('Groups under 5 in that town'),
+        'data' => array_values($safe['combined']),
+        'backgroundColor' => '#9ca3af',
         'stack' => 'town_ethnicity',
       ];
     }
@@ -88,6 +102,7 @@ class DeiTownEthnicityChartBuilder extends DeiChartBuilderBase {
       ]),
       (string) $this->t('Source: Active member profiles joined with CiviCRM contacts, primary addresses, and demographic custom fields.'),
       (string) $this->t('Members without an ethnicity response are counted under “Unspecified”.'),
+      (string) $this->t('To protect privacy, any group with fewer than 5 members in a town is combined into “Groups under 5 in that town”.'),
     ];
 
     return $this->newDefinition(

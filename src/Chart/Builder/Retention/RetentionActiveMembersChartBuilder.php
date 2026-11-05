@@ -139,6 +139,7 @@ class RetentionActiveMembersChartBuilder extends RetentionSnapshotChartBuilderBa
     ];
 
     $notes = $this->getSnapshotNotes();
+    $notes[] = (string) $this->t('History starts in January 2026, the first month recorded at the time. Earlier hand-run backfills repeated the roster of the day they were run, so they are not shown.');
     if ($coverage = $this->buildCoverageNote($series)) {
       $notes[] = $coverage;
     }

@@ -63,6 +63,7 @@ class JoinLocationApiController extends ControllerBase {
     $payload = [
       'locations' => $data['locations'],
       'mappable_count' => $data['mappable_count'],
+      'withheld_count' => $data['withheld_count'] ?? 0,
       'total_count' => $data['total_count'],
       'filters' => $data['filters'],
       'quarters' => $options,

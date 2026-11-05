@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\makerspace_dashboard\Support\PublicLocationGrid;
 
 /**
  * Provides aggregated member location metrics for the dashboard.
@@ -38,16 +39,6 @@ class MembershipLocationDataService {
   protected int $ttl;
 
   /**
-   * Decimal precision for anonymized coordinates.
-   */
-  protected int $precision = 3;
-
-  /**
-   * Maximum jitter (in degrees) applied to anonymized coordinates.
-   */
-  protected float $jitterRange = 0.01;
-
-  /**
    * Constructs the service.
    */
   public function __construct(Connection $database, CacheBackendInterface $cache, GeocodingService $geocoding, int $ttl = 1800) {
@@ -65,7 +56,7 @@ class MembershipLocationDataService {
    *   An array of coordinate arrays, each with 'lat' and 'lon' keys.
    */
   public function getMemberLocations(): array {
-    $cid = 'makerspace_dashboard:membership:locations_data';
+    $cid = 'makerspace_dashboard:membership:locations_grid';
     if ($cache = $this->cache->get($cid)) {
       return $cache->data;
     }
@@ -101,28 +92,12 @@ class MembershipLocationDataService {
       ->condition($latLonGroup)
       ->condition($cityStateGroup));
     $results = $query->execute()->fetchAll();
-    $mappable_count = count($results);
 
-    $aggregated = [];
-    $coordinates = [];
+    $points = [];
     $pendingGeocode = [];
     foreach ($results as $record) {
-      $has_latitude = isset($record->latitude) && is_numeric($record->latitude);
-      $has_longitude = isset($record->longitude) && is_numeric($record->longitude);
-      if ($has_latitude && $has_longitude) {
-        $pair = $this->normalizeCoordinates((float) $record->latitude, (float) $record->longitude);
-        if ($pair) {
-          [$lat, $lon] = $pair;
-          $coord_key = $this->buildCoordinateKey($lat, $lon);
-          if (!isset($aggregated[$coord_key])) {
-            $aggregated[$coord_key] = [
-              'lat' => $lat,
-              'lon' => $lon,
-              'count' => 0,
-            ];
-          }
-          $aggregated[$coord_key]['count']++;
-        }
+      if (is_numeric($record->latitude ?? NULL) && is_numeric($record->longitude ?? NULL)) {
+        $points[] = ['lat' => (float) $record->latitude, 'lon' => (float) $record->longitude];
         continue;
       }
 
@@ -133,44 +108,30 @@ class MembershipLocationDataService {
       }
 
       $location_key = mb_strtolower($city . '|' . $state);
-      if (!isset($pendingGeocode[$location_key])) {
-        $pendingGeocode[$location_key] = [
-          'query' => $city . ', ' . $state,
-          'count' => 0,
-        ];
-      }
+      $pendingGeocode[$location_key] ??= ['query' => $city . ', ' . $state, 'count' => 0];
       $pendingGeocode[$location_key]['count']++;
     }
 
-    // Process pending geocodes regardless of whether we have some coordinates already.
     foreach ($pendingGeocode as $location) {
       $geocode_result = $this->geocoding->geocode($location['query']);
       if ($geocode_result) {
-        $pair = $this->normalizeCoordinates((float) $geocode_result['lat'], (float) $geocode_result['lon']);
-        if ($pair) {
-          [$lat, $lon] = $pair;
-          $coord_key = $this->buildCoordinateKey($lat, $lon);
-          if (!isset($aggregated[$coord_key])) {
-            $aggregated[$coord_key] = [
-              'lat' => $lat,
-              'lon' => $lon,
-              'count' => 0,
-            ];
-          }
-          $aggregated[$coord_key]['count'] += $location['count'];
-        }
+        $points[] = [
+          'lat' => (float) $geocode_result['lat'],
+          'lon' => (float) $geocode_result['lon'],
+          'count' => $location['count'],
+        ];
       }
     }
 
-    if (!empty($aggregated)) {
-      $coordinates = array_values($aggregated);
-    }
+    $grid = PublicLocationGrid::aggregate($points);
+    $coordinates = $grid['locations'];
 
     $total_members = $this->getTotalActiveMembers();
 
     $data = [
       'locations' => $coordinates,
-      'mappable_count' => $mappable_count,
+      'mappable_count' => $grid['shown'],
+      'withheld_count' => $grid['withheld'],
       'total_count' => $total_members,
     ];
 
@@ -204,48 +165,4 @@ class MembershipLocationDataService {
     $query->condition('c.is_deleted', 0);
     return (int) $query->countQuery()->execute()->fetchField();
   }
-
-  /**
-   * Normalize coordinates to the configured precision.
-   */
-  protected function normalizeCoordinates(?float $lat, ?float $lon): ?array {
-    if ($lat === NULL || $lon === NULL) {
-      return NULL;
-    }
-    if (!is_finite($lat) || !is_finite($lon)) {
-      return NULL;
-    }
-    $lat = round($lat, $this->precision);
-    $lon = round($lon, $this->precision);
-    return $this->applyJitter($lat, $lon);
-  }
-
-  /**
-   * Builds a unique key for an anonymized coordinate pair.
-   */
-  protected function buildCoordinateKey(float $lat, float $lon): string {
-    return sprintf('%.3f|%.3f', $lat, $lon);
-  }
-
-  /**
-   * Applies a deterministic jitter to avoid pinpoint accuracy.
-   */
-  protected function applyJitter(float $lat, float $lon): array {
-    $seed = crc32(sprintf('%.3f|%.3f', $lat, $lon));
-    $latOffset = $this->mapSeedToOffset($seed);
-    $lonOffset = $this->mapSeedToOffset($seed >> 1);
-    return [
-      $lat + $latOffset,
-      $lon + $lonOffset,
-    ];
-  }
-
-  /**
-   * Maps a seed to a bounded offset.
-   */
-  protected function mapSeedToOffset(int $seed): float {
-    $normalized = (($seed % 2001) / 1000) - 1; // -1 .. 1
-    return round($normalized * $this->jitterRange, 4);
-  }
-
 }

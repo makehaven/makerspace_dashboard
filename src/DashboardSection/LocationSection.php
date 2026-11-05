@@ -57,7 +57,7 @@ class LocationSection extends DashboardSectionBase {
         '#markup' => '<h2>' . $this->t('New member joins by quarter') . '</h2>',
       ],
       'description' => [
-        '#markup' => '<p>' . $this->t('Use the buttons below to overlay recent quarters on the map. Each selection aggregates joins for that quarter and adds a privacy-safe jitter before rendering.') . '</p>',
+        '#markup' => '<p>' . $this->t('Use the buttons below to overlay recent quarters on the map. Each selection shows area totals for that quarter; areas with fewer than 5 new members are left out for privacy.') . '</p>',
       ],
     ];
 

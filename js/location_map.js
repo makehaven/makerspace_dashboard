@@ -106,7 +106,7 @@
 
             const jitterEl = document.createElement('p');
             jitterEl.className = 'makerspace-dashboard-location-map-jitter';
-            jitterEl.textContent = Drupal.t('To protect member privacy, a small amount of random "jitter" has been added to each location marker, so they do not represent exact addresses.');
+            jitterEl.textContent = Drupal.t('To protect member privacy, this map shows area totals rather than individual locations. Areas with fewer than 5 members are not shown.');
             infoEl.appendChild(jitterEl);
             wrapper.appendChild(infoEl);
 

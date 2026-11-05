@@ -96,7 +96,7 @@ makerspace_dashboard.map_debug:
     _controller: '\Drupal\makerspace_dashboard\Controller\MapDebugController::memberMap'
     _title: 'Member Map Debug'
   requirements:
-    _permission: 'view makerspace dashboard'
+    _permission: 'administer site configuration'
 
 # Data behind the "What's next" board on process.makehaven.org. Any signed-in
 # member (registry OAuth token or a site session); nothing in it is per-user.

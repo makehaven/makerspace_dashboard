@@ -73,7 +73,7 @@ class OutreachSection extends DashboardSectionBase {
           '#markup' => '<h2>' . $this->t('New member joins by quarter') . '</h2>',
         ],
         'description' => [
-          '#markup' => '<p>' . $this->t('Toggle recent quarters to see where outreach converted into new members. Each layer aggregates profile creations for that quarter and jitters markers for privacy.') . '</p>',
+          '#markup' => '<p>' . $this->t('Toggle recent quarters to see where outreach converted into new members. Each layer shows area totals for that quarter; areas with fewer than 5 new members are left out for privacy.') . '</p>',
         ],
         'map' => $this->buildJoinQuarterMap('outreach', $defaultQuarter, $quarters),
       ];

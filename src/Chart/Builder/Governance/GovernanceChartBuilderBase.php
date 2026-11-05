@@ -35,7 +35,7 @@ abstract class GovernanceChartBuilderBase extends ChartBuilderBase {
    * Returns a reusable data source note referencing the Google Sheet.
    */
   protected function buildSourceNote(): array {
-    $markup = $this->t('Data Source: <a href=":url" target="_blank" rel="noopener noreferrer">Board Roster & Goals (Google Sheet)</a>', [
+    $markup = $this->t('Data Source: <a href=":url" target="_blank" rel="noopener noreferrer">KPI goals (Google Sheet)</a>', [
       ':url' => $this->boardDataService->getSourceUrl(),
     ]);
     return [

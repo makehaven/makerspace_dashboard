@@ -6,6 +6,7 @@ use Drupal\Core\Datetime\DateFormatterInterface;
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\Service\RetentionFlowDataService;
+use Drupal\makerspace_dashboard\Support\PublicCounts;
 
 /**
  * Builds the ending memberships by reason chart.
@@ -33,13 +34,24 @@ class RetentionEndingReasonsChartBuilder extends RetentionFlowChartBuilderBase {
       return NULL;
     }
 
+    // A removal is never shown by name: the community knows who it was.
+    $reasonTotals = $window['ending_reason_totals'] ?? [];
+    foreach (array_keys($endingByReason) as $reason) {
+      if (PublicCounts::isSensitiveEndReason((string) $reason)) {
+        foreach ($endingByReason[$reason] as $period => $count) {
+          $endingByReason['other'][$period] = ($endingByReason['other'][$period] ?? 0) + $count;
+        }
+        $reasonTotals['other'] = ($reasonTotals['other'] ?? 0) + ($reasonTotals[$reason] ?? 0);
+        unset($endingByReason[$reason], $reasonTotals[$reason]);
+      }
+    }
+
     $recentPeriods = array_slice($periodKeys, -6);
     if (!$recentPeriods) {
       return NULL;
     }
 
     $labels = $this->formatMonthLabels($recentPeriods);
-    $reasonTotals = $window['ending_reason_totals'] ?? [];
     $reasonOrder = $this->buildReasonOrder($endingByReason, $reasonTotals);
     $reasonLabels = $this->buildReasonLabels($reasonOrder);
 
@@ -98,7 +110,7 @@ class RetentionEndingReasonsChartBuilder extends RetentionFlowChartBuilderBase {
       [
         (string) $this->t('Source: Membership end-date events joined to field_member_end_reason values.'),
         (string) $this->t('Processing: Distinct members per reason per month; stacked bars show each reason’s contribution to total churn.'),
-        (string) $this->t('Definitions: Reasons reflect list-string options configured on member profiles when ending access.'),
+        (string) $this->t('Definitions: Reasons reflect list-string options configured on member profiles when ending access. Any reason that could identify a person is counted under Other.'),
         $this->buildReasonKeyLegendNote($reasonOrder, $reasonLabels),
       ],
     );

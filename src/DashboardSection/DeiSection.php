@@ -67,7 +67,7 @@ class DeiSection extends DashboardSectionBase {
       '#attributes' => ['class' => ['makerspace-dashboard-definition']],
       '#weight' => $weight++,
       'text' => [
-        '#markup' => $this->t('The maps below let you overlay member home regions by self-reported demographics. Locations are jittered to protect privacy and limited to our Connecticut focus area.'),
+        '#markup' => $this->t('The maps below let you overlay member home regions by self-reported demographics. They show area totals limited to our Connecticut focus area; to protect privacy, areas with fewer than 5 members are left out and members under 18 are not mapped.'),
       ],
     ];
 
@@ -97,7 +97,7 @@ class DeiSection extends DashboardSectionBase {
           '#markup' => '<h3>' . $this->t('Locations by age group') . '</h3>',
         ],
         'description' => [
-          '#markup' => '<p>' . $this->t('Each button overlays members whose profile birthday places them in that age range.') . '</p>',
+          '#markup' => '<p>' . $this->t('Each button overlays adult members whose profile birthday places them in that age range.') . '</p>',
         ],
         'map' => $this->buildDemographicMapRenderable('age', 'age', $ageOptions, $this->t('Select age ranges to overlay.')),
       ];

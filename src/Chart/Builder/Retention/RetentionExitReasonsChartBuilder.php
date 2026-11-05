@@ -6,6 +6,7 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\Builder\ChartBuilderBase;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\Service\ListeningDataService;
+use Drupal\makerspace_dashboard\Support\PublicCounts;
 
 /**
  * Charts why members left, next to the retention numbers they explain.
@@ -49,6 +50,28 @@ class RetentionExitReasonsChartBuilder extends ChartBuilderBase {
       return NULL;
     }
 
+    // A removal is never shown by name: the community knows who it was.
+    $other = NULL;
+    $sensitive = 0;
+    foreach ($rows as $index => $row) {
+      if (PublicCounts::isSensitiveEndReason($row['label'])) {
+        $sensitive += $row['count'];
+        unset($rows[$index]);
+      }
+      elseif ($row['label'] === 'Other') {
+        $other = $index;
+      }
+    }
+    if ($sensitive > 0) {
+      if ($other === NULL) {
+        $rows[] = ['label' => 'Other', 'count' => $sensitive];
+      }
+      else {
+        $rows[$other]['count'] += $sensitive;
+      }
+      usort($rows, static fn(array $a, array $b) => $b['count'] <=> $a['count']);
+    }
+
     $visualization = [
       'type' => 'chart',
       'library' => 'chartjs',
@@ -80,7 +103,7 @@ class RetentionExitReasonsChartBuilder extends ChartBuilderBase {
       [
         (string) $this->t('Evidence tier: Observed. Members select the reason themselves in the Chargebee cancellation flow; chargebee_status_sync writes it to field_member_end_reason.'),
         (string) $this->t('Coverage: 456 of the 461 memberships that ended in the year to 2026-08-10 carry a reason — around 99%, the best-covered listening channel we run.'),
-        (string) $this->t('Labels come from the field’s own allowed-values config, so this chart cannot drift from the options members were actually offered.'),
+        (string) $this->t('Labels come from the field’s own allowed-values config, so this chart cannot drift from the options members were actually offered. Any reason that could identify a person is counted under Other.'),
         (string) $this->t('Caution: a stated reason is what someone chose from a list on their way out, not a diagnosis. "Time" and "cost" are the easy answers to pick, and may mask reasons the list does not offer. Read the free-text notes alongside before concluding.'),
       ],
     );

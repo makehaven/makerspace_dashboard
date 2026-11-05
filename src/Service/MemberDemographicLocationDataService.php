@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\makerspace_dashboard\Support\PublicLocationGrid;
 
 /**
  * Builds location datasets filtered by demographic attributes.
@@ -31,20 +32,10 @@ class MemberDemographicLocationDataService {
   protected int $ttl;
 
   /**
-   * Coordinate precision.
-   */
-  protected int $precision = 3;
-
-  /**
-   * Maximum jitter offset (in degrees).
-   */
-  protected float $jitterRange = 0.01;
-
-  /**
-   * Age group buckets.
+   * Age group buckets. There is deliberately no under-18 bucket: children's
+   * locations are not mapped publicly at any level of aggregation.
    */
   protected array $ageBuckets = [
-    'under_18' => ['label' => 'Under 18', 'min' => NULL, 'max' => 17],
     '18_24' => ['label' => '18 – 24', 'min' => 18, 'max' => 24],
     '25_34' => ['label' => '25 – 34', 'min' => 25, 'max' => 34],
     '35_44' => ['label' => '35 – 44', 'min' => 35, 'max' => 44],
@@ -113,7 +104,7 @@ class MemberDemographicLocationDataService {
    */
   public function getLocations(string $filterType, string $filterValue): array {
     $filterType = strtolower($filterType);
-    $filterKey = sprintf('%s:%s', $filterType, $filterValue);
+    $filterKey = sprintf('grid:%s:%s', $filterType, $filterValue);
     $cid = 'makerspace_dashboard:demographic_locations:' . md5($filterKey);
     if ($cache = $this->cache->get($cid)) {
       return $cache->data;
@@ -155,30 +146,20 @@ class MemberDemographicLocationDataService {
         return $this->emptyPayload($filterType, $filterValue);
     }
 
-    $results = $baseQuery->execute();
-    $coordinates = [];
-    $coordinateKeys = [];
+    $points = [];
     $pendingGeocode = [];
-    $mappableCount = 0;
+    // The demographic joins can return one row per stored value, and each person
+    // must count once or a square could reach the minimum with fewer people.
+    $seen = [];
+    foreach ($baseQuery->execute() as $record) {
+      if (isset($seen[$record->profile_id])) {
+        continue;
+      }
+      $seen[$record->profile_id] = TRUE;
 
-    foreach ($results as $record) {
-      $hasLat = isset($record->latitude) && is_numeric($record->latitude);
-      $hasLon = isset($record->longitude) && is_numeric($record->longitude);
-      if ($hasLat && $hasLon) {
-        $pair = $this->normalizeCoordinates((float) $record->latitude, (float) $record->longitude);
-        if ($pair && $this->isWithinFocusBounds($pair[0], $pair[1])) {
-          [$lat, $lon] = $pair;
-          $key = $this->buildCoordinateKey($lat, $lon);
-          if (!isset($coordinateKeys[$key])) {
-            $coordinates[$key] = [
-              'lat' => $lat,
-              'lon' => $lon,
-              'count' => 0,
-            ];
-            $coordinateKeys[$key] = TRUE;
-          }
-          $coordinates[$key]['count']++;
-          $mappableCount++;
+      if (is_numeric($record->latitude ?? NULL) && is_numeric($record->longitude ?? NULL)) {
+        if ($this->isWithinFocusBounds((float) $record->latitude, (float) $record->longitude)) {
+          $points[] = ['lat' => (float) $record->latitude, 'lon' => (float) $record->longitude];
           continue;
         }
       }
@@ -189,44 +170,26 @@ class MemberDemographicLocationDataService {
         continue;
       }
       $hash = mb_strtolower($city . '|' . $state);
-      if (!isset($pendingGeocode[$hash])) {
-        $pendingGeocode[$hash] = [
-          'query' => $city . ', ' . $state,
-          'count' => 0,
-        ];
-      }
+      $pendingGeocode[$hash] ??= ['query' => $city . ', ' . $state, 'count' => 0];
       $pendingGeocode[$hash]['count']++;
     }
 
     foreach ($pendingGeocode as $group) {
       $result = $this->geocoding->geocode($group['query']);
-      if (!$result) {
-        continue;
+      if ($result && $this->isWithinFocusBounds((float) $result['lat'], (float) $result['lon'])) {
+        $points[] = ['lat' => (float) $result['lat'], 'lon' => (float) $result['lon'], 'count' => $group['count']];
       }
-      $pair = $this->normalizeCoordinates((float) $result['lat'], (float) $result['lon']);
-      if (!$pair || !$this->isWithinFocusBounds($pair[0], $pair[1])) {
-        continue;
-      }
-      [$lat, $lon] = $pair;
-      $key = $this->buildCoordinateKey($lat, $lon);
-      if (!isset($coordinateKeys[$key])) {
-        $coordinates[$key] = [
-          'lat' => $lat,
-          'lon' => $lon,
-          'count' => 0,
-        ];
-        $coordinateKeys[$key] = TRUE;
-      }
-      $coordinates[$key]['count'] += $group['count'];
-      $mappableCount += $group['count'];
     }
+
+    $grid = PublicLocationGrid::aggregate($points);
 
     $totalQuery->addExpression('COUNT(DISTINCT p.profile_id)', 'member_total');
     $totalCount = (int) $totalQuery->execute()->fetchField();
 
     $payload = [
-      'locations' => array_values($coordinates),
-      'mappable_count' => $mappableCount,
+      'locations' => $grid['locations'],
+      'mappable_count' => $grid['shown'],
+      'withheld_count' => $grid['withheld'],
       'total_count' => $totalCount,
       'filters' => [
         'type' => $filterType,
@@ -256,6 +219,10 @@ class MemberDemographicLocationDataService {
 
     $query->innerJoin('users_field_data', 'u', 'u.uid = p.uid');
     $query->condition('u.status', 1);
+    $query->where(
+      'EXISTS (SELECT 1 FROM {user__roles} member_role WHERE member_role.entity_id = u.uid AND member_role.roles_target_id IN (:member_roles[]))',
+      [':member_roles[]' => ['current_member', 'member']]
+    );
 
     $query->innerJoin('civicrm_uf_match', 'uf', 'uf.uf_id = u.uid');
     $query->condition('uf.contact_id', 0, '>');
@@ -266,6 +233,7 @@ class MemberDemographicLocationDataService {
     $query->innerJoin('civicrm_address', 'addr', 'addr.contact_id = c.id AND addr.is_primary = 1');
     $query->leftJoin('civicrm_state_province', 'state', 'state.id = addr.state_province_id');
     if (!$countOnly) {
+      $query->addField('p', 'profile_id');
       $query->addExpression('COALESCE(state.abbreviation, state.name)', 'state_code');
       $query->addField('addr', 'city', 'locality');
       $query->addField('addr', 'geo_code_1', 'latitude');
@@ -422,50 +390,9 @@ class MemberDemographicLocationDataService {
   }
 
   /**
-   * Normalizes coordinates to fixed precision with jitter.
-   */
-  protected function normalizeCoordinates(?float $lat, ?float $lon): ?array {
-    if ($lat === NULL || $lon === NULL) {
-      return NULL;
-    }
-    if (!is_finite($lat) || !is_finite($lon)) {
-      return NULL;
-    }
-    $lat = round($lat, $this->precision);
-    $lon = round($lon, $this->precision);
-    return $this->applyJitter($lat, $lon);
-  }
-
-  /**
-   * Builds a key for deduplicating coordinate pairs.
-   */
-  protected function buildCoordinateKey(float $lat, float $lon): string {
-    return sprintf('%.3f|%.3f', $lat, $lon);
-  }
-
-  /**
-   * Applies deterministic jitter so points do not reveal exact homes.
-   */
-  protected function applyJitter(float $lat, float $lon): array {
-    $seed = crc32(sprintf('%.3f|%.3f', $lat, $lon));
-    $latOffset = $this->mapSeedToOffset($seed);
-    $lonOffset = $this->mapSeedToOffset($seed >> 1);
-    return [$lat + $latOffset, $lon + $lonOffset];
-  }
-
-  /**
-   * Maps a seed to a bounded jitter offset.
-   */
-  protected function mapSeedToOffset(int $seed): float {
-    $normalized = (($seed % 2001) / 1000) - 1;
-    return round($normalized * $this->jitterRange, 4);
-  }
-
-  /**
    * Restricts output to the Connecticut service area.
    */
   protected function isWithinFocusBounds(float $lat, float $lon): bool {
     return $lat >= 40.8 && $lat <= 42.6 && $lon >= -74.5 && $lon <= -70.5;
   }
-
 }

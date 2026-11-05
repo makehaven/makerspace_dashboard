@@ -130,7 +130,7 @@ class GovernanceBoardGenderIdentityChartBuilder extends GovernanceChartBuilderBa
     $notes = array_merge(
       [$this->buildSourceNote()],
       [
-        (string) $this->t('Processing: Actual share aggregates the Gender column in the Board-Roster tab; goals rely on goal_gender_* rows from Goals-Percent.'),
+        (string) $this->t('Processing: Actual share aggregates CiviCRM gender for current board members; goals rely on goal_gender_* rows from Goals-Percent.'),
         (string) $this->t('Definitions: Non-Binary reflects self-reported values; Other/Unknown captures blank or custom entries.'),
       ]
     );

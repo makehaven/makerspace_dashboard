@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Chart\Builder\Retention;
 
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
+use Drupal\makerspace_dashboard\Support\PublicCounts;
 use Drupal\makerspace_dashboard\Service\MembershipMetricsService;
 
 /**
@@ -147,7 +148,9 @@ abstract class RetentionSegmentedAnnualRetentionChartBuilderBase extends Retenti
   protected function mapSeriesToYears(array $years, array $cohortRows): array {
     $lookup = [];
     foreach ($cohortRows as $row) {
-      $lookup[(int) $row['year']] = isset($row['annualized_retention_percent']) ? round((float) $row['annualized_retention_percent'], 2) : NULL;
+      // A rate for a handful of people describes those people, not a group.
+      $largeEnough = (int) ($row['joined'] ?? 0) >= PublicCounts::MINIMUM;
+      $lookup[(int) $row['year']] = $largeEnough && isset($row['annualized_retention_percent']) ? round((float) $row['annualized_retention_percent'], 2) : NULL;
     }
     $series = [];
     foreach ($years as $year) {

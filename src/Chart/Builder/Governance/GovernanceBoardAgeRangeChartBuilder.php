@@ -131,7 +131,7 @@ class GovernanceBoardAgeRangeChartBuilder extends GovernanceChartBuilderBase {
     $notes = array_merge(
       [$this->buildSourceNote()],
       [
-        (string) $this->t('Processing: Board ages come from the Board-Roster tab; membership ages use profile birthdates bucketed into the same ranges.'),
+        (string) $this->t('Processing: Board ages come from CiviCRM records of current board members; membership ages use profile birthdates bucketed into the same ranges.'),
         (string) $this->t('Definitions: This comparison highlights whether the board’s age mix reflects the broader membership, using percentages rather than raw counts.'),
       ]
     );

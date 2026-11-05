@@ -1042,6 +1042,15 @@ class KpiDataService {
   }
 
   /**
+   * Labels the trend of a KPI whose recorded history is under a year old.
+   *
+   * @see \Drupal\makerspace_dashboard\Service\SnapshotDataService::ROSTER_STATE_KPIS
+   */
+  private function recordedTrendLabel(array $trend): string {
+    return count($trend) >= 12 ? 'Last 12 months' : 'Since Apr 2026';
+  }
+
+  /**
    * Builds fallback trend/current metadata from KPI snapshot records.
    */
   private function buildSnapshotTrendDefaults(string $kpiId): array {
@@ -1257,7 +1266,7 @@ class KpiDataService {
     $ttm3 = $this->calculateTrailingAverage($values, 3);
 
     return $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members', NULL, NULL, 'Last 12 months'),
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_total_active_members', NULL, NULL, $this->recordedTrendLabel($trend)),
       'kpi_total_active_members'
     );
   }
@@ -1779,7 +1788,7 @@ class KpiDataService {
 
     if ($snapshot !== NULL) {
       $result = $this->withDemographicSegments(
-        $this->buildKpiResult($kpi_info, $annualOverrides, $snapshot['trend'], $snapshot['ttm12'], $snapshot['ttm3'], $snapshot['last_updated'], $snapshot['current'], 'kpi_active_participation', 'percent', 'Snapshot-backed: unique members with at least one card read in the trailing 90-day window ending at each month-end, divided by the active-member roster.', 'Last 12 months', 'Trailing 90 days as of month-end', 1.0),
+        $this->buildKpiResult($kpi_info, $annualOverrides, $snapshot['trend'], $snapshot['ttm12'], $snapshot['ttm3'], $snapshot['last_updated'], $snapshot['current'], 'kpi_active_participation', 'percent', 'Snapshot-backed: unique members with at least one card read in the trailing 90-day window ending at each month-end, divided by the active-member roster.', $this->recordedTrendLabel($snapshot['trend']), 'Trailing 90 days as of month-end', 1.0),
         'kpi_active_participation'
       );
       $result['segments'] = array_merge($result['segments'] ?? [], $this->buildParticipationDetailSegments($summary));
@@ -1821,7 +1830,7 @@ class KpiDataService {
         'kpi_active_participation_bipoc',
         'percent',
         'Snapshot-backed: unique BIPOC members with at least one card read in the trailing 90-day window, divided by the active BIPOC roster at each month-end.',
-        'Last 12 months',
+        $this->recordedTrendLabel($snapshot['trend']),
         'Trailing 90 days as of month-end'
       );
       $result['segments'] = $this->buildParticipationDetailSegments($summary);
@@ -1873,7 +1882,7 @@ class KpiDataService {
         'kpi_active_participation_female_nb',
         'percent',
         'Snapshot-backed: unique Female/NB members with at least one card read in the trailing 90-day window, divided by the active Female/NB roster at each month-end.',
-        'Last 12 months',
+        $this->recordedTrendLabel($snapshot['trend']),
         'Trailing 90 days as of month-end'
       );
       $result['segments'] = $this->buildParticipationDetailSegments($summary);

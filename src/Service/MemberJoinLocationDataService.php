@@ -4,6 +4,7 @@ namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Core\Cache\CacheBackendInterface;
 use Drupal\Core\Database\Connection;
+use Drupal\makerspace_dashboard\Support\PublicLocationGrid;
 
 /**
  * Provides location aggregations for new member joins by quarter.
@@ -29,16 +30,6 @@ class MemberJoinLocationDataService {
    * Cache lifetime in seconds.
    */
   protected int $ttl;
-
-  /**
-   * Decimal precision for anonymized coordinates.
-   */
-  protected int $precision = 3;
-
-  /**
-   * Maximum jitter offset (in degrees) applied to anonymized coordinates.
-   */
-  protected float $jitterRange = 0.01;
 
   /**
    * Constructs the service.
@@ -106,17 +97,12 @@ class MemberJoinLocationDataService {
    */
   public function getJoinLocationsForQuarter(int $year, int $quarter): array {
     $quarter = max(1, min(4, $quarter));
-    $cid = sprintf('makerspace_dashboard:join_locations:%d:%d', $year, $quarter);
+    $cid = sprintf('makerspace_dashboard:join_locations_grid:%d:%d', $year, $quarter);
     if ($cache = $this->cache->get($cid)) {
       return $cache->data;
     }
 
     $range = $this->getQuarterRange($year, $quarter);
-    $mappable = [];
-    $coordinateKeys = [];
-    $pendingGeocode = [];
-    $mappableCount = 0;
-
     $query = $this->database->select('profile', 'p');
     $query->addField('addr', 'city', 'locality');
     $query->addField('addr', 'geo_code_1', 'latitude');
@@ -138,25 +124,12 @@ class MemberJoinLocationDataService {
 
     $query->condition('p.created', [$range['start_timestamp'], $range['end_timestamp']], 'BETWEEN');
 
-    $results = $query->execute();
-    foreach ($results as $record) {
-      $has_latitude = isset($record->latitude) && is_numeric($record->latitude);
-      $has_longitude = isset($record->longitude) && is_numeric($record->longitude);
-      if ($has_latitude && $has_longitude) {
-        $pair = $this->normalizeCoordinates((float) $record->latitude, (float) $record->longitude);
-        if ($pair && $this->isWithinFocusBounds($pair[0], $pair[1])) {
-          [$lat, $lon] = $pair;
-          $key = $this->buildCoordinateKey($lat, $lon);
-          if (!isset($coordinateKeys[$key])) {
-            $mappable[$key] = [
-              'lat' => $lat,
-              'lon' => $lon,
-              'count' => 0,
-            ];
-            $coordinateKeys[$key] = TRUE;
-          }
-          $mappable[$key]['count']++;
-          $mappableCount++;
+    $points = [];
+    $pendingGeocode = [];
+    foreach ($query->execute() as $record) {
+      if (is_numeric($record->latitude ?? NULL) && is_numeric($record->longitude ?? NULL)) {
+        if ($this->isWithinFocusBounds((float) $record->latitude, (float) $record->longitude)) {
+          $points[] = ['lat' => (float) $record->latitude, 'lon' => (float) $record->longitude];
           continue;
         }
       }
@@ -167,39 +140,18 @@ class MemberJoinLocationDataService {
         continue;
       }
       $key = mb_strtolower($city . '|' . $state);
-      if (!isset($pendingGeocode[$key])) {
-        $pendingGeocode[$key] = [
-          'query' => $city . ', ' . $state,
-          'count' => 0,
-        ];
-      }
+      $pendingGeocode[$key] ??= ['query' => $city . ', ' . $state, 'count' => 0];
       $pendingGeocode[$key]['count']++;
     }
 
-    if (!empty($pendingGeocode)) {
-      foreach ($pendingGeocode as $group) {
-        $result = $this->geocoding->geocode($group['query']);
-        if (!$result) {
-          continue;
-        }
-        $pair = $this->normalizeCoordinates((float) $result['lat'], (float) $result['lon']);
-        if (!$pair || !$this->isWithinFocusBounds($pair[0], $pair[1])) {
-          continue;
-        }
-        [$lat, $lon] = $pair;
-        $key = $this->buildCoordinateKey($lat, $lon);
-        if (!isset($coordinateKeys[$key])) {
-          $mappable[$key] = [
-            'lat' => $lat,
-            'lon' => $lon,
-            'count' => 0,
-          ];
-          $coordinateKeys[$key] = TRUE;
-        }
-        $mappable[$key]['count'] += $group['count'];
-        $mappableCount += $group['count'];
+    foreach ($pendingGeocode as $group) {
+      $result = $this->geocoding->geocode($group['query']);
+      if ($result && $this->isWithinFocusBounds((float) $result['lat'], (float) $result['lon'])) {
+        $points[] = ['lat' => (float) $result['lat'], 'lon' => (float) $result['lon'], 'count' => $group['count']];
       }
     }
+
+    $grid = PublicLocationGrid::aggregate($points);
 
     $total = $this->countQuarterJoins($range);
 
@@ -209,8 +161,9 @@ class MemberJoinLocationDataService {
         'quarter' => $quarter,
         'label' => $this->formatQuarterLabel($year, $quarter),
       ],
-      'locations' => array_values($mappable),
-      'mappable_count' => $mappableCount,
+      'locations' => $grid['locations'],
+      'mappable_count' => $grid['shown'],
+      'withheld_count' => $grid['withheld'],
       'total_count' => $total,
     ];
 
@@ -262,53 +215,9 @@ class MemberJoinLocationDataService {
   }
 
   /**
-   * Normalize coordinates to the configured precision and jitter.
-   */
-  protected function normalizeCoordinates(?float $lat, ?float $lon): ?array {
-    if ($lat === NULL || $lon === NULL) {
-      return NULL;
-    }
-    if (!is_finite($lat) || !is_finite($lon)) {
-      return NULL;
-    }
-    $lat = round($lat, $this->precision);
-    $lon = round($lon, $this->precision);
-    return $this->applyJitter($lat, $lon);
-  }
-
-  /**
-   * Builds a unique key for an anonymized coordinate pair.
-   */
-  protected function buildCoordinateKey(float $lat, float $lon): string {
-    return sprintf('%.3f|%.3f', $lat, $lon);
-  }
-
-  /**
-   * Applies deterministic jitter so markers do not reveal exact homes.
-   */
-  protected function applyJitter(float $lat, float $lon): array {
-    $seed = crc32(sprintf('%.3f|%.3f', $lat, $lon));
-    $latOffset = $this->mapSeedToOffset($seed);
-    $lonOffset = $this->mapSeedToOffset($seed >> 1);
-    return [
-      $lat + $latOffset,
-      $lon + $lonOffset,
-    ];
-  }
-
-  /**
-   * Maps a seed to a bounded offset.
-   */
-  protected function mapSeedToOffset(int $seed): float {
-    $normalized = (($seed % 2001) / 1000) - 1;
-    return round($normalized * $this->jitterRange, 4);
-  }
-
-  /**
    * Limits output to the Connecticut region to avoid distracting outliers.
    */
   protected function isWithinFocusBounds(float $lat, float $lon): bool {
     return $lat >= 40.8 && $lat <= 42.4 && $lon >= -74.5 && $lon <= -71.0;
   }
-
 }

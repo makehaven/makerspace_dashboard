@@ -9,6 +9,18 @@ Companion documents: [`data-sources.md`](data-sources.md) for tables and joins,
 [`equity-report.md`](equity-report.md) for the annual report method and current values,
 [`queries/`](queries/) for runnable SQL.
 
+## What may be published
+
+This dashboard is public, so these rules apply to every chart, map and CSV:
+
+- **Locations:** only area totals of at least 5 people (`Support\PublicLocationGrid`). Squares are about 2 km, rolling up to about 10 km; anything still under 5 is withheld. Do not use jitter: the earlier version could be reversed. Members under 18 are not mapped.
+- **Small groups:** where a group is known by name (instructors), or a count is crossed with town or another attribute, groups under 5 are combined (`Support\PublicCounts`). Cohort retention by demographic leaves out cohorts under 5.
+- **End reasons:** Disciplinary Removal is never shown under its own name.
+
+## KPI history
+
+Hand-run backfills (`ms_snapshot.source = manual_drush`) copied the roster of the day into past months for roster-state measures. `SnapshotDataService::ROSTER_STATE_KPIS` and the member count series leave those rows out when reading; the rows remain in the table. Event-dated KPIs, such as tours and sign-ups, can be backfilled safely and keep theirs.
+
 ## Population filters
 
 | Term | Definition | Why it matters |
