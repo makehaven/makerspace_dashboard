@@ -3,8 +3,11 @@
 namespace Drupal\makerspace_dashboard\Service;
 
 use Drupal\Component\Datetime\TimeInterface;
-use Drupal\Core\Entity\EntityStorageInterface;
+use Drupal\Core\Database\Connection;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\makerspace_dashboard\Support\StoreTrends;
+use Drupal\material_inventory_totals\InventoryOddities;
 use Drupal\node\NodeInterface;
 
 /**
@@ -19,9 +22,21 @@ class StoreInventoryData {
   protected \DateTimeZone $timezone;
 
   /**
+   * Trends already worked out this request, by number of months.
+   *
+   * Several charts read them and each scan covers the whole history.
+   */
+  protected array $trends = [];
+
+  /**
    * Constructs the service.
    */
-  public function __construct(EntityTypeManagerInterface $entity_type_manager, TimeInterface $time) {
+  public function __construct(
+    EntityTypeManagerInterface $entity_type_manager,
+    TimeInterface $time,
+    protected Connection $database,
+    protected EntityFieldManagerInterface $entityFieldManager,
+  ) {
     $this->entityTypeManager = $entity_type_manager;
     $this->time = $time;
     $this->timezone = new \DateTimeZone(date_default_timezone_get() ?: 'UTC');
@@ -115,69 +130,114 @@ class StoreInventoryData {
   }
 
   /**
-   * Builds a month-over-month sales vs. consumption velocity dataset.
+   * Monthly store dollars, buyers and top sellers for the Store tab.
+   *
+   * @return array
+   *   What StoreTrends::summarize() returns, plus labels: month labels keyed by
+   *   Y-m, and titles: item titles keyed by material ID. Empty when the
+   *   inventory module is missing or nothing has been recorded.
    */
-  public function getSalesVelocitySeries(int $months = 12): array {
-    if ($months <= 0 || !$this->entityTypeManager->hasDefinition('material_inventory')) {
+  public function getTrends(int $months = 12): array {
+    if (isset($this->trends[$months])) {
+      return $this->trends[$months];
+    }
+    $this->trends[$months] = [];
+    if (!class_exists(InventoryOddities::class) || !$this->entityTypeManager->hasDefinition('material_inventory')) {
       return [];
     }
-
-    $storage = $this->entityTypeManager->getStorage('material_inventory');
-    if (!$storage instanceof EntityStorageInterface) {
+    $rows = $this->historyRows();
+    if (!$rows) {
       return [];
     }
 
     $window = $this->getMonthSeriesWindow($months);
-    $query = $storage->getQuery()
-      ->accessCheck(FALSE)
-      ->condition('type', 'inventory_adjustment')
-      ->condition('created', $window['start']->getTimestamp(), '>=')
-      ->sort('created', 'ASC');
-    $ids = $query->execute();
-    if (empty($ids)) {
+    $labels = [];
+    for ($i = 0; $i < $months; $i++) {
+      $month = $window['start']->modify("+$i months");
+      $labels[$month->format('Y-m')] = $month->format('M Y');
+    }
+    $trends = StoreTrends::summarize($rows, array_keys($labels), $this->materialAreas());
+    $trends['labels'] = $labels;
+    $trends['titles'] = $this->materialTitles(array_keys($trends['items']));
+    return $this->trends[$months] = $trends;
+  }
+
+  /**
+   * Loads the adjustment history, oldest first, with today's store price.
+   *
+   * Long field names have hashed table names, so these go through the table
+   * mapping. Loading entities would be far too slow on a public page.
+   */
+  protected function historyRows(): array {
+    $mapping = $this->entityTypeManager->getStorage('material_inventory')->getTableMapping();
+    $definitions = $this->entityFieldManager->getFieldStorageDefinitions('material_inventory');
+    $query = $this->database->select('material_inventory_field_data', 'a')
+      ->condition('a.type', 'inventory_adjustment')
+      ->fields('a', ['id', 'created', 'uid'])
+      ->orderBy('a.id');
+    $join = function (string $method, string $field, string $property, string $alias, string $as) use ($query, $mapping, $definitions): void {
+      $query->{$method}($mapping->getFieldTableName($field), $alias, "$alias.entity_id = a.id");
+      $query->addField($alias, $mapping->getFieldColumnName($definitions[$field], $property), $as);
+    };
+    $join('join', 'field_inventory_ref_material', 'target_id', 'material', 'nid');
+    $join('join', 'field_inventory_quantity_change', 'value', 'quantity', 'qty');
+    $join('leftJoin', 'field_inventory_change_reason', 'value', 'reason', 'reason');
+    $join('leftJoin', 'field_inventory_change_memo', 'value', 'memo', 'memo');
+    $rows = $query->execute()->fetchAll(\PDO::FETCH_ASSOC);
+
+    $prices = $this->database->select('node__field_material_unit_cost', 'c')
+      ->fields('c', ['entity_id', 'field_material_unit_cost_value'])
+      ->execute()
+      ->fetchAllKeyed();
+    foreach ($rows as &$row) {
+      $row['unit_cost'] = (float) ($prices[$row['nid']] ?? 0);
+    }
+    return $rows;
+  }
+
+  /**
+   * The top-level areas each material is tagged with.
+   *
+   * Items are often tagged with an area and its parent ("Woodworking" and
+   * "Wood, Metal & Fabrication"). Rolling up counts those once.
+   *
+   * @return array
+   *   Area names per material ID.
+   */
+  protected function materialAreas(): array {
+    $query = $this->database->select('taxonomy_term__parent', 'p');
+    $query->join('taxonomy_term_field_data', 't', 't.tid = p.entity_id');
+    $query->fields('p', ['entity_id', 'parent_target_id'])->fields('t', ['name']);
+    $terms = $query->execute()->fetchAllAssoc('entity_id', \PDO::FETCH_ASSOC);
+
+    $areas = [];
+    $tagged = $this->database->select('node__field_material_categories', 'c')
+      ->fields('c', ['entity_id', 'field_material_categories_target_id'])
+      ->execute();
+    foreach ($tagged as $row) {
+      $tid = (int) $row->field_material_categories_target_id;
+      for ($depth = 0; $depth < 10 && !empty($terms[$tid]['parent_target_id']); $depth++) {
+        $tid = (int) $terms[$tid]['parent_target_id'];
+      }
+      if (isset($terms[$tid])) {
+        $areas[(int) $row->entity_id][$terms[$tid]['name']] = $terms[$tid]['name'];
+      }
+    }
+    return array_map('array_values', $areas);
+  }
+
+  /**
+   * Titles of materials, keyed by ID.
+   */
+  protected function materialTitles(array $nids): array {
+    if (!$nids) {
       return [];
     }
-
-    $series = [];
-    for ($i = 0; $i < $months; $i++) {
-      $month_start = $window['start']->modify("+$i months");
-      $key = $month_start->format('Y-m');
-      $series[$key] = [
-        'label' => $month_start->format('M Y'),
-        'restock' => 0,
-        'consumption' => 0,
-      ];
-    }
-
-    $end = $window['end'];
-    foreach ($storage->loadMultiple($ids) as $entity) {
-      $created = $entity->getCreatedTime();
-      $created_date = (new \DateTimeImmutable('@' . $created))->setTimezone($this->timezone);
-      if ($created_date < $window['start'] || $created_date >= $end) {
-        continue;
-      }
-      $key = $created_date->format('Y-m');
-      if (!isset($series[$key])) {
-        continue;
-      }
-
-      $quantity = 0;
-      if ($entity->hasField('field_inventory_quantity_change') && !$entity->get('field_inventory_quantity_change')->isEmpty()) {
-        $quantity = (int) $entity->get('field_inventory_quantity_change')->value;
-      }
-      if ($quantity === 0) {
-        continue;
-      }
-
-      if ($quantity > 0) {
-        $series[$key]['restock'] += $quantity;
-      }
-      else {
-        $series[$key]['consumption'] += abs($quantity);
-      }
-    }
-
-    return array_values($series);
+    return $this->database->select('node_field_data', 'n')
+      ->fields('n', ['nid', 'title'])
+      ->condition('n.nid', $nids, 'IN')
+      ->execute()
+      ->fetchAllKeyed();
   }
 
   /**

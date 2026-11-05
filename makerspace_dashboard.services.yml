@@ -492,8 +492,40 @@ services:
     tags:
       - { name: makerspace_dashboard.chart_builder }
 
-  makerspace_dashboard.chart_builder.operations_store_sales_velocity:
-    class: Drupal\makerspace_dashboard\Chart\Builder\Operations\OperationsStoreSalesVelocityChartBuilder
+  makerspace_dashboard.chart_builder.store_sales:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Store\StoreSalesChartBuilder
+    arguments:
+      - '@makerspace_dashboard.store_inventory_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.store_lost_found:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Store\StoreLostFoundChartBuilder
+    arguments:
+      - '@makerspace_dashboard.store_inventory_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.store_top_sellers:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Store\StoreTopSellersChartBuilder
+    arguments:
+      - '@makerspace_dashboard.store_inventory_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.store_area:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Store\StoreSalesByAreaChartBuilder
+    arguments:
+      - '@makerspace_dashboard.store_inventory_data'
+      - '@string_translation'
+    tags:
+      - { name: makerspace_dashboard.chart_builder }
+
+  makerspace_dashboard.chart_builder.store_buyers:
+    class: Drupal\makerspace_dashboard\Chart\Builder\Store\StoreBuyersChartBuilder
     arguments:
       - '@makerspace_dashboard.store_inventory_data'
       - '@string_translation'
@@ -1294,6 +1326,16 @@ services:
     arguments:
       - '@entity_type.manager'
       - '@datetime.time'
+      - '@database'
+      - '@entity_field.manager'
+
+  makerspace_dashboard.section.store:
+    class: Drupal\makerspace_dashboard\DashboardSection\StoreSection
+    arguments:
+      - '@string_translation'
+      - '@makerspace_dashboard.chart_builder_manager'
+    tags:
+      - { name: makerspace_dashboard.section }
 
   makerspace_dashboard.section.operations:
     class: Drupal\makerspace_dashboard\DashboardSection\OperationsSection

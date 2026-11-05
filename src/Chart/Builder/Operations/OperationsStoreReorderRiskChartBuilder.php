@@ -14,6 +14,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
  */
 class OperationsStoreReorderRiskChartBuilder extends OperationsChartBuilderBase {
 
+  protected const SECTION_ID = 'store';
   protected const CHART_ID = 'store_reorder_risk';
   protected const TIER = 'supplemental';
   protected const WEIGHT = 1;
