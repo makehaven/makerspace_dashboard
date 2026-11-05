@@ -10,7 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationCourseFillSpreadChartBuilder extends EducationEventsChartBuilderBase {
 
   protected const CHART_ID = 'course_fill_spread';
-  protected const WEIGHT = 17;
+  protected const WEIGHT = 40;
   protected const TIER = 'key';
 
   /**

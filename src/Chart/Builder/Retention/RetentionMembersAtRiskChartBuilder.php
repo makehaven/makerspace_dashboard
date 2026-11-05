@@ -17,6 +17,7 @@ class RetentionMembersAtRiskChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'members_at_risk_timeline';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 7;
 
   /**
@@ -128,6 +129,7 @@ class RetentionMembersAtRiskChartBuilder extends ChartBuilderBase {
     $notes = [
       (string) $this->t('Source: ms_member_success_snapshot daily snapshots, latest date per month.'),
       (string) $this->t('Definition: At-risk = risk_score ≥ 20. Threshold can be adjusted in service parameters.'),
+      (string) $this->t('Method change: the risk score was reworked on Oct 14, 2026, which took the at-risk count from 384 to 195 by Oct 20. Months before and after are not comparable; the drop is not an improvement in member health.'),
     ];
     if ($firstDate instanceof \DateTimeImmutable && $lastDate instanceof \DateTimeImmutable) {
       $notes[] = (string) $this->t('Coverage: @start – @end (@count months).', [

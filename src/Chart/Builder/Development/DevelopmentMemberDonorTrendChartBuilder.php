@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\DevelopmentDataService;
 class DevelopmentMemberDonorTrendChartBuilder extends DevelopmentChartBuilderBase {
 
   protected const CHART_ID = 'member_donor_trend';
+  protected const TIER = 'supplemental';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 10;
 
   public function __construct(

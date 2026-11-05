@@ -13,6 +13,7 @@ use Drupal\makerspace_dashboard\Service\GovernanceBoardDataService;
 class GovernanceBoardAgeRangeChartBuilder extends GovernanceChartBuilderBase {
 
   protected const CHART_ID = 'board_age_range';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 20;
 
   protected const COLOR_MAP = [

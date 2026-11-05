@@ -13,6 +13,7 @@ use Drupal\makerspace_dashboard\Service\DemographicsDataService;
 class OutreachRecentInterestChartBuilder extends OutreachChartBuilderBase {
 
   protected const CHART_ID = 'recent_member_interests';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 20;
 
   public function __construct(

@@ -19,6 +19,7 @@ class RetentionAppointmentFeedbackChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'appointment_feedback_outcomes';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 66;
   protected const RANGE_DEFAULT = '1y';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y'];

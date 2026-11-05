@@ -14,6 +14,7 @@ class FinanceForwardBookedWorkshopRevenueChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'forward_booked_workshop_revenue';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 50;
 
   public function __construct(

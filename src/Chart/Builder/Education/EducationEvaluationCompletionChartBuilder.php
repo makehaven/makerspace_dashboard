@@ -10,6 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationEvaluationCompletionChartBuilder extends EducationEvaluationChartBuilderBase {
 
   protected const CHART_ID = 'event_evaluation_completion';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 27;
   protected const TIER = 'supplemental';
 

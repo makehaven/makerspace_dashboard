@@ -1003,7 +1003,6 @@ class FunnelDataService {
     $cohort = $this->getFirstTimeEventContactMap($start, $end);
 
     $windowSummary = $this->summarizeWindowedConversions($cohort, $conversionWindowDays);
-    $everSummary = $this->summarizeContactConversions($cohort);
 
     // "Returned" is measured only across contacts still in the eligible pool,
     // so people who were already members before their first event cannot
@@ -1054,9 +1053,9 @@ class FunnelDataService {
       'eligible' => $eligible,
       'returned' => $returned,
       'converted_window' => $windowSummary['conversions'],
-      'converted_ever' => $everSummary['conversions'],
+      'converted_ever' => $windowSummary['converted_ever'],
       'rate_window' => $eligible > 0 ? ($windowSummary['conversions'] / $eligible) : NULL,
-      'rate_ever' => $eligible > 0 ? ($everSummary['conversions'] / $eligible) : NULL,
+      'rate_ever' => $eligible > 0 ? ($windowSummary['converted_ever'] / $eligible) : NULL,
       'return_rate' => $eligible > 0 ? ($returned / $eligible) : NULL,
       'labels' => $labels,
       'month_keys' => $monthKeys,
@@ -1198,6 +1197,7 @@ class FunnelDataService {
       return [
         'eligible' => 0,
         'conversions' => 0,
+        'converted_ever' => 0,
         'already_members' => 0,
       ];
     }
@@ -1208,6 +1208,7 @@ class FunnelDataService {
     $eligible = 0;
     $alreadyMembers = 0;
     $converted = 0;
+    $convertedEver = 0;
     foreach ($contactDates as $contactId => $touchDate) {
       $uid = $contactToUid[$contactId] ?? NULL;
       $joinDate = $uid !== NULL ? ($joinDates[$uid] ?? NULL) : NULL;
@@ -1220,6 +1221,7 @@ class FunnelDataService {
         continue;
       }
       $eligible++;
+      $convertedEver++;
       $deadline = $touchDate->add(new DateInterval(sprintf('P%dD', $conversionWindowDays)));
       if ($joinDate <= $deadline) {
         $converted++;
@@ -1229,6 +1231,7 @@ class FunnelDataService {
     return [
       'eligible' => $eligible,
       'conversions' => $converted,
+      'converted_ever' => $convertedEver,
       'already_members' => $alreadyMembers,
     ];
   }

@@ -10,7 +10,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class DeiTownEthnicityChartBuilder extends DeiChartBuilderBase {
 
   protected const CHART_ID = 'town_ethnicity';
-  protected const WEIGHT = 65;
+  protected const TIER = 'key';
+  protected const WEIGHT = 30;
 
   /**
    * {@inheritdoc}

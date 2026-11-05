@@ -37,6 +37,11 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
   protected const WEIGHT = 0;
 
   /**
+   * TRUE when the chart counts over each month, so the current one is partial.
+   */
+  protected const PARTIAL_LAST_PERIOD = FALSE;
+
+  /**
    * {@inheritdoc}
    */
   public function __construct(?TranslationInterface $stringTranslation = NULL) {
@@ -71,6 +76,9 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
    */
   protected function newDefinition(string $title, string $description, array $visualization, array $notes = [], ?array $range = NULL, ?int $weight = NULL, array $cache = [], ?string $tier = NULL): ChartDefinition {
     $tier = $tier ?? static::TIER;
+    if (static::PARTIAL_LAST_PERIOD) {
+      $visualization = static::markPartialLastPeriod($visualization, new \DateTimeImmutable());
+    }
     return new ChartDefinition(
       $this->getSectionId(),
       $this->getChartId(),
@@ -83,6 +91,21 @@ abstract class ChartBuilderBase implements DashboardChartBuilderInterface {
       $cache,
       $tier,
     );
+  }
+
+  /**
+   * Labels the last point "(so far)" when it is the month still in progress.
+   */
+  public static function markPartialLastPeriod(array $visualization, \DateTimeImmutable $now): array {
+    $labels = $visualization['data']['labels'] ?? [];
+    if (!$labels) {
+      return $visualization;
+    }
+    $last = array_key_last($labels);
+    if (in_array((string) $labels[$last], [$now->format('M Y'), $now->format('Y-m')], TRUE)) {
+      $visualization['data']['labels'][$last] = $labels[$last] . ' (so far)';
+    }
+    return $visualization;
   }
 
   /**

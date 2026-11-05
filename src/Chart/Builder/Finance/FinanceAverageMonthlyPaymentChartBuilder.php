@@ -14,6 +14,7 @@ class FinanceAverageMonthlyPaymentChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'average_payment';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 30;
 
   /**

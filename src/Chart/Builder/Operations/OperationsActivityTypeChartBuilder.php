@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\ActivityDataService;
 class OperationsActivityTypeChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'activity_types';
+  protected const TIER = 'supplemental';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 40;
 
   public function __construct(
@@ -101,7 +103,7 @@ class OperationsActivityTypeChartBuilder extends OperationsChartBuilderBase {
       NULL,
       NULL,
       [],
-      'experimental',
+      static::TIER,
     );
   }
 

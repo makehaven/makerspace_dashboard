@@ -14,6 +14,7 @@ class RetentionInterventionResolutionRateChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'intervention_resolution_rate';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 73;
   protected const TIER = 'supplemental';
 

@@ -19,7 +19,8 @@ class RetentionActiveMembersChartBuilder extends RetentionSnapshotChartBuilderBa
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'active_members';
-  protected const WEIGHT = 3;
+  protected const TIER = 'key';
+  protected const WEIGHT = 10;
 
   /**
    * Constructs the builder.

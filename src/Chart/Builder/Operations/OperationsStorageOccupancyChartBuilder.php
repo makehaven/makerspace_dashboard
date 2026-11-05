@@ -12,7 +12,8 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 class OperationsStorageOccupancyChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'storage_occupancy';
-  protected const WEIGHT = 30;
+  protected const TIER = 'key';
+  protected const WEIGHT = 20;
 
   protected StatisticsService $statisticsService;
 

@@ -12,6 +12,7 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 class OperationsLendingLibraryCategoryChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'lending_category_breakdown';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 20;
 
   protected StatsCollectorInterface $statsCollector;
@@ -84,7 +85,7 @@ class OperationsLendingLibraryCategoryChartBuilder extends OperationsChartBuilde
       NULL,
       NULL,
       [],
-      'supplemental',
+      static::TIER,
     );
   }
 

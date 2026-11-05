@@ -14,6 +14,7 @@ class OutreachGuestWaiverConversionFunnelChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'guest_waiver_conversion_funnel';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 24;
 
   public function __construct(
@@ -67,7 +68,7 @@ class OutreachGuestWaiverConversionFunnelChartBuilder extends ChartBuilderBase {
       NULL,
       NULL,
       [],
-      'experimental',
+      static::TIER,
     );
   }
 

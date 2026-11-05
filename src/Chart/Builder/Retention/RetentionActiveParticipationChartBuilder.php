@@ -2,30 +2,37 @@
 
 namespace Drupal\makerspace_dashboard\Chart\Builder\Retention;
 
-use DateInterval;
-use DateTimeImmutable;
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\Builder\ChartBuilderBase;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
-use Drupal\makerspace_dashboard\Service\UtilizationDataService;
+use Drupal\makerspace_dashboard\Service\SnapshotDataService;
 
 /**
- * Quarterly door-access participation trend by demographic segment.
+ * Participation as it was recorded each month, overall and by segment.
  *
- * Shows 8 completed quarters of participation rates for overall membership,
- * BIPOC members, and Female/Non-Binary members on a single line chart.
+ * Reads the monthly KPI snapshots rather than recomputing past quarters: there
+ * is no roster history, so recomputing divides old door activity by today's
+ * members, and past periods read about ten points low.
  */
 class RetentionActiveParticipationChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'active_participation_trend';
-  protected const WEIGHT = 6;
+  protected const TIER = 'key';
+  protected const WEIGHT = 40;
+
+  /**
+   * First monthly snapshot written at the time by cron.
+   *
+   * Earlier rows were backfilled by hand in April 2026 with today's roster.
+   */
+  protected const FIRST_RECORDED_MONTH = '2026-04';
 
   /**
    * Constructs the builder.
    */
   public function __construct(
-    protected UtilizationDataService $utilizationData,
+    protected SnapshotDataService $snapshotData,
     ?TranslationInterface $stringTranslation = NULL,
   ) {
     parent::__construct($stringTranslation);
@@ -35,34 +42,47 @@ class RetentionActiveParticipationChartBuilder extends ChartBuilderBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): ?ChartDefinition {
-    $quarters = 8;
-    $now = new DateTimeImmutable('now');
+    $segments = [
+      'kpi_active_participation' => [(string) $this->t('All members'), '#2563eb'],
+      'kpi_active_participation_bipoc' => [(string) $this->t('BIPOC members'), '#16a34a'],
+      'kpi_active_participation_female_nb' => [(string) $this->t('Female / Non-Binary'), '#7c3aed'],
+    ];
 
-    [$quarterWindows, $labels] = $this->buildQuarterWindows($now, $quarters);
-    if (empty($quarterWindows)) {
+    $readings = [];
+    foreach (array_keys($segments) as $kpiId) {
+      foreach ($this->snapshotData->getKpiMetricSeries($kpiId) as $record) {
+        $date = $record['snapshot_date'] ?? NULL;
+        if (!$date instanceof \DateTimeImmutable || !is_numeric($record['value'] ?? NULL)) {
+          continue;
+        }
+        $month = $date->format('Y-m');
+        if ($month >= self::FIRST_RECORDED_MONTH) {
+          $readings[$month][$kpiId] = round((float) $record['value'] * 100, 1);
+        }
+      }
+    }
+    if (count($readings) < 2) {
       return NULL;
     }
+    ksort($readings);
 
-    $overall = [];
-    $bipoc = [];
-    $femaleNb = [];
-
-    foreach ($quarterWindows as $window) {
-      [$start, $end] = $window;
-      $startTs = $start->getTimestamp();
-      $endTs = $end->getTimestamp();
-
-      $allData = $this->utilizationData->getParticipationSummary($startTs, $endTs, NULL);
-      $bipocData = $this->utilizationData->getParticipationSummary($startTs, $endTs, 'bipoc');
-      $femaleNbData = $this->utilizationData->getParticipationSummary($startTs, $endTs, 'female_nb');
-
-      $overall[] = round((float) ($allData['rate'] ?? 0) * 100, 1);
-      $bipoc[] = round((float) ($bipocData['rate'] ?? 0) * 100, 1);
-      $femaleNb[] = round((float) ($femaleNbData['rate'] ?? 0) * 100, 1);
+    $labels = [];
+    foreach (array_keys($readings) as $month) {
+      $labels[] = (new \DateTimeImmutable($month . '-01'))->format('M Y');
     }
-
-    if (!array_sum($overall)) {
-      return NULL;
+    $datasets = [];
+    foreach ($segments as $kpiId => [$label, $color]) {
+      $datasets[] = [
+        'label' => $label,
+        'data' => array_map(static fn(array $row) => $row[$kpiId] ?? NULL, array_values($readings)),
+        'borderColor' => $color,
+        'backgroundColor' => $color,
+        'fill' => FALSE,
+        'spanGaps' => TRUE,
+        'tension' => 0.25,
+        'pointRadius' => 4,
+        'borderWidth' => 2,
+      ];
     }
 
     $visualization = [
@@ -71,38 +91,7 @@ class RetentionActiveParticipationChartBuilder extends ChartBuilderBase {
       'chartType' => 'line',
       'data' => [
         'labels' => $labels,
-        'datasets' => [
-          [
-            'label' => (string) $this->t('All members'),
-            'data' => $overall,
-            'borderColor' => '#2563eb',
-            'backgroundColor' => 'rgba(37,99,235,0.12)',
-            'fill' => FALSE,
-            'tension' => 0.25,
-            'pointRadius' => 4,
-            'borderWidth' => 2,
-          ],
-          [
-            'label' => (string) $this->t('BIPOC members'),
-            'data' => $bipoc,
-            'borderColor' => '#16a34a',
-            'backgroundColor' => 'rgba(22,163,74,0.12)',
-            'fill' => FALSE,
-            'tension' => 0.25,
-            'pointRadius' => 4,
-            'borderWidth' => 2,
-          ],
-          [
-            'label' => (string) $this->t('Female / Non-Binary'),
-            'data' => $femaleNb,
-            'borderColor' => '#7c3aed',
-            'backgroundColor' => 'rgba(124,58,237,0.12)',
-            'fill' => FALSE,
-            'tension' => 0.25,
-            'pointRadius' => 4,
-            'borderWidth' => 2,
-          ],
-        ],
+        'datasets' => $datasets,
       ],
       'options' => [
         'responsive' => TRUE,
@@ -131,7 +120,7 @@ class RetentionActiveParticipationChartBuilder extends ChartBuilderBase {
             ],
             'title' => [
               'display' => TRUE,
-              'text' => (string) $this->t('% who accessed space'),
+              'text' => (string) $this->t('% who visited in the last 90 days'),
             ],
           ],
         ],
@@ -140,67 +129,14 @@ class RetentionActiveParticipationChartBuilder extends ChartBuilderBase {
 
     return $this->newDefinition(
       (string) $this->t('Active Participation Rate'),
-      (string) $this->t('Share of members who accessed the space at least once per quarter, by demographic segment.'),
+      (string) $this->t('Share of members with a door visit in the trailing 90 days, as recorded at the start of each month.'),
       $visualization,
       [
-        (string) $this->t('Source: Door-access logs from access_control_log via UtilizationDataService.'),
-        (string) $this->t('Processing: Each bar covers one completed calendar quarter. Members with at least one door-access event count as "active".'),
-        (string) $this->t('Denominator: Active member roster at query time for each segment.'),
+        (string) $this->t('Source: Monthly KPI snapshots of door-access logs.'),
+        (string) $this->t('Starts April 2026, the first month recorded at the time. Earlier values were reconstructed with today\'s roster and read low, so they are left out.'),
         (string) $this->t('Definitions: BIPOC = members with non-white racial/ethnic identity; Female/NB = members with female or non-binary gender identity.'),
       ],
     );
-  }
-
-  /**
-   * Builds an array of [start, end] DateTimeImmutable pairs for completed quarters.
-   *
-   * Returns the $quarters most recent completed quarters (oldest first) plus
-   * a matching labels array.
-   *
-   * @return array{array<array{DateTimeImmutable, DateTimeImmutable}>, string[]}
-   */
-  private function buildQuarterWindows(DateTimeImmutable $now, int $quarters): array {
-    $month = (int) $now->format('n');
-    $year = (int) $now->format('Y');
-
-    // Find the most recently completed quarter end.
-    $currentQ = (int) ceil($month / 3);
-    $prevQ = $currentQ - 1;
-    $prevYear = $year;
-    if ($prevQ <= 0) {
-      $prevQ = 4;
-      $prevYear--;
-    }
-
-    $windows = [];
-    $labels = [];
-
-    for ($i = $quarters - 1; $i >= 0; $i--) {
-      $targetQ = $prevQ - $i;
-      $targetYear = $prevYear;
-      while ($targetQ <= 0) {
-        $targetQ += 4;
-        $targetYear--;
-      }
-
-      $startMonth = ($targetQ - 1) * 3 + 1;
-      $endMonth = $targetQ * 3;
-      $lastDay = (int) (new DateTimeImmutable(
-        sprintf('%d-%02d-01', $targetYear, $endMonth)
-      ))->format('t');
-
-      $start = new DateTimeImmutable(
-        sprintf('%d-%02d-01 00:00:00', $targetYear, $startMonth)
-      );
-      $end = new DateTimeImmutable(
-        sprintf('%d-%02d-%02d 23:59:59', $targetYear, $endMonth, $lastDay)
-      );
-
-      $windows[] = [$start, $end];
-      $labels[] = sprintf('Q%d %d', $targetQ, $targetYear);
-    }
-
-    return [$windows, $labels];
   }
 
 }

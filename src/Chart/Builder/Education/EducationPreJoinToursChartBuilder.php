@@ -76,7 +76,7 @@ class EducationPreJoinToursChartBuilder extends EducationPreJoinEventsChartBuild
         '@end' => $window['end']->format('M Y'),
       ]),
       (string) $this->t('Total members included: @count', ['@count' => number_format($total)]),
-      (string) $this->t('Tours are detected by CiviCRM event types whose label contains “tour” and only counted when the tour occurred before the member’s join date.'),
+      (string) $this->t('Tours are CiviCRM tour events and tour activities, not cancelled, that took place before the member’s join date.'),
     ];
     if (($selection['months'] ?? 0) !== ($selection['selected_months'] ?? 0)) {
       $notes[] = (string) $this->t('Expanded to a @months-month window due to limited data in the selected range.', [

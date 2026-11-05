@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\StoreInventoryData;
 class OperationsStoreSalesVelocityChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'store_sales_velocity';
+  protected const TIER = 'supplemental';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 16;
 
   protected StoreInventoryData $inventoryData;
@@ -109,7 +111,7 @@ class OperationsStoreSalesVelocityChartBuilder extends OperationsChartBuilderBas
       NULL,
       NULL,
       [],
-      'supplemental',
+      static::TIER,
     );
   }
 

@@ -1621,3 +1621,25 @@
 .makerspace-dashboard-section .kpi-table-scroll .gin-table-scroll-wrapper .kpi-table td:nth-child(2) {
   width: 26% !important;
 }
+
+/* Overview: four trends side by side, so the scorecard stays near the top. */
+.kpi-overview-trends {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+
+.kpi-overview-trends > h2 {
+  margin-bottom: 0;
+}
+
+@media (min-width: 992px) {
+  .kpi-overview-trends {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kpi-overview-trends > h2 {
+    grid-column: 1 / -1;
+  }
+}
+

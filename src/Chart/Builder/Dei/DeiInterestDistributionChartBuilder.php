@@ -10,6 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class DeiInterestDistributionChartBuilder extends DeiChartBuilderBase {
 
   protected const CHART_ID = 'interest_distribution';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 30;
 
   /**

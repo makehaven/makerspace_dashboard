@@ -14,6 +14,7 @@ class OutreachNewMemberRecruitmentChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'new_member_recruitment';
+  protected const TIER = 'key';
   protected const WEIGHT = 10;
 
   /**

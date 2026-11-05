@@ -11,7 +11,7 @@ class EducationFillRateByInterestChartBuilder extends EducationEventsChartBuilde
 
   protected const CHART_ID = 'fill_rate_by_interest';
   protected const WEIGHT = 16;
-  protected const TIER = 'key';
+  protected const TIER = 'supplemental';
 
   /**
    * Rows below this many seats are too thin to read as a trend.

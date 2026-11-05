@@ -14,7 +14,8 @@ class FinanceRevenueMixChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'revenue_mix';
-  protected const WEIGHT = 5;
+  protected const TIER = 'key';
+  protected const WEIGHT = 20;
 
   public function __construct(
     protected FinancialDataService $financialDataService,

@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\UtilizationWindowService;
  */
 class InfrastructureCancellationInactivityChartBuilder extends InfrastructureUtilizationChartBuilderBase {
 
+  protected const SECTION_ID = 'infrastructure';
+  protected const TIER = 'supplemental';
   protected const CHART_ID = 'cancellation_inactivity';
   protected const WEIGHT = 50;
 

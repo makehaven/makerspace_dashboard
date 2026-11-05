@@ -14,7 +14,8 @@ class OutreachTourConversionFunnelChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'tour_conversion_funnel';
-  protected const WEIGHT = 18;
+  protected const TIER = 'key';
+  protected const WEIGHT = 20;
 
   public function __construct(
     protected FunnelDataService $funnelDataService,
@@ -67,7 +68,7 @@ class OutreachTourConversionFunnelChartBuilder extends ChartBuilderBase {
       NULL,
       NULL,
       [],
-      'experimental',
+      static::TIER,
     );
   }
 

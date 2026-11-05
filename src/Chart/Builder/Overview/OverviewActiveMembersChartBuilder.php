@@ -18,7 +18,7 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'overview';
   protected const CHART_ID = 'snapshot_monthly';
-  protected const WEIGHT = 20;
+  protected const WEIGHT = 10;
   protected const RANGE_DEFAULT = '1y';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
 
@@ -125,8 +125,8 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Active Members (Monthly Snapshot)'),
-      (string) $this->t('Collapses snapshots to one point per month using the latest capture inside each month.'),
+      (string) $this->t('Active Members'),
+      (string) $this->t('Members in active status, as recorded each month.'),
       $visualization,
       [
         (string) $this->t('Source: makerspace_snapshot membership_totals snapshots.'),

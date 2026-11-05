@@ -42,11 +42,6 @@ abstract class DashboardSectionBase implements DashboardSectionInterface {
   /**
    * Target chart counts per tier for share-ready sections.
    */
-  protected const CHART_TIER_LIMITS = [
-    'key' => 5,
-    'supplemental' => 8,
-  ];
-
   /**
    * Chart builder manager.
    */
@@ -1522,7 +1517,6 @@ SVG;
       $tier = $definition->getTier();
       $grouped[$tier][] = $definition;
     }
-    $grouped = $this->enforceTierStructureLimits($grouped);
 
     $tiers = [];
     $order = $tierOrder ?: array_keys(self::CHART_TIER_LABELS);
@@ -1558,31 +1552,6 @@ SVG;
     }
 
     return $tiers;
-  }
-
-  /**
-   * Applies section-wide chart count limits by moving overflow to lower tiers.
-   *
-   * @param array $grouped
-   *   Grouped chart definitions keyed by tier.
-   *
-   * @return array
-   *   Grouped chart definitions with overflow shifted to lower tiers.
-   */
-  protected function enforceTierStructureLimits(array $grouped): array {
-    $keyLimit = self::CHART_TIER_LIMITS['key'] ?? 5;
-    if (!empty($grouped['key']) && count($grouped['key']) > $keyLimit) {
-      $overflow = array_splice($grouped['key'], $keyLimit);
-      $grouped['supplemental'] = array_merge($grouped['supplemental'] ?? [], $overflow);
-    }
-
-    $supplementalLimit = self::CHART_TIER_LIMITS['supplemental'] ?? 8;
-    if (!empty($grouped['supplemental']) && count($grouped['supplemental']) > $supplementalLimit) {
-      $overflow = array_splice($grouped['supplemental'], $supplementalLimit);
-      $grouped['experimental'] = array_merge($grouped['experimental'] ?? [], $overflow);
-    }
-
-    return $grouped;
   }
 
   /**

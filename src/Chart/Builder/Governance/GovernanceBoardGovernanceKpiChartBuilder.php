@@ -2,7 +2,10 @@
 
 namespace Drupal\makerspace_dashboard\Chart\Builder\Governance;
 
+use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\makerspace_dashboard\Chart\ChartDefinition;
+use Drupal\makerspace_dashboard\Service\GovernanceBoardDataService;
+use Drupal\makerspace_dashboard\Service\KpiDataService;
 
 /**
  * Builds the Board Governance KPI composite score visualization.
@@ -10,7 +13,19 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class GovernanceBoardGovernanceKpiChartBuilder extends GovernanceChartBuilderBase {
 
   protected const CHART_ID = 'board_governance_kpi';
-  protected const WEIGHT = 40;
+  protected const TIER = 'key';
+  protected const WEIGHT = 30;
+
+  /**
+   * Constructs the builder.
+   */
+  public function __construct(
+    GovernanceBoardDataService $boardDataService,
+    protected KpiDataService $kpiData,
+    ?TranslationInterface $stringTranslation = NULL,
+  ) {
+    parent::__construct($boardDataService, $stringTranslation);
+  }
 
   /**
    * {@inheritdoc}
@@ -22,40 +37,36 @@ class GovernanceBoardGovernanceKpiChartBuilder extends GovernanceChartBuilderBas
     $lastUpdated = $stats['last_updated'] ?? NULL;
     $responseCount = $stats['response_count'] ?? 0;
 
-    $baseline = 80.0;
-    $goal = 90.0;
+    // No survey this year: an empty chart says less than the scorecard's TBD.
+    if ($current === NULL) {
+      return NULL;
+    }
 
-    $labels = [
-      (string) $this->t('2025 Baseline'),
-      (string) $this->t('2030 Goal'),
-    ];
+    $goal = $this->kpiData->getSectionKpiDefinitions('governance')['kpi_board_governance']['goal_2030'] ?? NULL;
+    // Goals come from the Goals sheet on this 1-5 scale. The code default is a
+    // retired 0-1 percentage, which must not be drawn on this axis.
+    $goal = is_numeric($goal) && (float) $goal > 1 ? (float) $goal : NULL;
+
+    $labels = [(string) $this->t('Current score')];
+    $values = [(float) $current];
+    $colors = ['rgba(37, 99, 235, 0.7)'];
+    $borders = ['#2563eb'];
+    if ($goal !== NULL) {
+      $labels[] = (string) $this->t('2030 goal');
+      $values[] = $goal;
+      $colors[] = 'rgba(21, 128, 61, 0.6)';
+      $borders[] = '#15803d';
+    }
     $datasets = [
       [
-        'label' => (string) $this->t('Target (%)'),
-        'data' => [$baseline, $goal],
-        'backgroundColor' => ['rgba(148, 163, 184, 0.6)', 'rgba(21, 128, 61, 0.6)'],
-        'borderColor' => ['#94a3b8', '#15803d'],
+        'label' => (string) $this->t('Average score (1-5)'),
+        'data' => $values,
+        'backgroundColor' => $colors,
+        'borderColor' => $borders,
         'borderWidth' => 1,
         'borderRadius' => 4,
       ],
     ];
-
-    if ($current !== NULL) {
-      $currentPct = round((float) $current * 100, 1);
-      $labels = array_merge(
-        [(string) $this->t('Current Score')],
-        $labels
-      );
-      $datasets[0]['data'] = array_merge([$currentPct], $datasets[0]['data']);
-      $datasets[0]['backgroundColor'] = array_merge(
-        ['rgba(37, 99, 235, 0.7)'],
-        $datasets[0]['backgroundColor']
-      );
-      $datasets[0]['borderColor'] = array_merge(
-        ['#2563eb'],
-        $datasets[0]['borderColor']
-      );
-    }
 
     $visualization = [
       'type' => 'chart',
@@ -73,8 +84,8 @@ class GovernanceBoardGovernanceKpiChartBuilder extends GovernanceChartBuilderBas
           'tooltip' => [
             'callbacks' => [
               'label' => $this->chartCallback('series_value', [
-                'format' => 'percent',
-                'decimals' => 1,
+                'format' => 'number',
+                'decimals' => 2,
               ]),
             ],
           ],
@@ -82,17 +93,13 @@ class GovernanceBoardGovernanceKpiChartBuilder extends GovernanceChartBuilderBas
         'scales' => [
           'x' => [
             'beginAtZero' => TRUE,
-            'max' => 100,
+            'max' => 5,
             'ticks' => [
-              'callback' => $this->chartCallback('value_format', [
-                'format' => 'percent',
-                'decimals' => 0,
-                'showLabel' => FALSE,
-              ]),
+              'stepSize' => 1,
             ],
             'title' => [
               'display' => TRUE,
-              'text' => (string) $this->t('% of responses scoring 4 or 5'),
+              'text' => (string) $this->t('Average score, 1 to 5'),
             ],
           ],
           'y' => [
@@ -104,23 +111,18 @@ class GovernanceBoardGovernanceKpiChartBuilder extends GovernanceChartBuilderBas
 
     $notes = [
       (string) $this->t('Source: Annual Board Governance Effectiveness Self-Assessment webform (/survey/board).'),
-      (string) $this->t('Processing: Composite of 7 categories — strategic focus, information preparation, culture of challenge, board composition, fiduciary oversight, meeting effectiveness, governance impact. Score = % of individual question responses rated 4 or 5 out of 5.'),
+      (string) $this->t('Processing: Composite of 7 categories — strategic focus, information preparation, culture of challenge, board composition, fiduciary oversight, meeting effectiveness, governance impact. Score = the average of all answers, each rated 1 to 5.'),
     ];
-    if ($current === NULL) {
-      $notes[] = (string) $this->t('No survey responses recorded for the current year.');
+    if ($responseCount > 0) {
+      $notes[] = (string) $this->t('Answers this year: @count', ['@count' => $responseCount]);
     }
-    else {
-      if ($responseCount > 0) {
-        $notes[] = (string) $this->t('Responses this year: @count', ['@count' => $responseCount]);
-      }
-      if ($lastUpdated) {
-        $notes[] = (string) $this->t('Last submission: @date', ['@date' => $lastUpdated]);
-      }
+    if ($lastUpdated) {
+      $notes[] = (string) $this->t('Last submission: @date', ['@date' => $lastUpdated]);
     }
 
     return $this->newDefinition(
       (string) $this->t('Board Governance KPI'),
-      (string) $this->t('Composite effectiveness score from the annual Board self-assessment, measured against 2025 baseline and 2030 goal.'),
+      (string) $this->t('Composite effectiveness score from the annual Board self-assessment, measured against the 2030 goal.'),
       $visualization,
       $notes,
     );

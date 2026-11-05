@@ -10,7 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class EducationWaitlistFollowThroughChartBuilder extends EducationEventsChartBuilderBase {
 
   protected const CHART_ID = 'waitlist_follow_through';
-  protected const WEIGHT = 18;
+  protected const WEIGHT = 50;
   protected const TIER = 'key';
 
   /**

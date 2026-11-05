@@ -14,7 +14,8 @@ class OutreachTourConversionTrendChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'tour_conversion_trend';
-  protected const WEIGHT = 19;
+  protected const TIER = 'key';
+  protected const WEIGHT = 30;
 
   /**
    * Days after a tour within which a join counts as a conversion.

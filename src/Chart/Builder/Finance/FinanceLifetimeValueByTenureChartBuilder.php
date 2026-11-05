@@ -14,6 +14,7 @@ class FinanceLifetimeValueByTenureChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'ltv_by_tenure';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 32;
 
   /**

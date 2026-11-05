@@ -14,6 +14,7 @@ class FinanceLifetimeValueByTypeChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'ltv_by_type';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 31;
 
   /**

@@ -21,11 +21,11 @@ use Drupal\makerspace_dashboard\Service\ListeningDataService;
  */
 class RetentionExitReasonsChartBuilder extends ChartBuilderBase {
 
-  protected const TIER = 'supplemental';
+  protected const TIER = 'key';
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'exit_reasons';
-  protected const WEIGHT = 15;
+  protected const WEIGHT = 50;
 
   /**
    * The listening aggregator.

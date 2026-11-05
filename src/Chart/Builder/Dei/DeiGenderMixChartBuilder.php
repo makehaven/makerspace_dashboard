@@ -10,7 +10,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class DeiGenderMixChartBuilder extends DeiChartBuilderBase {
 
   protected const CHART_ID = 'gender_mix';
-  protected const WEIGHT = 20;
+  protected const TIER = 'key';
+  protected const WEIGHT = 40;
 
   /**
    * {@inheritdoc}

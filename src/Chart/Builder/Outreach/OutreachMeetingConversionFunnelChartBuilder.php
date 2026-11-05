@@ -14,6 +14,7 @@ class OutreachMeetingConversionFunnelChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'meeting_conversion_funnel';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 23;
 
   public function __construct(
@@ -67,7 +68,7 @@ class OutreachMeetingConversionFunnelChartBuilder extends ChartBuilderBase {
       NULL,
       NULL,
       [],
-      'experimental',
+      static::TIER,
     );
   }
 

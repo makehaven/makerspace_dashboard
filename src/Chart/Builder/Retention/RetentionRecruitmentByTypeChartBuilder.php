@@ -16,6 +16,7 @@ class RetentionRecruitmentByTypeChartBuilder extends RetentionFlowChartBuilderBa
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'type_incoming';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 60;
 
   public function __construct(RetentionFlowDataService $flowDataService, DateFormatterInterface $dateFormatter, ?TranslationInterface $stringTranslation = NULL) {

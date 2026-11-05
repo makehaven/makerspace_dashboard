@@ -13,6 +13,7 @@ class InfrastructureFirstEntryChartBuilder extends InfrastructureUtilizationChar
 
   protected const SECTION_ID = 'infrastructure';
   protected const CHART_ID = 'weekday_first_entry';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 70;
 
   public function __construct(UtilizationWindowService $windowService, ?TranslationInterface $stringTranslation = NULL) {

@@ -12,6 +12,7 @@ use Drupal\makerspace_dashboard\Service\DevelopmentDataService;
 class DevelopmentAnnualGivingChartBuilder extends DevelopmentChartBuilderBase {
 
   protected const CHART_ID = 'annual_giving';
+  protected const TIER = 'key';
   protected const WEIGHT = 10;
 
   public function __construct(

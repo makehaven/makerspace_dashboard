@@ -13,6 +13,7 @@ class InfrastructureWeekdayProfileChartBuilder extends InfrastructureUtilization
 
   protected const SECTION_ID = 'infrastructure';
   protected const CHART_ID = 'weekday_profile';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 50;
 
   public function __construct(UtilizationWindowService $windowService, ?TranslationInterface $stringTranslation = NULL) {

@@ -14,6 +14,7 @@ class FinancePaymentMixChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'payment_mix';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 20;
   private const QUARTER_LIMIT = 6;
 

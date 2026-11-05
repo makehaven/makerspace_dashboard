@@ -13,7 +13,8 @@ use Drupal\makerspace_dashboard\Service\GovernanceBoardDataService;
 class GovernanceBoardGenderIdentityChartBuilder extends GovernanceChartBuilderBase {
 
   protected const CHART_ID = 'board_gender_identity';
-  protected const WEIGHT = 10;
+  protected const TIER = 'key';
+  protected const WEIGHT = 20;
 
   /**
    * Shared color palette to keep slices consistent.

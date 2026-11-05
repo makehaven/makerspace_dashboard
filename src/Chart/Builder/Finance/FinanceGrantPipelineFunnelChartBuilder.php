@@ -12,9 +12,10 @@ use Drupal\makerspace_dashboard\Service\DevelopmentDataService;
  */
 class FinanceGrantPipelineFunnelChartBuilder extends ChartBuilderBase {
 
-  protected const SECTION_ID = 'finance';
+  protected const SECTION_ID = 'development';
   protected const CHART_ID = 'grant_pipeline_funnel';
-  protected const WEIGHT = 60;
+  protected const TIER = 'key';
+  protected const WEIGHT = 30;
 
   public function __construct(
     protected DevelopmentDataService $developmentData,

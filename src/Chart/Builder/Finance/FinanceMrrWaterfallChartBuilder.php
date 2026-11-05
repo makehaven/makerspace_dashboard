@@ -14,7 +14,9 @@ class FinanceMrrWaterfallChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'mrr_waterfall';
-  protected const WEIGHT = 11;
+  protected const TIER = 'key';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
+  protected const WEIGHT = 30;
 
   public function __construct(
     protected FinancialDataService $financialDataService,
@@ -133,8 +135,8 @@ class FinanceMrrWaterfallChartBuilder extends ChartBuilderBase {
     }
 
     return $this->newDefinition(
-      (string) $this->t('MRR change waterfall'),
-      (string) $this->t('Monthly recurring revenue gained from new members vs. lost to ended memberships, with net change line. Predictive companion to the MRR trend chart above.'),
+      (string) $this->t('Monthly Dues Gained vs Lost'),
+      (string) $this->t('Monthly recurring revenue gained from new members vs. lost to ended memberships, with net change line. Shows the direction of recurring revenue, not its total.'),
       $visualization,
       $notes,
     );

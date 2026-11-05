@@ -13,6 +13,8 @@ class InfrastructureMonthlyEntriesChartBuilder extends InfrastructureUtilization
 
   protected const SECTION_ID = 'infrastructure';
   protected const CHART_ID = 'daily_unique_entries';
+  protected const TIER = 'key';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 20;
 
   public function __construct(UtilizationWindowService $windowService, ?TranslationInterface $stringTranslation = NULL) {

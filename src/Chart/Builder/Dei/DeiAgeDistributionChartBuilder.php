@@ -10,7 +10,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class DeiAgeDistributionChartBuilder extends DeiChartBuilderBase {
 
   protected const CHART_ID = 'age_distribution';
-  protected const WEIGHT = 40;
+  protected const TIER = 'key';
+  protected const WEIGHT = 50;
 
   /**
    * {@inheritdoc}

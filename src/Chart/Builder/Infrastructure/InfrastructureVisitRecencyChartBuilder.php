@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\UtilizationWindowService;
  */
 class InfrastructureVisitRecencyChartBuilder extends InfrastructureUtilizationChartBuilderBase {
 
+  protected const SECTION_ID = 'infrastructure';
+  protected const TIER = 'supplemental';
   protected const CHART_ID = 'visit_recency';
   protected const WEIGHT = 45;
 

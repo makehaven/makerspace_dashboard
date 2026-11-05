@@ -12,6 +12,7 @@ use Drupal\Core\StringTranslation\TranslationInterface;
 class OperationsLendingLibraryMonthlyLoansChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'lending_monthly_loans';
+  protected const TIER = 'key';
   protected const WEIGHT = 10;
 
   protected StatsCollectorInterface $statsCollector;

@@ -19,6 +19,7 @@ class OutreachEventConversionTrendChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'event_conversion_trend';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 6;
 
   /**

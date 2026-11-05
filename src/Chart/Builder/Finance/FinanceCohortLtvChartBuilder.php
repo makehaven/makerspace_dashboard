@@ -14,6 +14,7 @@ class FinanceCohortLtvChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'cohort_ltv';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 35;
 
   public function __construct(

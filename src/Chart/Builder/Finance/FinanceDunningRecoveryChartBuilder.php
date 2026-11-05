@@ -14,6 +14,7 @@ class FinanceDunningRecoveryChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'dunning_recovery';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 70;
   protected const TIER = 'supplemental';
 

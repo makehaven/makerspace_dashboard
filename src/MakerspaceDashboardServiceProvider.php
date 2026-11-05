@@ -24,7 +24,7 @@ use Drupal\Core\DependencyInjection\ServiceProviderBase;
  *
  * Dropping the definitions is the right response rather than passing NULL:
  * a chart builder with no stats service has nothing to draw, and the tagged
- * collector simply offers three fewer charts until the module arrives. The
+ * collector simply offers two fewer charts until the module arrives. The
  * next cache rebuild after `cim` registers them.
  */
 class MakerspaceDashboardServiceProvider extends ServiceProviderBase {
@@ -34,7 +34,6 @@ class MakerspaceDashboardServiceProvider extends ServiceProviderBase {
    */
   private const REFERRAL_CHART_BUILDERS = [
     'makerspace_dashboard.chart_builder.outreach_referrals_monthly',
-    'makerspace_dashboard.chart_builder.outreach_top_referrers',
     'makerspace_dashboard.chart_builder.outreach_referral_resolution',
   ];
 

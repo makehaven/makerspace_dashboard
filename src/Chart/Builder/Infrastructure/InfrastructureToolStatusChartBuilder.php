@@ -14,6 +14,7 @@ class InfrastructureToolStatusChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'infrastructure';
   protected const CHART_ID = 'tool_status_breakdown';
+  protected const TIER = 'key';
   protected const WEIGHT = 10;
 
   /**

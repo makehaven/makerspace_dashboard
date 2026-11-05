@@ -237,3 +237,12 @@ Changed definitions:
 - Finance KPIs read from the sheet show the newest posted quarter as their date
   and say so when it is over 45 days old. Education net income annualises by the
   quarters actually posted, not by today's date.
+
+## Chart placement and history (2026-11)
+
+- **Tiers are chosen.** A chart's `TIER` alone decides its placement. Nothing moves a chart for capacity, so a new chart that does not declare a tier lands in Key insights. Keep Key insights to about five per section.
+- **Participation history** starts April 2026, the first snapshot written at the time. Earlier rows were backfilled by hand with today's roster and read about ten points low. The KPI sparkline still reads them.
+- **At-risk share** is not comparable across Oct 14, 2026, when the risk score was reworked.
+- **"Dues from new joiners"** is not MRR. There is no monthly history of total MRR; use quarterly membership dues from the income statement.
+- **Named people** do not belong in dashboard charts. The dashboard is public; staff see referrers at `/admin/people/referrals/by-referrer`.
+

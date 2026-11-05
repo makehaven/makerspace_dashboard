@@ -19,7 +19,8 @@ class OutreachFirstTimeRegistrantFunnelChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'first_time_registrant_funnel';
-  protected const WEIGHT = 7;
+  protected const TIER = 'key';
+  protected const WEIGHT = 40;
 
   /**
    * Days after the first event within which a join counts as fast conversion.

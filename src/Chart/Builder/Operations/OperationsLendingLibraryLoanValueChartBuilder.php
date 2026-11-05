@@ -12,6 +12,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class OperationsLendingLibraryLoanValueChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'lending_value_vs_items';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 15;
 
   protected StatsCollectorInterface $statsCollector;
@@ -125,7 +126,7 @@ class OperationsLendingLibraryLoanValueChartBuilder extends OperationsChartBuild
       NULL,
       NULL,
       [],
-      'supplemental',
+      static::TIER,
     );
   }
 

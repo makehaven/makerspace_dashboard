@@ -10,6 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class DeiTownDistributionChartBuilder extends DeiChartBuilderBase {
 
   protected const CHART_ID = 'town_distribution';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 10;
 
   /**

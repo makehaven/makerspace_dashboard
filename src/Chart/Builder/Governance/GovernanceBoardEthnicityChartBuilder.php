@@ -12,7 +12,8 @@ use Drupal\makerspace_dashboard\Service\GovernanceBoardDataService;
 class GovernanceBoardEthnicityChartBuilder extends GovernanceChartBuilderBase {
 
   protected const CHART_ID = 'board_ethnicity';
-  protected const WEIGHT = 30;
+  protected const TIER = 'key';
+  protected const WEIGHT = 10;
 
   protected const COLOR_MAP = [
     'Black or African American' => '#dc2626',

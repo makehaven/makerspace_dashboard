@@ -12,6 +12,8 @@ use Drupal\makerspace_dashboard\Service\DevelopmentDataService;
 class DevelopmentRecurringGivingChartBuilder extends DevelopmentChartBuilderBase {
 
   protected const CHART_ID = 'recurring_vs_onetime';
+  protected const TIER = 'key';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 20;
 
   public function __construct(

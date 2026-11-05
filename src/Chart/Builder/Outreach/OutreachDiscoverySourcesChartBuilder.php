@@ -11,7 +11,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class OutreachDiscoverySourcesChartBuilder extends OutreachChartBuilderBase {
 
   protected const CHART_ID = 'discovery_sources';
-  protected const WEIGHT = 10;
+  protected const TIER = 'key';
+  protected const WEIGHT = 50;
 
   /**
    * {@inheritdoc}

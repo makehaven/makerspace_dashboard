@@ -8,12 +8,14 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 use Drupal\makerspace_dashboard\Service\FinancialDataService;
 
 /**
- * Builds the Finance section MRR trend chart.
+ * Monthly dues from people who joined that month. This is not total MRR.
  */
 class FinanceMrrTrendChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'mrr';
+  protected const TIER = 'supplemental';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 10;
 
   /**
@@ -41,7 +43,7 @@ class FinanceMrrTrendChartBuilder extends ChartBuilderBase {
 
     $labels = array_map('strval', $series['labels'] ?? []);
     $datasets = [[
-      'label' => (string) $this->t('MRR ($)'),
+      'label' => (string) $this->t('New-joiner dues ($ per month)'),
       'data' => $values,
       'borderColor' => '#1d4ed8',
       'backgroundColor' => 'rgba(37, 99, 235, 0.15)',
@@ -101,13 +103,13 @@ class FinanceMrrTrendChartBuilder extends ChartBuilderBase {
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Monthly Recurring Revenue Trend'),
-      (string) $this->t('Aggregate by billing source to highlight sustainability of recruitment and retention efforts.'),
+      (string) $this->t('Monthly Dues from New Joiners'),
+      (string) $this->t('The monthly dues of the people who joined each month. This is new dues only, not total recurring revenue.'),
       $visualization,
       [
         (string) $this->t('Source: Canonical member profile creation timestamps paired with recorded monthly payment values.'),
-        (string) $this->t('Processing: Includes joins within the selected six-month window and applies assumed monthly values ($50 individual, $75 family, others default to $0).'),
-        (string) $this->t('Definitions: Additional membership types require configured pricing before contributing to this model.'),
+        (string) $this->t('Processing: Adds the recorded monthly payment of each member whose profile was created in the month, over six months.'),
+        (string) $this->t('Definitions: Dues from existing members are not included. For total membership income, see Revenue mix by income stream.'),
       ],
     );
   }

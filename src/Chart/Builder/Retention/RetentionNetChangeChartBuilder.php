@@ -14,7 +14,9 @@ class RetentionNetChangeChartBuilder extends RetentionFlowChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'net_balance';
-  protected const WEIGHT = 5;
+  protected const TIER = 'key';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
+  protected const WEIGHT = 20;
 
   public function __construct(RetentionFlowDataService $flowDataService, DateFormatterInterface $dateFormatter, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($flowDataService, $dateFormatter, $stringTranslation);

@@ -14,6 +14,7 @@ class OutreachContactGrowthChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'contact_growth';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 15;
 
   public function __construct(

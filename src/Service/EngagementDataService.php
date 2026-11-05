@@ -19,9 +19,11 @@ class EngagementDataService {
   protected const DEFAULT_WINDOW_DAYS = 90;
 
   /**
-   * Default orientation badge term IDs (Maker Safety).
+   * Door badge term when makerspace_member_success has not set one.
+   *
+   * It is granted on finishing onboarding, so it is what orientation means.
    */
-  protected const DEFAULT_ORIENTATION_BADGES = [270];
+  protected const DEFAULT_DOOR_BADGE_TID = 1519;
 
   protected Connection $database;
 
@@ -74,12 +76,10 @@ class EngagementDataService {
    * Orientation badge term IDs.
    */
   public function getOrientationBadgeIds(): array {
-    $ids = $this->getSettings()->get('engagement.orientation_badge_ids') ?? self::DEFAULT_ORIENTATION_BADGES;
-    if (!is_array($ids)) {
-      $ids = self::DEFAULT_ORIENTATION_BADGES;
-    }
-    $ids = array_values(array_unique(array_map('intval', $ids)));
-    return $ids ?: self::DEFAULT_ORIENTATION_BADGES;
+    $door = (int) ($this->configFactory->get('makerspace_member_success.settings')->get('door_badge_tid') ?: self::DEFAULT_DOOR_BADGE_TID);
+    $ids = $this->getSettings()->get('engagement.orientation_badge_ids');
+    $ids = is_array($ids) ? array_values(array_unique(array_map('intval', $ids))) : [];
+    return $ids ?: [$door];
   }
 
   /**

@@ -14,6 +14,7 @@ class RetentionEndingReasonsChartBuilder extends RetentionFlowChartBuilderBase {
 
   protected const SECTION_ID = 'retention';
   protected const CHART_ID = 'ending_reasons';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
   protected const WEIGHT = 12;
   protected const TIER = 'supplemental';
 

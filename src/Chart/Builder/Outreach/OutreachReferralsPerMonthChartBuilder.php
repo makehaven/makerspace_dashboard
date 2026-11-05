@@ -15,7 +15,8 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class OutreachReferralsPerMonthChartBuilder extends ReferralChartBuilderBase {
 
   protected const CHART_ID = 'referrals_monthly';
-  protected const TIER = 'key';
+  protected const PARTIAL_LAST_PERIOD = TRUE;
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 12;
 
   /**

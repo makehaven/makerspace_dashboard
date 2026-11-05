@@ -10,6 +10,7 @@ use Drupal\makerspace_dashboard\Chart\ChartDefinition;
 class OutreachRegionalSaturationChartBuilder extends OutreachChartBuilderBase {
 
   protected const CHART_ID = 'regional_saturation';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 5;
 
   /**

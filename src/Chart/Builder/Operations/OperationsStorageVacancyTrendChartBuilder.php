@@ -15,6 +15,7 @@ use Drupal\storage_manager\Service\StatisticsService;
 class OperationsStorageVacancyTrendChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'storage_vacancy_trend';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 40;
 
   protected StatisticsService $statisticsService;
@@ -134,7 +135,7 @@ class OperationsStorageVacancyTrendChartBuilder extends OperationsChartBuilderBa
       NULL,
       NULL,
       [],
-      'supplemental',
+      static::TIER,
     );
   }
 

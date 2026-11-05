@@ -17,6 +17,8 @@ class DeiWorkshopUtilizationChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'dei';
   protected const CHART_ID = 'workshop_utilization';
+  protected const WEIGHT = 20;
+  protected const TIER = 'key';
   protected const RANGE_OPTIONS = ['3m', '1y', '2y', 'all'];
   protected const RANGE_DEFAULT = '1y';
 

@@ -2008,6 +2008,31 @@ class EventsMembershipDataService {
       }
     }
 
+    // Tours are booked through Calendly and recorded as activities, not events.
+    if (!empty($contactMap)) {
+      $tourQuery = $this->database->select('civicrm_activity', 'a');
+      $tourQuery->innerJoin('civicrm_activity_contact', 'ac', 'ac.activity_id = a.id');
+      $tourQuery->innerJoin('civicrm_option_value', 'ov', 'ov.value = a.activity_type_id');
+      $tourQuery->innerJoin('civicrm_option_group', 'og', "og.id = ov.option_group_id AND og.name = 'activity_type'");
+      $tourQuery->leftJoin('civicrm_option_group', 'sg', "sg.name = 'activity_status'");
+      $tourQuery->leftJoin('civicrm_option_value', 'sv', 'sv.option_group_id = sg.id AND sv.value = a.status_id');
+      $tourQuery->addField('ac', 'contact_id');
+      $tourQuery->addExpression('MIN(a.activity_date_time)', 'first_tour');
+      $tourQuery->condition('ac.contact_id', array_keys($contactMap), 'IN');
+      $tourQuery->condition('a.is_test', 0);
+      $tourQuery->condition('a.is_deleted', 0);
+      $tourQuery->where("LOWER(ov.label) LIKE '%tour%'");
+      $tourQuery->where("COALESCE(sv.name, '') <> 'Cancelled'");
+      $tourQuery->groupBy('ac.contact_id');
+      foreach ($tourQuery->execute() as $row) {
+        $memberKey = $contactMap[(int) $row->contact_id] ?? NULL;
+        $tourTimestamp = $row->first_tour ? strtotime($row->first_tour) : NULL;
+        if ($memberKey && $tourTimestamp && $tourTimestamp <= $members[$memberKey]['join_timestamp']) {
+          $members[$memberKey]['had_tour'] = TRUE;
+        }
+      }
+    }
+
     $memberCount = count($members);
     $overallCounts = $this->bucketizePreJoinCounts(array_map(static function (array $member): int {
       return (int) ($member['total_events'] ?? 0);

@@ -15,6 +15,21 @@ use Drupal\makerspace_dashboard\Service\KpiDataService;
  */
 class OverviewSection extends DashboardSectionBase {
 
+  /**
+   * Scorecard order: the plan's Program, Facilities, Membership, Visibility,
+   * Finance and Organization, then Development and Entrepreneurship.
+   */
+  private const SECTION_ORDER = [
+    'education',
+    'infrastructure',
+    'retention',
+    'outreach',
+    'finance',
+    'governance',
+    'development',
+    'entrepreneurship',
+  ];
+
   protected KpiDataService $kpiDataService;
   protected array $sectionLabels = [];
 
@@ -44,16 +59,26 @@ class OverviewSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): array {
-    return [
-      'stoplight' => $this->buildStoplightGrid(),
-    ];
+    $build = [];
+    foreach ($this->buildTieredChartContainers($filters) as $tier => $container) {
+      $container['#attributes']['class'][] = 'kpi-overview-trends';
+      $container['heading']['#markup'] = '<h2>' . $this->t('Four trends') . '</h2>';
+      $build['tier_' . $tier] = $container;
+    }
+    $build['stoplight'] = $this->buildStoplightGrid();
+    return $build;
   }
 
   /**
    * Builds the stoplight KPI overview grouped by section.
    */
   protected function buildStoplightGrid(): array {
+    // Strategic plan order, then the sections outside its six headings.
     $definitions = $this->kpiDataService->getAllKpiDefinitions();
+    $definitions = array_replace(
+      array_intersect_key(array_flip(self::SECTION_ORDER), $definitions),
+      $definitions,
+    );
     $goalYearLabel = NULL;
     $sectionTables = [];
     $allSourceNotes = [];
@@ -298,35 +323,43 @@ class OverviewSection extends DashboardSectionBase {
     $manual = [
       'outreach' => [
         'kpi_total_new_member_signups' => 'new_member_recruitment',
+        'kpi_tours' => 'tour_conversion_trend',
         'kpi_tours_to_member_conversion' => 'tour_conversion_funnel',
         'kpi_guest_waiver_to_member_conversion' => 'guest_waiver_conversion_funnel',
-        'kpi_event_participant_to_member_conversion' => 'event_conversion_funnel',
+        'kpi_event_participant_to_member_conversion' => 'event_conversion_trend',
+        'kpi_total_first_time_workshop_participants' => 'first_time_registrant_funnel',
+        'kpi_member_referral_rate' => 'referrals_monthly',
+        'kpi_referral_resolution_rate' => 'referral_resolution',
       ],
       'retention' => [
-        'kpi_total_active_members' => 'snapshot_monthly',
+        'kpi_total_active_members' => 'active_members',
         'kpi_first_year_member_retention' => 'annual_retention',
         'kpi_member_post_12_month_retention' => 'annual_retention',
-        'kpi_member_nps' => 'appointment_feedback_outcomes',
-        'kpi_active_participation' => 'badge_tenure_correlation',
-        'kpi_membership_diversity_bipoc' => 'annual_retention_ethnicity',
-        'kpi_members_at_risk_share' => 'snapshot_membership_type_share',
-      ],
-      'dei' => [
         'kpi_retention_poc' => 'annual_retention_ethnicity',
-        'kpi_active_participation_bipoc' => 'workshop_utilization',
-        'kpi_active_participation_female_nb' => 'gender_mix',
+        'kpi_member_nps' => 'appointment_feedback_outcomes',
+        'kpi_active_participation' => 'active_participation_trend',
+        'kpi_active_participation_bipoc' => 'active_participation_trend',
+        'kpi_active_participation_female_nb' => 'active_participation_trend',
+        'kpi_new_member_first_badge_28_days' => 'activation_cohort_trend',
+        'kpi_membership_diversity_bipoc' => 'annual_retention_ethnicity',
+        'kpi_members_at_risk_share' => 'members_at_risk_timeline',
       ],
       'education' => [
         'kpi_workshop_attendees' => 'registrations_by_type',
+        'kpi_workshop_capacity_utilization' => 'workshop_fill_rate',
+        'kpi_program_capacity_utilization' => 'workshop_fill_rate',
+        'kpi_workshop_program_capacity_utilization' => 'workshop_fill_rate',
         'kpi_education_nps' => 'event_net_promoter',
-        'kpi_workshop_participants_bipoc' => 'participant_ethnicity',
+        'kpi_workshop_participants_bipoc' => 'demographics_ethnicity',
         'kpi_active_instructors_bipoc' => 'active_instructor_demographics',
-        'kpi_net_income_education' => 'registrations_by_type',
+        'kpi_net_income_education' => 'revenue_per_registration',
       ],
       'finance' => [
-        'kpi_member_revenue_quarterly' => 'mrr_trend',
-        'kpi_reserve_funds_months' => 'average_monthly_payment',
-        'kpi_net_income_program_lines' => 'mrr_trend',
+        'kpi_reserve_funds_months' => 'reserve_funds',
+        'kpi_earned_income_sustaining_core' => 'revenue_vs_expense',
+        'kpi_member_revenue_quarterly' => 'revenue_mix',
+        'kpi_member_lifetime_value_projected' => 'ltv_by_tenure',
+        'kpi_revenue_per_member_index' => 'revenue_vs_expense',
       ],
       'governance' => [
         'kpi_board_ethnic_diversity' => 'board_ethnicity',
@@ -335,21 +368,21 @@ class OverviewSection extends DashboardSectionBase {
         'kpi_committee_effectiveness' => 'committee_effectiveness_kpi',
       ],
       'infrastructure' => [
-        'kpi_equipment_uptime_rate' => 'monthly_entries',
-        'kpi_active_participation' => 'monthly_entries',
-        'kpi_adherence_to_shop_budget' => 'storage_vacancy_trend',
-        'kpi_member_satisfaction_equipment' => 'tool_status',
+        'kpi_equipment_uptime_rate' => 'tool_status_breakdown',
+        'kpi_equipment_investment' => 'tool_status_breakdown',
+      ],
+      'development' => [
+        'kpi_recurring_donors_count' => 'recurring_vs_onetime',
+        'kpi_annual_corporate_sponsorships' => 'annual_giving',
+        'kpi_grant_pipeline_count' => 'grant_pipeline_funnel',
+        'kpi_grant_win_ratio' => 'grant_pipeline_funnel',
+        'kpi_donor_retention_rate' => 'member_donor_trend',
       ],
       'entrepreneurship' => [
         'kpi_active_incubator_ventures' => 'entrepreneur_goal_trend',
         'kpi_entrepreneurship_event_participation' => 'entrepreneur_goal_trend',
         'kpi_entrepreneurship_joins_rate' => 'entrepreneur_goal_trend',
         'kpi_entrepreneurship_retention' => 'entrepreneur_goal_trend',
-      ],
-      'overview' => [
-        'kpi_total_active_members' => 'active_members',
-        'kpi_workshop_attendees' => 'workshop_attendance',
-        'kpi_reserve_funds_months' => 'reserve_funds',
       ],
     ];
 

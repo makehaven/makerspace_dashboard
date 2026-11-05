@@ -14,7 +14,8 @@ class FinanceRevenueVsExpenseChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'finance';
   protected const CHART_ID = 'revenue_vs_expense';
-  protected const WEIGHT = 6;
+  protected const TIER = 'key';
+  protected const WEIGHT = 10;
 
   public function __construct(
     protected FinancialDataService $financialDataService,

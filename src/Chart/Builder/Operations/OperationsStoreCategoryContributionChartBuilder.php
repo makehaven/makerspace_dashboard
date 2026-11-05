@@ -12,6 +12,7 @@ use Drupal\makerspace_dashboard\Service\StoreInventoryData;
 class OperationsStoreCategoryContributionChartBuilder extends OperationsChartBuilderBase {
 
   protected const CHART_ID = 'store_category_contribution';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 5;
 
   protected StoreInventoryData $inventoryData;
@@ -102,7 +103,7 @@ class OperationsStoreCategoryContributionChartBuilder extends OperationsChartBui
       NULL,
       NULL,
       [],
-      'supplemental',
+      static::TIER,
     );
   }
 

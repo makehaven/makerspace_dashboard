@@ -13,7 +13,8 @@ class InfrastructureVisitFrequencyChartBuilder extends InfrastructureUtilization
 
   protected const SECTION_ID = 'infrastructure';
   protected const CHART_ID = 'frequency_buckets';
-  protected const WEIGHT = 40;
+  protected const TIER = 'key';
+  protected const WEIGHT = 30;
 
   public function __construct(UtilizationWindowService $windowService, ?TranslationInterface $stringTranslation = NULL) {
     parent::__construct($windowService, $stringTranslation);

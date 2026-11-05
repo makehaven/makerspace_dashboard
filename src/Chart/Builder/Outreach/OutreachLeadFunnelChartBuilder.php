@@ -14,6 +14,7 @@ class OutreachLeadFunnelChartBuilder extends ChartBuilderBase {
 
   protected const SECTION_ID = 'outreach';
   protected const CHART_ID = 'lead_generation_funnel';
+  protected const TIER = 'supplemental';
   protected const WEIGHT = 12;
 
   public function __construct(
