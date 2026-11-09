@@ -360,18 +360,22 @@ class FunnelDataService {
    * Loads a contact => earliest activity date map for the given label match.
    */
   protected function getActivityContactMap(string $labelMatch, DateTimeImmutable $start, DateTimeImmutable $end): array {
-    $cacheId = sprintf('makerspace_dashboard:funnel:activity_map:v2:%s:%s:%s', strtolower($labelMatch), $start->format('Ymd'), $end->format('Ymd'));
+    $cacheId = sprintf('makerspace_dashboard:funnel:activity_map:v3:%s:%s:%s', strtolower($labelMatch), $start->format('Ymd'), $end->format('Ymd'));
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
-    $pattern = '%' . $this->database->escapeLike(strtolower($labelMatch)) . '%';
+    $typeIds = $this->getActivityTypeIds($labelMatch);
+    if (!$typeIds) {
+      $this->cache->set($cacheId, [], $this->time->getRequestTime() + self::CACHE_TTL, ['civicrm_activity_list']);
+      return [];
+    }
     $targetRecordTypeId = $this->getActivityTargetRecordTypeId();
 
     $query = $this->database->select('civicrm_activity', 'a');
     $query->innerJoin('civicrm_activity_contact', 'ac', 'ac.activity_id = a.id');
-    $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = a.activity_type_id');
     $query->fields('ac', ['contact_id']);
+    $query->condition('a.activity_type_id', $typeIds, 'IN');
     $query->addExpression('MIN(a.activity_date_time)', 'first_activity_date');
     $query->condition('ac.record_type_id', $targetRecordTypeId);
     $query->condition('ac.contact_id', 0, '>');
@@ -387,9 +391,6 @@ class FunnelDataService {
     if ($cancelled) {
       $query->condition('a.status_id', $cancelled, '<>');
     }
-    $query->where('LOWER(COALESCE(ov.label, \'\')) LIKE :activity_label', [
-      ':activity_label' => $pattern,
-    ]);
     $query->groupBy('ac.contact_id');
 
     $map = [];
@@ -579,6 +580,36 @@ class FunnelDataService {
   }
 
   /**
+   * Activity type values whose label contains the given text.
+   *
+   * Resolved up front rather than joined into the activity query. The join
+   * used to match option values by number alone, so it took labels from every
+   * CiviCRM option list (an activity type numbered like a "Meeting" option in
+   * some other list counted as a meeting). That overcounted the funnels and
+   * multiplied rows until each query took about 20 seconds, which timed out
+   * /makerspace-dashboard/outreach (2026-11-09). Limited to the activity_type
+   * list and passed as an IN list, the same query takes 0.01 seconds.
+   *
+   * @return int[]
+   *   Matching activity_type_id values; empty when no type matches.
+   */
+  protected function getActivityTypeIds(string $labelMatch): array {
+    static $resolved = [];
+    $key = strtolower($labelMatch);
+    if (!isset($resolved[$key])) {
+      $query = $this->database->select('civicrm_option_group', 'og');
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.option_group_id = og.id');
+      $query->addField('ov', 'value');
+      $query->condition('og.name', 'activity_type');
+      $query->where('LOWER(ov.label) LIKE :pattern', [
+        ':pattern' => '%' . $this->database->escapeLike($key) . '%',
+      ]);
+      $resolved[$key] = array_map('intval', $query->execute()->fetchCol());
+    }
+    return $resolved[$key];
+  }
+
+  /**
    * Resolves and caches the record_type_id used for activity targets.
    */
   protected function getActivityTargetRecordTypeId(): int {
@@ -737,16 +768,17 @@ class FunnelDataService {
    */
   public function getTourMonthlyUniqueContactSeries(int $months = self::WINDOW_MONTHS): array {
     $window = $this->buildWindow($months);
-    $cacheId = sprintf('makerspace_dashboard:funnel:tours:monthly:%s', $window['cache_key']);
+    $cacheId = sprintf('makerspace_dashboard:funnel:tours:monthly:v2:%s', $window['cache_key']);
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
     $targetRecordTypeId = $this->getActivityTargetRecordTypeId();
+    $typeIds = $this->getActivityTypeIds('tour') ?: [-1];
 
     $query = $this->database->select('civicrm_activity', 'a');
     $query->innerJoin('civicrm_activity_contact', 'ac', 'ac.activity_id = a.id');
-    $query->leftJoin('civicrm_option_value', 'ov', 'ov.value = a.activity_type_id');
+    $query->condition('a.activity_type_id', $typeIds, 'IN');
     $query->addExpression("DATE_FORMAT(a.activity_date_time, '%Y-%m')", 'ym');
     $query->addExpression('COUNT(DISTINCT ac.contact_id)', 'unique_contacts');
     $query->condition('ac.record_type_id', $targetRecordTypeId);
@@ -757,9 +789,6 @@ class FunnelDataService {
     ], 'BETWEEN');
     $query->condition('a.is_test', 0);
     $query->condition('a.is_deleted', 0);
-    $query->where("LOWER(COALESCE(ov.label, '')) LIKE :activity_label", [
-      ':activity_label' => '%tour%',
-    ]);
     $query->groupBy('ym');
 
     $byMonth = [];
