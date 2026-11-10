@@ -101,14 +101,64 @@ class StaffBriefingLineTest extends UnitTestCase {
   }
 
   /**
-   * A count outside all 8 prior weeks is flagged, with the median as usual.
+   * A count clearly outside all 8 prior weeks is flagged, median as usual.
    */
   public function testCountOutsideRangeIsFlagged(): void {
-    $low = $this->service()->lineFor(['title' => 'Store sales', 'type' => 'window'], [12, 14, 25, 30, 22, 28, 25, 40, 19, 99]);
+    $low = $this->service()->lineFor(['title' => 'Store sales', 'type' => 'window'], [2, 20, 25, 30, 22, 28, 25, 32, 19, 99]);
     $this->assertSame('lowest in 9 weeks', $low['flag']);
     $this->assertSame('25', $low['avg_text']);
-    $high = $this->service()->lineFor(['title' => 'Appointments', 'type' => 'window'], [42, 30, 32, 31, 35, 29, 33, 38, 30, 0]);
+    $high = $this->service()->lineFor(['title' => 'Appointments', 'type' => 'window'], [57, 39, 42, 29, 34, 20, 32, 31, 30, 0]);
     $this->assertSame('highest in 9 weeks', $high['flag']);
+  }
+
+  /**
+   * Just past the old high or low is chance, not news.
+   *
+   * The 2026-11-09 send flagged ten numbers this way, among them broken
+   * equipment reports (4, after eight weeks of 0 to 3).
+   */
+  public function testBarelyOutsideRangeIsNotFlagged(): void {
+    $broken = $this->service()->lineFor(['title' => 'Broken equipment reports', 'type' => 'window'], [4, 3, 0, 3, 3, 2, 3, 1, 3, 2]);
+    $this->assertNull($broken['flag']);
+    $visitors = $this->service()->lineFor(['title' => 'Members who came in', 'type' => 'window'], [220, 211, 219, 198, 201, 182, 196, 190, 199, 180]);
+    $this->assertNull($visitors['flag']);
+    $ends = $this->service()->lineFor(['title' => 'Memberships ended', 'type' => 'window'], [4, 7, 8, 19, 8, 9, 5, 8, 10, 8]);
+    $this->assertNull($ends['flag'], 'One below the old low, on a spread of 14.');
+  }
+
+  /**
+   * A note gives a number its denominator, and is dropped without one.
+   */
+  public function testNoteText(): void {
+    $this->assertSame('of 12 seats offered (75% full).', StaffBriefingService::noteText('of {n} seats offered ({pct}% full).', 12.0, 9.0));
+    $this->assertNull(StaffBriefingService::noteText('of {n} seats offered ({pct}% full).', 0.0, 0.0), 'No classes, no share.');
+    $this->assertSame('7 gifts.', StaffBriefingService::noteText('{n} gifts.', 7.0, 95.0));
+  }
+
+  /**
+   * Each role's items are ranked on their own; a long one shortens for others.
+   */
+  public function testByRoleAndBrief(): void {
+    $item = static fn ($role, $rank, $text) => ['text' => $text, 'role' => $role, 'rank' => $rank];
+    $by = StaffBriefingService::byRole([
+      $item('operations', StaffBriefingService::RANK_NOTABLE, 'tasks ready'),
+      $item('director', StaffBriefingService::RANK_STUCK, 'unpaid requests'),
+      $item('operations', StaffBriefingService::RANK_URGENT, 'safety'),
+      $item('director', StaffBriefingService::RANK_URGENT, 'alarm'),
+    ]);
+    $this->assertSame(['safety', 'tasks ready'], array_column($by['operations'], 'text'));
+    $this->assertSame(['alarm', 'unpaid requests'], array_column($by['director'], 'text'));
+
+    $this->assertSame('Facilitator appointments booked: 57 — highest in 9 weeks; usual 32', StaffBriefingService::brief(['text' => 'Facilitator appointments booked: 57 — highest in 9 weeks; usual 32.']));
+    $this->assertSame('Classes under half full in the next two weeks', StaffBriefingService::brief(['text' => 'Classes under half full in the next two weeks: Introduction to Induction: Forging & Blacksmithing Basics (Nov 15, 2 of 6); Build & Badge: Laser Cutters (Nov 18, 4 of 9).']));
+  }
+
+  /**
+   * The month's running net reads as a sentence.
+   */
+  public function testNetText(): void {
+    $this->assertSame('November so far: 9 members joined, 12 ended, net −3', StaffBriefingService::netText('November so far', 9, 12));
+    $this->assertSame('All of October: 1 member joined, 0 ended, net +1', StaffBriefingService::netText('All of October', 1, 0));
   }
 
   /**
@@ -128,9 +178,9 @@ class StaffBriefingLineTest extends UnitTestCase {
     $this->assertNull($steady['flag']);
     $this->assertSame('+5', $steady['last_text']);
 
-    $jump = $this->service()->lineFor(['title' => 'Onboarding', 'type' => 'snapshot'], [30, 24, 24, 23, 25, 22, 24, 23, 24, 23]);
+    $jump = $this->service()->lineFor(['title' => 'Onboarding', 'type' => 'snapshot'], [32, 24, 24, 23, 25, 22, 24, 23, 24, 23]);
     $this->assertSame('biggest weekly rise in 9 weeks', $jump['flag']);
-    $this->assertStringContainsString('(+6 this week)', $jump['discuss']);
+    $this->assertStringContainsString('(+8 this week)', $jump['discuss']);
   }
 
   /**

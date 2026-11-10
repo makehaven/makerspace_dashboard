@@ -47,7 +47,7 @@ class StaffBriefingCommands extends DrushCommands {
     $data = $this->briefing->build($weekEnd);
 
     $this->output()->writeln(sprintf('Staff briefing: %s to %s', $data['week_start']->format('D M j'), $data['week_end']->modify('-1 day')->format('D M j, Y')));
-    $this->output()->writeln("\nFOR TUESDAY");
+    $this->output()->writeln("\nFOR TUESDAY (a reader with no role; each role's own top items are marked [top] below)");
     foreach ($data['discuss'] ?: [['text' => 'Nothing unusual.', 'role' => '']] as $i => $item) {
       $this->output()->writeln(sprintf('  %d. %s  [%s]', $i + 1, $item['text'], $item['role']));
     }
@@ -61,6 +61,9 @@ class StaffBriefingCommands extends DrushCommands {
       $this->output()->writeln("\n" . strtoupper($role['title']));
       foreach ($role['lines'] as $line) {
         $this->output()->writeln(sprintf('  %-44s %8s  (%s %s, usual %s)%s', $line['title'], $line['value_text'], $line['stock'] ? 'change' : 'prev', $line['last_text'], $line['avg_text'], $line['flag'] ? '  ← ' . $line['flag'] : ''));
+        if (!empty($line['note'])) {
+          $this->output()->writeln('      ' . $line['note']);
+        }
       }
       foreach ($role['goals'] as $goal) {
         $this->output()->writeln(sprintf('  [goal] %-37s %8s  goal %s %s%s (last week %s)', $goal['title'], $goal['value_text'], $goal['goal_text'], $goal['status'] ? '— ' . KpiStatus::LABELS[$goal['status']] : '', $goal['period'] ? ', ' . $goal['period'] : '', $goal['was_text']));
@@ -71,8 +74,8 @@ class StaffBriefingCommands extends DrushCommands {
           $this->output()->writeln('    - ' . (is_array($item) ? $item['text'] : $item));
         }
       }
-      foreach ($role['followup'] as $item) {
-        $this->output()->writeln('  [1-on-1] ' . $item['text']);
+      foreach ($role['items'] as $i => $item) {
+        $this->output()->writeln(sprintf('  [%s] %s', $i < StaffBriefingService::DISCUSS_TOP ? 'top' : 'also', $item['text']));
       }
     }
 

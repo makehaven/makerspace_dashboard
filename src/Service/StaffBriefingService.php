@@ -25,9 +25,12 @@ use Psr\Log\LoggerInterface;
  * meeting.
  *
  * How a number earns attention: every weekly figure is compared with the
- * eight weeks before it. A week above all eight, or below all eight, is
- * flagged ("highest in 9 weeks"); anything inside that range is shown without
- * comment. Stock figures (members, failed payments) are judged on their
+ * eight weeks before it. A week clearly above all eight, or clearly below all
+ * eight, is flagged ("highest in 9 weeks"); anything else is shown without
+ * comment. "Clearly" is FLAG_MARGIN: with about 29 numbers and a nine-week
+ * window, "outside the range at all" flags six or seven of them by chance
+ * every week (the 2026-11-09 send flagged ten, one of them "broken equipment
+ * reports: 4, usual 3"). Stock figures (members, failed payments) are judged on their
  * weekly change, not their level: a slowly growing membership would
  * otherwise be "highest in 9 weeks" every week. "Usual" is the median, not
  * the mean, so one freak week (the 31k-row door-log flood of 2026-08) does not
@@ -38,9 +41,16 @@ use Psr\Log\LoggerInterface;
  *
  * Each role also gets a one-line count of its /kpi goals (on track / close /
  * behind, using the same rule as the /kpi colors); the full goal table is for
- * a monthly roundup, since goals barely move in a week. Only DISCUSS_TOP
- * items go to "For Tuesday"; the rest land in each role's "For a 1-on-1"
- * box. Every cron send records the KPI values, so next week's email can show what moved and flag
+ * a monthly roundup, since goals barely move in a week.
+ *
+ * Who sees what (after the first staff send, 2026-11-09): a reader with a
+ * role gets the DISCUSS_TOP items from their own area at the top, their own
+ * section in full, and one short line for each other area. The first send put
+ * the three highest-ranked items from the whole organisation on top, which
+ * were all the director's, and printed every section in full; staff read the
+ * director's lists as theirs. Items marked 'private' (website alarms) never
+ * appear in another reader's copy. A reader with no role still gets the whole
+ * briefing. Every cron send records the KPI values, so next week's email can show what moved and flag
  * a KPI whose status changed.
  *
  * Off until a recipient list is set. A role after "=" puts that person's
@@ -75,6 +85,16 @@ class StaffBriefingService {
    * to each person's section for a 1-on-1.
    */
   public const DISCUSS_TOP = 3;
+
+  /**
+   * How far past the previous high or low a week must be to be flagged, as a
+   * share of the eight-week spread (high minus low).
+   *
+   * Tested on the four sends to 2026-11-09: 0 flags 10, 9, 4 and 4 numbers a
+   * week; 0.5 flags 3, 3, 1 and 0, and keeps the ones staff would name
+   * (27 new members, 57 facilitator appointments, a week of safety reports).
+   */
+  public const FLAG_MARGIN = 0.5;
 
   /**
    * Where feedback goes: the banner link, the footer buttons and Reply-To.
@@ -300,6 +320,21 @@ class StaffBriefingService {
   }
 
   /**
+   * Every discussion item, grouped by role, most important first.
+   *
+   * @return array
+   *   [role => [items]]. Ties keep the order they were found in.
+   */
+  public static function byRole(array $items): array {
+    [$sorted] = self::rankDiscuss($items, count($items));
+    $out = [];
+    foreach ($sorted as $item) {
+      $out[$item['role']][] = $item;
+    }
+    return $out;
+  }
+
+  /**
    * Builds the briefing for the week ending at $weekEnd (a Monday, 00:00).
    *
    * @param \DateTimeImmutable|null $weekEnd
@@ -328,6 +363,9 @@ class StaffBriefingService {
           continue;
         }
         $lines[$key] = $this->line($metric, $series);
+        if (!empty($metric['note'])) {
+          $lines[$key]['note'] = $this->note($metric['note'], $series[0], $weeks[0]);
+        }
       }
       $roles[$role] = [
         'title' => $def['title'],
@@ -336,6 +374,7 @@ class StaffBriefingService {
         'goals' => $this->goals($def['goals'] ?? [], $weekEnd),
         'lists' => [],
         'followup' => [],
+        'items' => [],
       ];
     }
 
@@ -345,7 +384,7 @@ class StaffBriefingService {
       foreach ($role['goals'] as $goal) {
         if ($goal['was_status'] !== NULL && $goal['status'] !== NULL && $goal['status'] !== $goal['was_status']) {
           $worse = $severity[$goal['status']] > ($severity[$goal['was_status']] ?? 0);
-          $discuss[] = $this->item($roleKey, $worse ? self::RANK_STUCK : self::RANK_NOTABLE, sprintf('%s is now %s against its %s goal (was %s): %s vs goal %s.', $goal['title'], strtolower(KpiStatus::LABELS[$goal['status']]), $goal['goal_year'], strtolower(KpiStatus::LABELS[$goal['was_status']]), $goal['value_text'], $goal['goal_text']));
+          $discuss[] = $this->item($roleKey, $worse ? self::RANK_STUCK : self::RANK_NOTABLE, sprintf('%s goal for %s moved from "%s" to "%s": %s now, goal %s.', trim(preg_replace('/^#\s*(of\s+)?/i', '', $goal['title'])), $goal['goal_year'], strtolower(KpiStatus::LABELS[$goal['was_status']]), strtolower(KpiStatus::LABELS[$goal['status']]), $goal['value_text'], $goal['goal_text']));
         }
       }
     }
@@ -353,7 +392,8 @@ class StaffBriefingService {
     foreach ($roles as $roleKey => $role) {
       foreach ($role['lines'] as $line) {
         if ($line['flag'] !== NULL) {
-          $discuss[] = $this->item($roleKey, $line['urgent'] ? self::RANK_URGENT : self::RANK_NOTABLE, $line['discuss']);
+          // 'from_line': the number is already marked in the role's table.
+          $discuss[] = ['from_line' => TRUE] + $this->item($roleKey, $line['urgent'] ? self::RANK_URGENT : self::RANK_NOTABLE, $line['discuss']);
         }
       }
     }
@@ -361,11 +401,10 @@ class StaffBriefingService {
     $focus = $this->focus($weekEnd);
     $overdue = array_filter($focus['actions'] ?? [], static fn ($a) => $a['overdue']);
     if ($overdue) {
-      $links = [];
-      foreach ($overdue as $a) {
-        $links[] = [sprintf('%s (%s, due %s)', $a['text'], $a['owner'], date('M j', strtotime($a['due']))), $a['url'] ?? ''];
-      }
-      $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode('; ', array_column($links, 0))), $links);
+      // Counted only: each one is already listed under "Board and committee
+      // actions due", and the first send printed them twice.
+      $owners = array_count_values(array_map(static fn ($a) => $a['owner'] !== '' ? $a['owner'] : 'no owner', $overdue));
+      $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s. Listed under "Board and committee actions due".', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode(', ', array_map(static fn ($o, $n) => "$o $n", array_keys($owners), $owners))));
     }
     foreach ($focus['transitions'] as $t) {
       if (($t['to'] ?? '') === 'broken') {
@@ -376,6 +415,11 @@ class StaffBriefingService {
     [$tuesday, $followup] = self::rankDiscuss($discuss, self::DISCUSS_TOP);
     foreach ($followup as $roleKey => $items) {
       $roles[$roleKey]['followup'] = $items;
+    }
+    foreach (self::byRole($discuss) as $roleKey => $items) {
+      if (isset($roles[$roleKey])) {
+        $roles[$roleKey]['items'] = $items;
+      }
     }
 
     return [
@@ -401,6 +445,7 @@ class StaffBriefingService {
     $classTypes = implode(',', self::CLASS_EVENT_TYPES);
     $counted = "p.is_test = 0 AND p.status_id IN (SELECT id FROM civicrm_participant_status_type WHERE is_counted = 1)";
     $granted = "FROM access_control_log_field_data l JOIN access_control_log__field_access_request_result r ON r.entity_id = l.id WHERE l.type = 'access_control_request' AND l.created >= :s AND l.created < :e";
+    $storeSold = "FROM material_transaction_field_data t JOIN material_transaction__field_transaction_amount a ON a.entity_id = t.id LEFT JOIN material_transaction__field_quantity q ON q.entity_id = t.id LEFT JOIN material_transaction__field_transaction_status st ON st.entity_id = t.id WHERE IFNULL(st.field_transaction_status_value, '') <> 'removed' AND t.created >= :s AND t.created < :e";
     $webform = static fn (array $ids) => "SELECT COUNT(*) FROM webform_submission WHERE webform_id IN ('" . implode("','", $ids) . "') AND created >= :s AND created < :e";
 
     return [
@@ -418,7 +463,7 @@ class StaffBriefingService {
           'ends' => ['title' => 'Memberships ended', 'type' => 'window', 'requires' => 'profile__field_member_end_date', 'sql' => "SELECT COUNT(*) FROM profile__field_member_end_date WHERE deleted = 0 AND field_member_end_date_value >= :sday AND field_member_end_date_value < :eday"],
           'paused' => ['title' => 'Paused members', 'type' => 'snapshot', 'sql' => "SUM(stage = 'paused')"],
           'tours' => ['title' => 'People who toured', 'type' => 'tours'],
-          'donations' => ['title' => 'Donations, campaign gifts and sponsorships', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id IN (1, 3, 5) AND receive_date >= :sd AND receive_date < :ed"],
+          'donations' => ['title' => 'Donations and sponsorships received', 'type' => 'window', 'format' => 'money', 'note' => ['text' => '{n} gifts. Dues and class fees are not in this number.', 'sql' => "SELECT COUNT(*) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id IN (1, 3, 5) AND receive_date >= :sd AND receive_date < :ed"], 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id IN (1, 3, 5) AND receive_date >= :sd AND receive_date < :ed"],
           'contractor_hours' => ['title' => 'Contractor hours logged', 'type' => 'window', 'requires' => 'payment_request__field_hours', 'sql' => "SELECT IFNULL(SUM(h.field_hours_value), 0) FROM payment_request_field_data r JOIN payment_request__field_hours h ON h.entity_id = r.id WHERE r.type = 'payment' AND NOT EXISTS (SELECT 1 FROM payment_request__field_event ev WHERE ev.entity_id = r.id) AND NOT EXISTS (SELECT 1 FROM payment_request__field_class_date cd WHERE cd.entity_id = r.id) AND r.created >= :s AND r.created < :e"],
           'safety_reports' => ['title' => 'Safety concern and accident reports', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => $webform([self::WEBFORM_SAFETY_REPORT]), 'always_discuss' => TRUE],
           'feedback' => ['title' => 'Website feedback reports', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'feedback_ledger' AND created >= :s AND created < :e"],
@@ -436,7 +481,13 @@ class StaffBriefingService {
           'recovery' => ['title' => 'Members in the recovery queue', 'type' => 'snapshot', 'sql' => "SUM(stage = 'recovery')"],
           'onboarding' => ['title' => 'New members still onboarding', 'type' => 'snapshot', 'sql' => "SUM(stage = 'onboarding')"],
           'join_form' => ['title' => 'Join form submissions', 'type' => 'window', 'requires' => 'webform_submission', 'sql' => "SELECT COUNT(*) FROM webform_submission WHERE uri LIKE '%join-makehaven%' AND created >= :s AND created < :e"],
-          'store' => ['title' => 'Store sales (line items)', 'type' => 'window', 'requires' => 'material_transaction_field_data', 'sql' => "SELECT COUNT(*) FROM material_transaction_field_data WHERE created >= :s AND created < :e"],
+          // Beside the join form on purpose (Kate 11-10): forms started
+          // against memberships created shows how the form converts.
+          'joins' => ['title' => 'New members (profiles created)', 'type' => 'window', 'requires' => 'profile', 'sql' => "SELECT COUNT(*) FROM profile WHERE type = 'main' AND created >= :s AND created < :e"],
+          // Dollars, not line items (Kate 11-10). field_transaction_amount is
+          // the unit price, so a sale is price x quantity; "removed" rows were
+          // taken off a tab and never sold.
+          'store' => ['title' => 'Store sales on member tabs', 'type' => 'window', 'format' => 'money', 'requires' => 'material_transaction__field_transaction_amount', 'sql' => "SELECT IFNULL(SUM(a.field_transaction_amount_value * IFNULL(q.field_quantity_value, 1)), 0) $storeSold", 'note' => ['text' => '{n} items sold.', 'sql' => "SELECT COUNT(*) $storeSold"]],
           'appointments' => ['title' => 'Facilitator appointments booked', 'type' => 'window', 'sql' => "SELECT COUNT(*) FROM node_field_data WHERE type = 'appointment' AND created >= :s AND created < :e"],
         ],
       ],
@@ -449,7 +500,7 @@ class StaffBriefingService {
         ],
         'metrics' => [
           'classes_held' => ['title' => 'Classes held', 'type' => 'window', 'requires' => 'civicrm_event', 'sql' => "SELECT COUNT(*) FROM civicrm_event WHERE is_active = 1 AND is_template = 0 AND event_type_id IN ($classTypes) AND start_date >= :sd AND start_date < :ed"],
-          'class_seats' => ['title' => 'Class seats filled', 'type' => 'window', 'requires' => 'civicrm_event', 'sql' => "SELECT COUNT(*) FROM civicrm_participant p JOIN civicrm_event e ON e.id = p.event_id WHERE $counted AND e.is_active = 1 AND e.is_template = 0 AND e.event_type_id IN ($classTypes) AND e.start_date >= :sd AND e.start_date < :ed"],
+          'class_seats' => ['title' => 'Class seats filled', 'type' => 'window', 'requires' => 'civicrm_event', 'note' => ['text' => 'of {n} seats offered ({pct}% full).', 'sql' => "SELECT IFNULL(SUM(max_participants), 0) FROM civicrm_event WHERE is_active = 1 AND is_template = 0 AND event_type_id IN ($classTypes) AND start_date >= :sd AND start_date < :ed"], 'sql' => "SELECT COUNT(*) FROM civicrm_participant p JOIN civicrm_event e ON e.id = p.event_id WHERE $counted AND e.is_active = 1 AND e.is_template = 0 AND e.event_type_id IN ($classTypes) AND e.start_date >= :sd AND e.start_date < :ed"],
           'registrations' => ['title' => 'Event registrations taken', 'type' => 'window', 'requires' => 'civicrm_participant', 'sql' => "SELECT COUNT(*) FROM civicrm_participant p WHERE $counted AND p.register_date >= :sd AND p.register_date < :ed"],
           'booked' => ['title' => 'Class fees booked for the next 30 days', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_participant', 'no_flag' => TRUE, 'sql' => "SELECT IFNULL(SUM(p.fee_amount), 0) FROM civicrm_participant p JOIN civicrm_event e ON e.id = p.event_id WHERE $counted AND e.is_active = 1 AND e.is_template = 0 AND p.register_date < :ed AND e.start_date >= :ed AND e.start_date < :ed30"],
           'event_income' => ['title' => 'Event fee income', 'type' => 'window', 'format' => 'money', 'requires' => 'civicrm_contribution', 'sql' => "SELECT IFNULL(SUM(total_amount), 0) FROM civicrm_contribution WHERE is_test = 0 AND contribution_status_id = 1 AND financial_type_id = 4 AND receive_date >= :sd AND receive_date < :ed"],
@@ -832,14 +883,8 @@ class StaffBriefingService {
     $sql = $metric['sql'];
     $out = [];
     foreach ($weeks as [$start, $end]) {
-      $args = [];
-      foreach ([':s' => $start->getTimestamp(), ':e' => $end->getTimestamp(), ':sd' => $start->format('Y-m-d H:i:s'), ':ed' => $end->format('Y-m-d H:i:s'), ':sday' => $start->format('Y-m-d'), ':eday' => $end->format('Y-m-d'), ':ed30' => $end->modify('+30 days')->format('Y-m-d H:i:s')] as $ph => $v) {
-        if (preg_match('/' . preg_quote($ph, '/') . '\b/', $sql)) {
-          $args[$ph] = $v;
-        }
-      }
       try {
-        $out[] = (float) $this->database->query($sql, $args)->fetchField();
+        $out[] = (float) $this->database->query($sql, self::windowArgs($sql, $start, $end))->fetchField();
       }
       catch (\Throwable $e) {
         $this->logger->error('Staff briefing metric failed: @msg', ['@msg' => $e->getMessage()]);
@@ -847,6 +892,53 @@ class StaffBriefingService {
       }
     }
     return $out;
+  }
+
+  /**
+   * The placeholders a window query uses, filled for one week.
+   */
+  protected static function windowArgs(string $sql, \DateTimeImmutable $start, \DateTimeImmutable $end): array {
+    $args = [];
+    foreach ([':s' => $start->getTimestamp(), ':e' => $end->getTimestamp(), ':sd' => $start->format('Y-m-d H:i:s'), ':ed' => $end->format('Y-m-d H:i:s'), ':sday' => $start->format('Y-m-d'), ':eday' => $end->format('Y-m-d'), ':ed30' => $end->modify('+30 days')->format('Y-m-d H:i:s')] as $ph => $v) {
+      if (preg_match('/' . preg_quote($ph, '/') . '\b/', $sql)) {
+        $args[$ph] = $v;
+      }
+    }
+    return $args;
+  }
+
+  /**
+   * A second figure that gives a number its meaning, for last week only.
+   *
+   * "9 seats filled" says nothing without "of 9 offered"; "$95 in donations"
+   * reads as an error without "7 gifts" (both asked about on the first send).
+   * {n} is the query's result, {pct} the line's value as a share of it.
+   *
+   * @return string|null
+   *   NULL when the query fails or there is nothing to compare against.
+   */
+  protected function note(array $note, ?float $value, array $week): ?string {
+    try {
+      $n = (float) $this->database->query($note['sql'], self::windowArgs($note['sql'], $week[0], $week[1]))->fetchField();
+    }
+    catch (\Throwable $e) {
+      $this->logger->error('Staff briefing note failed: @msg', ['@msg' => $e->getMessage()]);
+      return NULL;
+    }
+    return self::noteText($note['text'], $n, $value);
+  }
+
+  /**
+   * Fills a note's {n} and {pct}; NULL when a share of nothing is asked for.
+   */
+  public static function noteText(string $text, float $n, ?float $value): ?string {
+    if (str_contains($text, '{pct}') && ($n <= 0 || $value === NULL)) {
+      return NULL;
+    }
+    return strtr($text, [
+      '{n}' => self::format($n),
+      '{pct}' => $n > 0 ? (string) round(100 * (float) $value / $n) : '',
+    ]);
   }
 
   /**
@@ -878,10 +970,11 @@ class StaffBriefingService {
     // (later cancellations vanish), which understates every past week.
     if ($now !== NULL && count($history) >= self::COMPARE_WEEKS && empty($metric['no_flag'])) {
       $span = count($history) + 1;
-      if ($now > max($history)) {
+      $margin = self::FLAG_MARGIN * (max($history) - min($history));
+      if ($now > max($history) + $margin) {
         $flag = $stock ? "biggest weekly rise in $span weeks" : "highest in $span weeks";
       }
-      elseif ($now < min($history)) {
+      elseif ($now < min($history) - $margin) {
         $flag = $stock ? "biggest weekly drop in $span weeks" : "lowest in $span weeks";
       }
     }
@@ -909,6 +1002,7 @@ class StaffBriefingService {
       // A median of counts reads as a count: "107", not "106.5".
       'avg_text' => $stock ? self::signed(round($usual ?? 0.0), $money) : self::format($usual === NULL ? NULL : round($usual), $money),
       'stock' => $stock,
+      'note' => NULL,
       'flag' => $flag,
       'discuss' => $discuss,
       'urgent' => !empty($metric['always_discuss']),
@@ -1014,19 +1108,23 @@ class StaffBriefingService {
         ':e' => $weekEnd->format('Y-m-d'),
       ])->fetchAll();
       $items = [];
+      $names = [];
       foreach ($rows as $row) {
         $title = class_exists('\Drupal\makerspace_snapshot\EarlyWarning\EarlyWarningMonitor')
           ? (\Drupal\makerspace_snapshot\EarlyWarning\EarlyWarningMonitor::TRIPWIRES[$row->metric]['title'] ?? $row->metric)
           : $row->metric;
-        $items[] = sprintf('%s — tripped on %d %s from %s', $title, $row->days, $row->days == 1 ? 'day' : 'days', date('D M j', strtotime($row->first_day)));
+        $items[] = sprintf('%s — went off on %d %s from %s', $title, $row->days, $row->days == 1 ? 'day' : 'days', date('D M j', strtotime($row->first_day)));
+        $names[] = $title;
       }
       $roles['director']['lists'][] = [
-        'title' => 'Website early-warning alarms',
+        'title' => 'Website health alarms (automatic checks on the site)',
         'items' => $items,
-        'empty' => 'None tripped this week.',
+        'empty' => 'None went off this week.',
       ];
       if ($items) {
-        $discuss[] = $this->item('director', self::RANK_URGENT, 'Website early-warning alarms tripped: ' . count($items) . '.');
+        // 'private': the website's own plumbing, for whoever runs the site.
+        // On the first send it was item 1 of "For Tuesday" for all staff.
+        $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_URGENT, 'Website health alarms went off: ' . implode('; ', $names) . '.');
       }
     }
 
@@ -1129,7 +1227,7 @@ class StaffBriefingService {
       $items = array_map(static fn ($r) => ['text' => sprintf('%s — %s, no update in %d days', $r->title, str_replace('_', ' ', $r->status), floor(($now - (int) $r->changed) / 86400)), 'url' => '/node/' . $r->nid], array_slice($stuck, 0, 8));
       $queued = (int) $this->database->query("SELECT COUNT(*) FROM {node__field_fb_status} WHERE bundle = 'feedback_ledger' AND field_fb_status_value IN ('planned', 'in_progress')")->fetchField();
       $roles['director']['lists'][] = [
-        'title' => sprintf('Website feedback waiting on us: %d, %d with no update in two weeks', count($onUs), count($stuck)),
+        'title' => sprintf('Website feedback waiting on JR: %d, %d with no update in two weeks', count($onUs), count($stuck)),
         'url' => '/feedback-status',
         'items' => $items,
         'more' => trim((count($stuck) > 8 ? sprintf('…and %d more on the feedback board. ', count($stuck) - 8) : '') . sprintf('%d more %s waiting on the reporter for details. %d planned or in progress.', count($open) - count($onUs), count($open) - count($onUs) === 1 ? 'is' : 'are', $queued)),
@@ -1137,28 +1235,8 @@ class StaffBriefingService {
       ];
     }
 
-    // Operations: volunteer outreach is Kate's (JR 10-28). Open tasks nobody
-    // has signed up for, and ones flagged as needing attention.
-    if ($schema->tableExists('node__field_task_status')) {
-      $tasks = $this->database->query("SELECT n.nid, n.title, n.created, s.field_task_status_value status FROM {node_field_data} n JOIN {node__field_task_status} s ON s.entity_id = n.nid LEFT JOIN {node__field_task_claimed_by} c ON c.entity_id = n.nid WHERE n.type = 'task' AND n.status = 1 AND ((s.field_task_status_value = 'open' AND c.entity_id IS NULL) OR s.field_task_status_value = 'incomplete') GROUP BY n.nid, n.title, n.created, s.field_task_status_value ORDER BY s.field_task_status_value = 'incomplete' DESC, n.created ASC")->fetchAll();
-      // Most open tasks are chores posted years ago (2018) and never closed;
-      // listing them would bury this season's asks, so they are only counted.
-      $old = array_filter($tasks, static fn ($t) => $t->status === 'open' && $now - (int) $t->created > 180 * 86400);
-      $tasks = array_values(array_diff_key($tasks, $old));
-      $roles['operations']['lists'][] = [
-        'title' => sprintf('Volunteer tasks from the last six months with no one signed up: %d', count(array_filter($tasks, static fn ($t) => $t->status === 'open'))),
-        'url' => '/volunteer',
-        'more' => $old ? sprintf('%d older open tasks (posted over six months ago) may need closing or reposting.', count($old)) : NULL,
-        'items' => array_map(static fn ($t) => [
-          'text' => $t->status === 'incomplete'
-            ? $t->title . ' — marked incomplete, needs attention'
-            : sprintf('%s — open %d days', $t->title, floor(($now - (int) $t->created) / 86400)),
-          'warn' => $t->status === 'incomplete',
-          'url' => '/node/' . $t->nid,
-        ], $tasks),
-        'empty' => 'Every open task has a volunteer.',
-      ];
-    }
+    $this->addVolunteerTasks($roles, $discuss, $now);
+    $this->addMonthSoFar($roles, $weekEnd);
 
     if ($schema->tableExists('storage_unit__field_storage_status')) {
       $counts = $this->database->query("SELECT field_storage_status_value, COUNT(*) FROM {storage_unit__field_storage_status} WHERE deleted = 0 GROUP BY field_storage_status_value")->fetchAllKeyed();
@@ -1335,13 +1413,177 @@ class StaffBriefingService {
   }
 
   /**
+   * Operations: volunteer tasks, split by whether they have their people.
+   *
+   * Volunteer outreach is Kate's (JR 10-28). Her notes on the first send
+   * (11-10) set the shape: a task whose date has passed is not a to-do, how
+   * long a task has been open says little, and a task with enough people is
+   * the one staff must act on. People are the volunteer-board sign-ups
+   * (makehaven_task_signup: "I'm interested", then the roster) plus a lead and
+   * helpers on an ordinary task; "enough" is the task's minimum, 1 if unset.
+   */
+  protected function addVolunteerTasks(array &$roles, array &$discuss, int $now): void {
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('node__field_task_status')) {
+      return;
+    }
+    $has = static fn (string $table) => $schema->tableExists($table);
+    $col = static fn (bool $ok, string $sql, string $else) => $ok ? $sql : $else;
+    $people = [];
+    if ($has('makehaven_task_signup')) {
+      $people[] = '(SELECT COUNT(DISTINCT su.uid) FROM {makehaven_task_signup} su WHERE su.nid = n.nid)';
+    }
+    foreach (['node__field_task_claimed_by', 'node__field_task_helpers'] as $table) {
+      if ($has($table)) {
+        $people[] = "(SELECT COUNT(*) FROM {{$table}} x WHERE x.entity_id = n.nid AND x.deleted = 0)";
+      }
+    }
+    $rows = $this->database->query('SELECT n.nid, n.title, n.created, s.field_task_status_value status, '
+      . $col($has('node__field_task_stage'), "(SELECT MAX(g.field_task_stage_value) FROM {node__field_task_stage} g WHERE g.entity_id = n.nid AND g.deleted = 0)", "''") . ' stage, '
+      . $col($has('node__field_task_when'), "(SELECT MIN(w.field_task_when_value) FROM {node__field_task_when} w WHERE w.entity_id = n.nid AND w.deleted = 0)", 'NULL') . ' starts, '
+      . $col($has('node__field_task_when'), "(SELECT MAX(w.field_task_when_end_value) FROM {node__field_task_when} w WHERE w.entity_id = n.nid AND w.deleted = 0)", 'NULL') . ' ends, '
+      . $col($has('node__field_task_min_volunteers'), "(SELECT MAX(m.field_task_min_volunteers_value) FROM {node__field_task_min_volunteers} m WHERE m.entity_id = n.nid AND m.deleted = 0)", 'NULL') . ' needed, '
+      . ($people ? implode(' + ', $people) : '0') . " people "
+      . "FROM {node_field_data} n JOIN {node__field_task_status} s ON s.entity_id = n.nid AND s.deleted = 0 WHERE n.type = 'task' AND n.status = 1 AND s.field_task_status_value IN ('open', 'incomplete') ORDER BY n.created ASC")->fetchAll();
+
+    $tz = $this->timezone();
+    $utc = new \DateTimeZone('UTC');
+    $ready = $short = $attention = [];
+    $past = $old = 0;
+    foreach ($rows as $t) {
+      if (in_array((string) $t->stage, ['proposed', 'declined', 'cancelled'], TRUE)) {
+        continue;
+      }
+      $start = $t->starts ? (new \DateTimeImmutable((string) $t->starts, $utc))->setTimezone($tz) : NULL;
+      $end = ($t->ends ?: $t->starts) ? (new \DateTimeImmutable((string) ($t->ends ?: $t->starts), $utc)) : NULL;
+      $label = ($start ? $start->format('D M j') . ' — ' : '') . $t->title;
+      $url = '/node/' . $t->nid;
+      if ($t->status === 'incomplete') {
+        $attention[] = ['text' => $label . ' — marked incomplete, needs attention', 'warn' => TRUE, 'url' => $url];
+        continue;
+      }
+      if ($end && $end->getTimestamp() < $now) {
+        $past++;
+        continue;
+      }
+      // Most undated open tasks are chores posted years ago (2018) and never
+      // closed; listing them would bury this season's asks.
+      if (!$start && $now - (int) $t->created > 180 * 86400) {
+        $old++;
+        continue;
+      }
+      $needed = max(1, (int) $t->needed);
+      $signed = (int) $t->people;
+      if ($signed >= $needed) {
+        $what = $t->stage === 'gathering' ? 'ready to approve' : 'has its volunteers';
+        $ready[] = [
+          'text' => sprintf('%s — %d signed up, needs %d: %s', $label, $signed, $needed, $what),
+          'short' => sprintf('%s (%d signed up, %s)', $t->title, $signed, $what),
+          'url' => $url,
+          'sort' => $start ? $start->getTimestamp() : PHP_INT_MAX,
+        ];
+      }
+      else {
+        $short[] = [
+          'text' => sprintf('%s — %d signed up, needs %d', $label, $signed, $needed),
+          'url' => $url,
+          'sort' => $start ? $start->getTimestamp() : PHP_INT_MAX,
+        ];
+      }
+    }
+    $soonest = static fn ($a, $b) => $a['sort'] <=> $b['sort'];
+    usort($ready, $soonest);
+    usort($short, $soonest);
+
+    $roles['operations']['lists'][] = [
+      'title' => sprintf('Volunteer tasks ready to move forward: %d', count($ready)),
+      'url' => '/tasks',
+      'items' => $ready,
+      'empty' => 'None has all its volunteers yet.',
+    ];
+    $leftovers = array_filter([
+      $past ? sprintf('%d dated %s already happened and %s still open: close %s.', $past, $past === 1 ? 'task has' : 'tasks have', $past === 1 ? 'is' : 'are', $past === 1 ? 'it' : 'them') : NULL,
+      $old ? sprintf('%d undated %s posted over six months ago may need closing or reposting.', $old, $old === 1 ? 'task' : 'tasks') : NULL,
+    ]);
+    $roles['operations']['lists'][] = [
+      'title' => sprintf('Volunteer tasks that still need people: %d', count($short) + count($attention)),
+      'url' => '/tasks',
+      'items' => array_merge($attention, $short),
+      'more' => $leftovers ? implode(' ', $leftovers) : NULL,
+      'empty' => 'Every current task has its volunteers.' . ($leftovers ? ' ' . implode(' ', $leftovers) : ''),
+    ];
+    if ($ready) {
+      $links = array_map(static fn ($r) => [$r['short'], $r['url']], $ready);
+      $discuss[] = $this->item('operations', self::RANK_NOTABLE, 'Volunteer tasks ready to move forward: ' . implode('; ', array_column($links, 0)) . '.', $links);
+    }
+  }
+
+  /**
+   * Operations and Director: members joined and ended this month so far.
+   *
+   * A week of joins and a week of ends do not say whether membership is
+   * growing; the month's running net does (Kate 11-10). The month is the one
+   * the briefing's last day falls in. In its first week the month just
+   * finished is shown too, since that is the first time it can be read whole.
+   */
+  protected function addMonthSoFar(array &$roles, \DateTimeImmutable $weekEnd): void {
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('profile') || !$schema->tableExists('profile__field_member_end_date')) {
+      return;
+    }
+    $count = function (\DateTimeImmutable $from, \DateTimeImmutable $to): array {
+      $joined = (int) $this->database->query("SELECT COUNT(*) FROM {profile} WHERE type = 'main' AND created >= :s AND created < :e", [':s' => $from->getTimestamp(), ':e' => $to->getTimestamp()])->fetchField();
+      $ended = (int) $this->database->query("SELECT COUNT(*) FROM {profile__field_member_end_date} WHERE deleted = 0 AND field_member_end_date_value >= :s AND field_member_end_date_value < :e", [':s' => $from->format('Y-m-d'), ':e' => $to->format('Y-m-d')])->fetchField();
+      return [$joined, $ended];
+    };
+    $lastDay = $weekEnd->modify('-1 day');
+    $monthStart = $lastDay->modify('first day of this month')->setTime(0, 0);
+    [$joined, $ended] = $count($monthStart, $weekEnd);
+    $list = [
+      'title' => self::netText($lastDay->format('F') . ' so far (through ' . $lastDay->format('D M j') . ')', $joined, $ended),
+      'items' => [],
+      'empty' => '',
+    ];
+    if ((int) $lastDay->format('j') <= 7) {
+      $previous = $monthStart->modify('-1 month');
+      [$joined, $ended] = $count($previous, $monthStart);
+      $list['items'][] = self::netText('All of ' . $previous->format('F'), $joined, $ended);
+    }
+    foreach (['operations', 'director'] as $role) {
+      if (isset($roles[$role])) {
+        $roles[$role]['lists'][] = $list;
+      }
+    }
+  }
+
+  /**
+   * "November so far: 14 members joined, 12 ended, net +2".
+   */
+  public static function netText(string $period, int $joined, int $ended): string {
+    return sprintf('%s: %d %s joined, %d ended, net %s', $period, $joined, $joined === 1 ? 'member' : 'members', $ended, self::signed((float) ($joined - $ended)));
+  }
+
+  /**
+   * A discussion item in a few words, for another reader's one-line summary.
+   */
+  public static function brief(array $item): string {
+    $text = rtrim((string) $item['text'], '.');
+    if (mb_strlen($text) <= 90) {
+      return $text;
+    }
+    $head = explode(': ', $text, 2)[0];
+    return mb_strlen($head) <= 90 ? $head : mb_substr($head, 0, 88) . '…';
+  }
+
+  /**
    * Renders the email body (inline styles: mail clients drop <style>).
    *
    * @param array $briefing
    *   From build().
    * @param string|null $forRole
-   *   The reader's role: their section comes first, the others follow under
-   *   "The rest of the team". NULL keeps the usual order.
+   *   The reader's role: the top items and the full section are their own
+   *   area's, and each other area is one line under "The rest of the team".
+   *   NULL gives the whole briefing, with the top items from every area.
    */
   public function renderHtml(array $briefing, ?string $forRole = NULL): string {
     $base = rtrim((string) ($this->configFactory->get('makerspace_dashboard.settings')->get('briefing_base_url') ?: 'https://www.makehaven.org'), '/');
@@ -1356,6 +1598,13 @@ class StaffBriefingService {
     $h2 = 'font-size:17px;margin:0 0 10px;color:' . $ink;
     $small = 'font-size:12px;color:' . $muted;
     $roleTitles = array_map(static fn ($r) => $r['title'], $briefing['roles']);
+    $staffCount = count($this->recipients());
+    $mineKey = ($forRole !== NULL && isset($briefing['roles'][$forRole])) ? $forRole : NULL;
+    // A reader with a role gets their own area's items; anyone else the top
+    // items from every area.
+    $mineItems = $mineKey !== NULL ? ($briefing['roles'][$mineKey]['items'] ?? []) : [];
+    $top = $mineKey !== NULL ? array_slice($mineItems, 0, self::DISCUSS_TOP) : $briefing['discuss'];
+    $tabled = static fn (array $items) => array_values(array_filter($items, static fn ($i) => empty($i['from_line'])));
 
     $h = '<div style="background:#f6f2ee;padding:16px 8px;font-family:Arial,Helvetica,sans-serif;font-size:15px;color:' . $ink . ';line-height:1.5">';
     $h .= '<div style="max-width:640px;margin:0 auto">';
@@ -1370,59 +1619,63 @@ class StaffBriefingService {
     if ($test) {
       $h .= '<div style="background:#fff6d9;border:1px solid #e9c46a;border-radius:10px;padding:14px 18px;margin:0 0 14px;font-size:14px">'
         . '<b>This is a test.</b> JR is trying out a Monday email that sums up the week before our staff meeting. '
+        . $e($staffCount > 1 ? "All $staffCount of us on staff get it, each with our own area on top. " : '')
         . 'Nothing here is new work for you, and it isn\'t a review of anyone. '
         . 'Skim your own section, then <a href="' . $e($mailto('', "What helped:\n\nWhat was confusing:\n\nWhat to drop:\n\nWhat's missing:\n")) . '" style="color:' . $brand . ';font-weight:bold">tell JR</a> what helped, what was confusing, and what to drop. You can also just reply to this email.</div>';
     }
 
-    // For Tuesday.
-    $h .= '<div style="' . $card . '"><h2 style="' . $h2 . '">For Tuesday</h2>';
-    if ($briefing['discuss']) {
+    // The top card: what to raise this week.
+    $h .= '<div style="' . $card . '"><h2 style="' . $h2 . '">' . $e($mineKey !== NULL ? 'From your area: ' . $roleTitles[$mineKey] : 'For Tuesday') . '</h2>';
+    if ($top) {
+      if ($mineKey !== NULL) {
+        $h .= '<p style="margin:-4px 0 8px;' . $small . '">' . ($mineKey === 'director' ? 'What stood out last week.' : 'What stood out last week. Raise it on Tuesday if the whole team should hear it; otherwise it can wait for your next check-in with JR.') . '</p>';
+      }
       $h .= '<table cellpadding="0" cellspacing="0" role="presentation" style="border-collapse:collapse;width:100%">';
-      foreach (array_values($briefing['discuss']) as $i => $item) {
+      foreach (array_values($top) as $i => $item) {
         $h .= '<tr><td style="vertical-align:top;padding:4px 12px 10px 0;width:28px">'
           . '<div style="width:26px;height:26px;border-radius:13px;background:' . $brand . ';color:#ffffff;font-weight:bold;text-align:center;line-height:26px;font-size:14px">' . ($i + 1) . '</div></td>'
           . '<td style="vertical-align:top;padding:4px 0 12px">' . self::headline($item, $e, $base)
-          . (isset($roleTitles[$item['role']]) ? ' <span style="' . $small . ';white-space:nowrap">· ' . $e($roleTitles[$item['role']]) . '</span>' : '') . '</td></tr>';
+          . ($mineKey === NULL && isset($roleTitles[$item['role']]) ? ' <span style="' . $small . ';white-space:nowrap">· ' . $e($roleTitles[$item['role']]) . '</span>' : '') . '</td></tr>';
       }
       $h .= '</table>';
-      $more = array_sum(array_map(static fn ($r) => count($r['followup']), $briefing['roles']));
-      if ($more) {
-        $h .= '<p style="margin:2px 0 0;' . $small . '">' . $e(sprintf('%d more %s in the sections below, for 1-on-1s.', $more, $more === 1 ? 'item is' : 'items are')) . '</p>';
-      }
     }
     else {
-      $h .= '<p style="margin:0">Nothing unusual last week.</p>';
+      $h .= '<p style="margin:0">' . ($mineKey !== NULL ? 'Nothing unusual in your area last week.' : 'Nothing unusual last week.') . '</p>';
     }
     $h .= '</div>';
 
-    // Sections: the reader's own first.
-    $order = array_keys($briefing['roles']);
-    if ($forRole !== NULL && isset($briefing['roles'][$forRole])) {
-      $order = array_merge([$forRole], array_diff($order, [$forRole]));
+    // Sections. A reader with a role gets their own in full and one line
+    // for each other area; a reader without one gets every section in full.
+    $styles = compact('brand', 'ink', 'muted', 'line', 'card', 'h2', 'small');
+    if ($mineKey !== NULL) {
+      $h .= $this->renderRole($briefing['roles'][$mineKey], TRUE, $base, $e, $styles, 10, $tabled(array_slice($mineItems, self::DISCUSS_TOP)));
     }
-    $sections = [];
-    foreach ($order as $key) {
-      // Other people's lists are shortened; the reader's own are kept.
-      $cap = ($forRole === NULL || $key === $forRole) ? 10 : 3;
-      $sections[$key] = $this->renderRole($briefing['roles'][$key], $key === $forRole, $base, $e, compact('brand', 'ink', 'muted', 'line', 'card', 'h2', 'small'), $cap);
-    }
-    $mine = ($forRole !== NULL && isset($sections[$forRole])) ? array_shift($sections) : '';
-    $h .= $mine;
-
-    $h .= $this->renderNews($briefing, $base, $e, compact('brand', 'ink', 'muted', 'line', 'card', 'h2', 'small'));
-
-    if ($sections) {
-      if ($mine !== '') {
-        $h .= '<div style="margin:22px 4px 10px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:' . $muted . '">The rest of the team</div>';
+    $h .= $this->renderNews($briefing, $base, $e, $styles);
+    if ($mineKey !== NULL) {
+      $h .= '<div style="' . $card . '"><h2 style="' . $h2 . '">The rest of the team</h2>'
+        . '<p style="margin:-4px 0 8px;' . $small . '">One line for each other area. The dashboards have the detail.</p>';
+      foreach ($briefing['roles'] as $key => $role) {
+        if ($key === $mineKey) {
+          continue;
+        }
+        $shared = array_slice(array_values(array_filter($role['items'] ?? [], static fn ($i) => empty($i['private']))), 0, 2);
+        $h .= '<div style="margin:0 0 8px"><b>' . $e($role['title']) . ':</b> '
+          . $e($shared ? implode('; ', array_map([self::class, 'brief'], $shared)) . '.' : 'nothing unusual last week.')
+          . ' <a href="' . $e($base . $role['link']) . '" style="color:' . $brand . ';white-space:nowrap;font-size:13px">dashboard →</a></div>';
       }
-      $h .= implode('', $sections);
+      $h .= '</div>';
+    }
+    else {
+      foreach ($briefing['roles'] as $role) {
+        $h .= $this->renderRole($role, FALSE, $base, $e, $styles, 10, $tabled($role['followup']));
+      }
     }
 
     // Footer: how to read it, and an easy way to answer.
     $feedback = static fn ($label, $subject) => '<a href="' . $e($mailto($subject)) . '" style="display:inline-block;margin:0 6px 6px 0;padding:7px 12px;border-radius:16px;border:1px solid ' . $brand . ';color:' . $brand . ';text-decoration:none;font-size:13px">' . $label . '</a>';
     $h .= '<div style="' . $card . '"><div style="font-weight:bold;margin:0 0 8px">Was this useful?</div>'
       . $feedback('Useful', 'useful') . $feedback('Too long', 'too long') . $feedback('Confusing', 'confusing') . $feedback('Add something', 'please add')
-      . '<p style="margin:8px 0 0;' . $small . '">"Typical" is a normal week over the last two months. A number in red is higher or lower than any of those weeks. The little bars under each name show the last nine weeks.</p></div>';
+      . '<p style="margin:8px 0 0;' . $small . '">"Typical" is a normal week over the last two months. A number in red is well above or well below every one of those weeks. The little bars under each name show the last nine weeks.</p></div>';
     $h .= '<p style="margin:6px 4px 0;' . $small . '">Sent by the website on Monday mornings. Weeks run Monday to Sunday.</p>';
     $h .= '</div></div>';
     return $h;
@@ -1459,9 +1712,13 @@ class StaffBriefingService {
   }
 
   /**
-   * One role's card: numbers, goal summary, lists, and 1-on-1 items.
+   * One role's card: numbers, goal summary, lists, and smaller items.
+   *
+   * @param array $also
+   *   Discussion items that did not make the top card and are not already
+   *   marked in the numbers table.
    */
-  protected function renderRole(array $role, bool $mine, string $base, callable $e, array $s, int $listCap = 10): string {
+  protected function renderRole(array $role, bool $mine, string $base, callable $e, array $s, int $listCap = 10, array $also = []): string {
     $h = '<div style="' . $s['card'] . ($mine ? ';border-top:4px solid ' . $s['brand'] : '') . '">';
     $h .= ($mine ? '<div style="' . $s['small'] . ';text-transform:uppercase;letter-spacing:.06em">Your area</div>' : '')
       . '<h2 style="' . $s['h2'] . '">' . $e($role['title']) . '</h2>';
@@ -1483,6 +1740,7 @@ class StaffBriefingService {
       foreach ($group['lines'] as $l) {
         $flag = (bool) $l['flag'];
         $h .= '<tr style="border-top:1px solid ' . $s['line'] . '"><td style="padding:8px 0">' . $e($l['title'])
+          . (!empty($l['note']) ? '<div style="font-size:12px;color:' . $s['muted'] . '">' . $e($l['note']) . '</div>' : '')
           . ($flag ? '<div style="font-size:12px;color:' . $s['brand'] . '">' . $e(ucfirst($l['flag'])) . '</div>' : '')
           . '<div style="margin-top:4px">' . self::sparkHtml($l['spark'], $flag, $s['brand'], FALSE) . '</div></td>'
           . '<td style="padding:8px 0 8px 8px;text-align:right;font-weight:bold;font-size:16px;' . ($flag ? 'color:' . $s['brand'] : '') . '">' . $e($l['value_text']) . '</td>'
@@ -1524,9 +1782,9 @@ class StaffBriefingService {
       }
     }
 
-    if ($role['followup']) {
-      $h .= '<div style="margin:14px 0 4px;background:#f6f2ee;border-radius:8px;padding:10px 14px"><div style="font-weight:bold;margin:0 0 4px">For a 1-on-1</div><ul style="margin:0;padding-left:18px">';
-      foreach ($role['followup'] as $item) {
+    if ($also) {
+      $h .= '<div style="margin:14px 0 4px;background:#f6f2ee;border-radius:8px;padding:10px 14px"><div style="font-weight:bold;margin:0 0 4px">Also noticed</div><ul style="margin:0;padding-left:18px">';
+      foreach ($also as $item) {
         $h .= '<li style="margin:0 0 3px">' . (!empty($item['links']) ? self::headline($item, $e, $base) : $e($item['text'])) . '</li>';
       }
       $h .= '</ul></div>';
@@ -1572,7 +1830,10 @@ class StaffBriefingService {
       foreach ($focus['actions'] as $a) {
         $h .= '<li style="margin:0 0 3px' . ($a['overdue'] ? ';color:' . $s['brand'] : '') . '">' . self::link($a['text'], $a['url'] ?? '', $e, $base, $a['overdue'] ? $s['brand'] : $s['ink']) . ' <span style="' . $s['small'] . '">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
       }
-      $h .= '</ul>';
+      // The links open the committee's page, not the action (Governance
+      // Dance gives actions no address of their own), and only some people
+      // can close one there.
+      $h .= '</ul><div style="margin:2px 0 0;' . $s['small'] . '">Already done? Reply and tell JR, who will close it in Governance Dance.</div>';
     }
     if (!empty($focus['board'])) {
       $h .= '<div style="' . $sub . '">Pinned and urgent on the What\'s next board</div><ul style="margin:0;padding-left:18px">';
