@@ -404,7 +404,9 @@ class StaffBriefingService {
       // Counted only: each one is already listed under "Board and committee
       // actions due", and the first send printed them twice.
       $owners = array_count_values(array_map(static fn ($a) => $a['owner'] !== '' ? $a['owner'] : 'no owner', $overdue));
-      $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s. Listed under "Board and committee actions due".', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode(', ', array_map(static fn ($o, $n) => "$o $n", array_keys($owners), $owners))));
+      // 'private': Governance Dance is the board's list, not the staff's
+      // to-do list (JR 11-10), so it stays in the director's copy.
+      $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s. Listed under "Board and committee actions due".', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode(', ', array_map(static fn ($o, $n) => "$o $n", array_keys($owners), $owners))));
     }
     foreach ($focus['transitions'] as $t) {
       if (($t['to'] ?? '') === 'broken') {
@@ -1650,7 +1652,7 @@ class StaffBriefingService {
     if ($mineKey !== NULL) {
       $h .= $this->renderRole($briefing['roles'][$mineKey], TRUE, $base, $e, $styles, 10, $tabled(array_slice($mineItems, self::DISCUSS_TOP)));
     }
-    $h .= $this->renderNews($briefing, $base, $e, $styles);
+    $h .= $this->renderNews($briefing, $base, $e, $styles, $mineKey === NULL || $mineKey === 'director');
     if ($mineKey !== NULL) {
       $h .= '<div style="' . $card . '"><h2 style="' . $h2 . '">The rest of the team</h2>'
         . '<p style="margin:-4px 0 8px;' . $small . '">One line for each other area. The dashboards have the detail.</p>';
@@ -1796,8 +1798,13 @@ class StaffBriefingService {
 
   /**
    * Website changes, board and committee work, and process changes.
+   *
+   * @param bool $boardActions
+   *   Whether to list board and committee actions. Only the director's copy
+   *   does: staff cannot close them and read them as their own to-dos (first
+   *   send, 2026-11-09). Meetings this week are shown to everyone.
    */
-  protected function renderNews(array $briefing, string $base, callable $e, array $s): string {
+  protected function renderNews(array $briefing, string $base, callable $e, array $s, bool $boardActions = TRUE): string {
     $h = '';
     if (!empty($briefing['changes'])) {
       $h .= '<div style="' . $s['card'] . '"><h2 style="' . $s['h2'] . '">New on the website</h2><ul style="margin:0;padding-left:18px">';
@@ -1812,6 +1819,9 @@ class StaffBriefingService {
     }
 
     $focus = $briefing['focus'] ?? [];
+    if (!$boardActions) {
+      $focus['actions'] = [];
+    }
     if (empty($focus['board']) && empty($focus['transitions']) && empty($focus['broken']) && empty($focus['actions']) && empty($focus['meetings'])) {
       return $h;
     }
@@ -1830,10 +1840,7 @@ class StaffBriefingService {
       foreach ($focus['actions'] as $a) {
         $h .= '<li style="margin:0 0 3px' . ($a['overdue'] ? ';color:' . $s['brand'] : '') . '">' . self::link($a['text'], $a['url'] ?? '', $e, $base, $a['overdue'] ? $s['brand'] : $s['ink']) . ' <span style="' . $s['small'] . '">' . $e(trim($a['owner'] . ($a['committee'] !== '' ? ', ' . $a['committee'] : '') . ', ' . ($a['overdue'] ? 'was due ' : 'due ') . date('M j', strtotime($a['due'])))) . '</span></li>';
       }
-      // The links open the committee's page, not the action (Governance
-      // Dance gives actions no address of their own), and only some people
-      // can close one there.
-      $h .= '</ul><div style="margin:2px 0 0;' . $s['small'] . '">Already done? Reply and tell JR, who will close it in Governance Dance.</div>';
+      $h .= '</ul>';
     }
     if (!empty($focus['board'])) {
       $h .= '<div style="' . $sub . '">Pinned and urgent on the What\'s next board</div><ul style="margin:0;padding-left:18px">';

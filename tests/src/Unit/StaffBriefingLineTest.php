@@ -6,6 +6,7 @@ namespace Drupal\Tests\makerspace_dashboard\Unit;
 
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Config\ImmutableConfig;
 use Drupal\Core\Database\Connection;
 use Drupal\Core\Mail\MailManagerInterface;
 use Drupal\Core\State\StateInterface;
@@ -27,9 +28,11 @@ class StaffBriefingLineTest extends UnitTestCase {
    * A service whose protected line() can be called directly.
    */
   protected function service(?StateInterface $state = NULL, ?KpiDataService $kpi = NULL): object {
+    $factory = $this->createMock(ConfigFactoryInterface::class);
+    $factory->method('get')->willReturn($this->createMock(ImmutableConfig::class));
     return new class(
       $this->createMock(Connection::class),
-      $this->createMock(ConfigFactoryInterface::class),
+      $factory,
       $state ?? $this->createMock(StateInterface::class),
       $this->createMock(TimeInterface::class),
       $this->createMock(MailManagerInterface::class),
@@ -151,6 +154,42 @@ class StaffBriefingLineTest extends UnitTestCase {
 
     $this->assertSame('Facilitator appointments booked: 57 — highest in 9 weeks; usual 32', StaffBriefingService::brief(['text' => 'Facilitator appointments booked: 57 — highest in 9 weeks; usual 32.']));
     $this->assertSame('Classes under half full in the next two weeks', StaffBriefingService::brief(['text' => 'Classes under half full in the next two weeks: Introduction to Induction: Forging & Blacksmithing Basics (Nov 15, 2 of 6); Build & Badge: Laser Cutters (Nov 18, 4 of 9).']));
+  }
+
+  /**
+   * Board actions and website alarms stay in the director's copy.
+   *
+   * Governance Dance is the board's list, not the staff's to-do list.
+   */
+  public function testBoardActionsOnlyReachTheDirector(): void {
+    $role = static fn ($title, array $items = []) => ['title' => $title, 'link' => '/d', 'lines' => [], 'goals' => [], 'lists' => [], 'followup' => [], 'items' => $items];
+    $briefing = [
+      'week_start' => new \DateTimeImmutable('2026-11-02'),
+      'week_end' => new \DateTimeImmutable('2026-11-09'),
+      'discuss' => [],
+      'changes' => [],
+      'roles' => [
+        'director' => $role('Director', [
+          ['text' => '2 board/committee actions past due: Laurel 2.', 'role' => 'director', 'rank' => 2, 'links' => [], 'private' => TRUE],
+          ['text' => 'Payment requests approved but unpaid: 9.', 'role' => 'director', 'rank' => 2, 'links' => []],
+        ]),
+        'operations' => $role('Operations'),
+      ],
+      'focus' => [
+        'board' => [], 'transitions' => [], 'broken' => [],
+        'meetings' => [['title' => 'Outreach Committee', 'when' => 'Mon Nov 9, 1:30pm', 'url' => '']],
+        'actions' => [['text' => 'Mail the postcards', 'owner' => 'Laurel', 'committee' => 'development', 'url' => '', 'due' => '2026-09-30', 'overdue' => TRUE]],
+      ],
+    ];
+    $service = $this->service();
+    $kate = $service->renderHtml($briefing, 'operations');
+    $this->assertStringNotContainsString('Mail the postcards', $kate);
+    $this->assertStringNotContainsString('board/committee', $kate);
+    $this->assertStringContainsString('Outreach Committee', $kate, 'Meetings this week are for everyone.');
+    $this->assertStringContainsString('Payment requests approved but unpaid', $kate);
+    $jr = $service->renderHtml($briefing, 'director');
+    $this->assertStringContainsString('Mail the postcards', $jr);
+    $this->assertStringContainsString('2 board/committee actions past due', $jr);
   }
 
   /**
