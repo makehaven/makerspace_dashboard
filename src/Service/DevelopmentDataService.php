@@ -1349,15 +1349,28 @@ class DevelopmentDataService {
 
   /**
    * Returns the EXISTS expression that flags member donors.
+   *
+   * Membership lives in Chargebee and on the Drupal member profile, not in
+   * CiviCRM memberships, which nothing maintains: the old CiviCRM test put
+   * every donor in "non-member" (JR, feedback 21039). A donor was a member on
+   * the gift date when their main profile existed by then and the membership
+   * had not ended (field_member_end_date), or they hold the member role now
+   * (a rejoined member keeps an old end date). Join date = profile.created,
+   * per the member tenure convention. Live 2026 to 11-11: 82 member donors,
+   * 96 non-member.
    */
   protected function getMembershipExpression(): string {
     return "CASE WHEN EXISTS (
       SELECT 1
-      FROM civicrm_membership m
-      INNER JOIN civicrm_membership_status ms ON ms.id = m.status_id AND ms.is_current_member = 1
-      WHERE m.contact_id = c.contact_id
-        AND (m.start_date IS NULL OR m.start_date <= c.receive_date)
-        AND (m.end_date IS NULL OR m.end_date >= c.receive_date)
+      FROM civicrm_uf_match uf
+      INNER JOIN profile pr ON pr.uid = uf.uf_id AND pr.type = 'main'
+      LEFT JOIN profile__field_member_end_date ed ON ed.entity_id = pr.profile_id
+      LEFT JOIN user__roles ur ON ur.entity_id = uf.uf_id AND ur.roles_target_id = 'member'
+      WHERE uf.contact_id = c.contact_id
+        AND FROM_UNIXTIME(pr.created) <= c.receive_date
+        AND (ed.field_member_end_date_value IS NULL
+          OR ed.field_member_end_date_value >= DATE(c.receive_date)
+          OR ur.entity_id IS NOT NULL)
     ) THEN 'member' ELSE 'non_member' END";
   }
 
