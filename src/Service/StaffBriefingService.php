@@ -1239,6 +1239,7 @@ class StaffBriefingService {
 
     $this->addVolunteerTasks($roles, $discuss, $now);
     $this->addMonthSoFar($roles, $weekEnd);
+    $this->addPaidNoDoorBadge($roles, $discuss, $weekEnd);
 
     if ($schema->tableExists('storage_unit__field_storage_status')) {
       $counts = $this->database->query("SELECT field_storage_status_value, COUNT(*) FROM {storage_unit__field_storage_status} WHERE deleted = 0 GROUP BY field_storage_status_value")->fetchAllKeyed();
@@ -1555,6 +1556,64 @@ class StaffBriefingService {
       if (isset($roles[$role])) {
         $roles[$role]['lists'][] = $list;
       }
+    }
+  }
+
+  /**
+   * Operations: members paying for a week or more with no door badge yet.
+   *
+   * The setup reminder email stops after three tries and nobody was told
+   * (2026-11-12: five members paying for months, one for two years, had
+   * never been in the door). This puts every one of them in front of member
+   * operations each Monday, marked when the reminders have run out.
+   */
+  protected function addPaidNoDoorBadge(array &$roles, array &$discuss, \DateTimeImmutable $weekEnd): void {
+    $schema = $this->database->schema();
+    if (!isset($roles['operations']) || !$schema->tableExists('ms_member_success_snapshot') || !$schema->tableExists('ms_member_outreach_queue') || !$schema->tableExists('ms_member_outreach_log')) {
+      return;
+    }
+    $rows = $this->database->query("SELECT s.uid, s.join_date, s.onboarding_step, (SELECT COUNT(*) FROM {ms_member_outreach_queue} q WHERE q.uid = s.uid AND q.stage = 'onboarding' AND q.status = 'sent') reminders, (SELECT MAX(l.contact_date) FROM {ms_member_outreach_log} l WHERE l.uid = s.uid AND l.staff_uid > 0) staff_contact FROM {ms_member_success_snapshot} s WHERE s.is_latest = 1 AND s.snapshot_type = 'daily' AND s.stage = 'onboarding' AND (s.door_badge_status IS NULL OR s.door_badge_status <> 'active') AND s.join_date IS NOT NULL AND s.join_date <= :cut ORDER BY s.join_date ASC", [
+      ':cut' => $weekEnd->modify('-7 days')->format('Y-m-d'),
+    ])->fetchAll();
+    $max = (int) ($this->configFactory->get('makerspace_member_success.settings')->get('stage_onboarding_max_attempts') ?? 3);
+    $labels = class_exists('\Drupal\makerspace_member_success\Support\OnboardingFunnel');
+    $names = $this->payeeNames(array_map(static fn ($r) => (int) $r->uid, $rows));
+    $items = [];
+    $done = [];
+    foreach ($rows as $r) {
+      $days = (int) floor(($weekEnd->getTimestamp() - strtotime($r->join_date . ' 00:00:00')) / 86400);
+      $step = $r->onboarding_step && $labels ? \Drupal\makerspace_member_success\Support\OnboardingFunnel::stepLabel($r->onboarding_step) : (string) $r->onboarding_step;
+      $out = $max > 0 && (int) $r->reminders >= $max;
+      // A contact logged by staff in the last 30 days means a person has it.
+      $staff = $r->staff_contact ? strtotime($r->staff_contact . ' 00:00:00') : 0;
+      $handled = $staff && $staff >= $weekEnd->getTimestamp() - 30 * 86400;
+      // Reminders used up, or a month without a badge: email has not worked.
+      $needs = !$handled && ($out || $days >= 30);
+      $name = $names[(int) $r->uid] ?? ('user ' . $r->uid);
+      if ($needs) {
+        $done[] = $name;
+      }
+      $text = sprintf('%s — joined %d days ago, stopped at %s, %s', $name, $days, $step !== '' ? strtolower($step) : 'an unknown step', $out ? 'all reminder emails sent' : sprintf('%d reminder %s sent', (int) $r->reminders, (int) $r->reminders === 1 ? 'email' : 'emails'));
+      if ($staff) {
+        $text .= ', staff last reached out ' . date('M j', $staff) . ($staff < strtotime('-11 months', $weekEnd->getTimestamp()) ? date(', Y', $staff) : '');
+      }
+      if ($needs) {
+        $text .= ' — needs a person';
+      }
+      $items[] = [
+        'text' => $text,
+        'url' => '/admin/makerspace/member-success/log-contact/' . (int) $r->uid,
+        'warn' => $needs,
+      ];
+    }
+    $roles['operations']['lists'][] = [
+      'title' => sprintf('Paying a week or more, no door badge yet: %d', count($items)),
+      'url' => '/admin/makerspace/member-success/onboarding',
+      'items' => $items,
+      'empty' => 'Everyone who joined more than a week ago has their door badge.',
+    ];
+    if ($done) {
+      $discuss[] = $this->item('operations', self::RANK_STUCK, sprintf('%d paying %s no door badge after a month or after every setup reminder, and no staff contact logged in 30 days: %s.', count($done), count($done) === 1 ? 'member has' : 'members have', implode(', ', $done)));
     }
   }
 
