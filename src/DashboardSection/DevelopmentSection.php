@@ -90,6 +90,9 @@ class DevelopmentSection extends DashboardSectionBase {
       '#type' => 'container',
       '#attributes' => ['class' => ['development-annual-summary']],
       'heading' => ['#markup' => '<h2>' . $this->t('Annual fundraising summary') . '</h2>'],
+      'definition' => [
+        '#markup' => '<p class="development-definition">' . $this->t('Donations only: completed CiviCRM contributions of the Donation financial type. Class and event registration fees and corporate sponsorships are not counted; sponsorship has its own KPI above. The same definition is used for the year-to-date pace and gift range tables below.') . '</p>',
+      ],
       'table' => [
         '#type' => 'table',
         '#header' => [

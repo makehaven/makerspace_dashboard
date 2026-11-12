@@ -74,7 +74,7 @@ class DevelopmentGiftRangeChartBuilder extends DevelopmentChartBuilderBase {
         ],
       ],
       [
-        (string) $this->t('Source: CiviCRM completed contributions grouped by each donor’s calendar-year total.'),
+        (string) $this->t('Source: CiviCRM completed donations (Donation financial type; event fees, registration payments and sponsorships excluded), grouped by each donor’s calendar-year total.'),
         (string) $this->t('Period: @year through the latest available month.', ['@year' => $summary['year'] ?? date('Y')]),
       ],
     );

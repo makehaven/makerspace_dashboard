@@ -136,7 +136,7 @@ class DevelopmentRecurringGivingChartBuilder extends DevelopmentChartBuilderBase
       (string) $this->t('Highlights how recurring giving compares to one-time gifts over the past 12 months.'),
       $visualization,
       [
-        (string) $this->t('Source: CiviCRM contributions marked Complete; recurring is determined by a linked recurring contribution ID.'),
+        (string) $this->t('Source: CiviCRM donations marked Complete (Donation financial type; event fees, registration payments and sponsorships excluded); recurring is determined by a linked recurring contribution ID.'),
         (string) $this->t('Processing: Bars show dollars raised per month while lines track the donor counts for each stream.'),
       ],
     );

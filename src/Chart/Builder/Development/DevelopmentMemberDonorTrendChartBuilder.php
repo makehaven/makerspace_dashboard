@@ -135,7 +135,7 @@ class DevelopmentMemberDonorTrendChartBuilder extends DevelopmentChartBuilderBas
       (string) $this->t('Twelve-month trend of how many donors are members versus the dollars they contribute.'),
       $visualization,
       [
-        (string) $this->t('Source: CiviCRM contributions (completed, non-test). Members are determined by active membership records on the contribution date.'),
+        (string) $this->t('Source: CiviCRM donations (completed, non-test, Donation financial type; event fees, registration payments and sponsorships excluded). Members are determined by active membership records on the contribution date.'),
         (string) $this->t('Processing: Donor counts represent unique contacts per month; amount lines show total dollars from each segment.'),
       ],
     );

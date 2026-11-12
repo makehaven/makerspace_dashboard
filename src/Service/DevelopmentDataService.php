@@ -19,6 +19,20 @@ class DevelopmentDataService {
   protected ConfigFactoryInterface $configFactory;
   protected int $ttl;
   protected ?bool $donationSnapshotHasFirstTime = NULL;
+  protected ?int $donationFinancialTypeId = NULL;
+
+  /**
+   * Snapshot source preference, most trustworthy first.
+   *
+   * Mirrors makerspace_snapshot's SnapshotService::SOURCE_PREFERENCE. A month
+   * can carry a cron row and a manual backfill; reads keep exactly one.
+   */
+  protected const SOURCE_PREFERENCE = [
+    'automatic_cron',
+    'manual_form',
+    'manual_drush',
+    'system',
+  ];
 
   /**
    * Default gift range fallbacks when config is absent.
@@ -61,19 +75,28 @@ class DevelopmentDataService {
     $query->addExpression('MAX(d.ytd_unique_donors)', 'unique_donors');
     $query->addExpression('SUM(d.contributions_count)', 'gift_count');
     $query->addExpression('SUM(d.total_amount)', 'total_amount');
+    $query->addExpression('COUNT(DISTINCT d.period_month)', 'months');
     $hasFirstTime = $this->donationSnapshotHasFirstTimeField();
     if ($hasFirstTime) {
       $query->addExpression('SUM(d.first_time_donors_count)', 'first_time_donors');
     }
     $query->condition('s.definition', 'donation_metrics');
     $query->condition('s.snapshot_type', 'monthly');
+    $query->condition('s.id', $this->canonicalDonationSnapshotIds('donation_metrics'), 'IN');
     $query->groupBy('d.period_year');
     $query->orderBy('d.period_year', 'DESC');
     $query->range(0, $limit);
 
     $entries = [];
+    $currentYear = (int) date('Y');
     foreach ($query->execute() as $record) {
       $year = (int) $record->period_year;
+      // A year whose months are not all captured would understate it (2025
+      // snapshots start in May); the dated ledger answers those years instead.
+      $expectedMonths = $year < $currentYear ? 12 : max(0, (int) date('n') - 1);
+      if ((int) $record->months < $expectedMonths) {
+        continue;
+      }
       $gifts = (int) $record->gift_count;
       $amount = (float) $record->total_amount;
       $entries[] = [
@@ -142,6 +165,7 @@ class DevelopmentDataService {
     ]);
     $query->condition('s.definition', 'donation_range_metrics');
     $query->condition('s.snapshot_type', 'monthly');
+    $query->condition('s.id', $this->canonicalDonationSnapshotIds('donation_range_metrics'), 'IN');
     $query->condition('r.period_year', $targetYear);
     $query->condition('r.period_month', $targetMonth);
     $query->condition('r.is_year_to_date', 1);
@@ -571,7 +595,7 @@ class DevelopmentDataService {
     $q->condition('ct.contact_type', 'Individual');
     $q->leftJoin('civicrm_participant_payment', 'pp', 'pp.contribution_id = c.id');
     $q->condition('pp.participant_id', NULL, 'IS NULL');
-    $q->condition('c.financial_type_id', 1);
+    $q->condition('c.financial_type_id', $this->donationFinancialTypeId());
     $q->condition('c.contribution_status_id', 1);
     $q->condition('c.receive_date', [$start, $end], 'BETWEEN');
     $q->fields('c', ['contact_id']);
@@ -650,6 +674,7 @@ class DevelopmentDataService {
       $query->condition('c.contribution_recur_id', 0, '>');
       $query->condition('c.contribution_status_id', 1);
       $query->condition('c.is_test', 0);
+      $query->condition('c.financial_type_id', $this->donationFinancialTypeId());
       $query->condition('c.receive_date', [
         $qStart->format('Y-m-d H:i:s'),
         $qEnd->format('Y-m-d H:i:s'),
@@ -666,6 +691,7 @@ class DevelopmentDataService {
         $taggedQuarterQuery->condition('c.contact_id', array_keys($taggedContactIds), 'IN');
         $taggedQuarterQuery->condition('c.contribution_status_id', 1);
         $taggedQuarterQuery->condition('c.is_test', 0);
+        $taggedQuarterQuery->condition('c.financial_type_id', $this->donationFinancialTypeId());
         $taggedQuarterQuery->condition('c.receive_date', [
           $qStart->format('Y-m-d H:i:s'),
           $qEnd->format('Y-m-d H:i:s'),
@@ -1060,12 +1086,25 @@ class DevelopmentDataService {
     }
     $query->condition('s.definition', 'donation_metrics');
     $query->condition('s.snapshot_type', 'monthly');
+    $query->condition('s.id', $this->canonicalDonationSnapshotIds('donation_metrics'), 'IN');
     $query->condition('d.period_year', $year);
     $query->condition('d.period_month', $targetMonth, '<=');
     $query->orderBy('d.period_month', 'ASC');
     $rows = $query->execute()->fetchAll();
-    if (empty($rows)) {
-      return NULL;
+    if (count($rows) < $targetMonth) {
+      // Months missing from the snapshots would understate the pace; use the
+      // dated ledger for the same window.
+      $start = new \DateTimeImmutable(sprintf('%d-01-01 00:00:00', $year));
+      $end = $start->setDate($year, $targetMonth, 1)->modify('last day of this month')->setTime(23, 59, 59);
+      $metrics = $this->buildContributionMetricsForRange($start, $end);
+      if (!$metrics) {
+        return NULL;
+      }
+      return $metrics + [
+        'year' => $year,
+        'month' => $targetMonth,
+        'month_label' => $this->formatMonthLabel($targetMonth),
+      ];
     }
 
     $gifts = 0;
@@ -1270,12 +1309,18 @@ class DevelopmentDataService {
   }
 
   /**
-   * Provides the base contribution query with shared filters.
+   * Provides the base donation query with shared filters.
+   *
+   * A donation is a completed, non-test contribution of the "Donation"
+   * financial type that is not an event registration payment. Event Fee and
+   * Annual Sponsorship contributions are not donations; sponsorship has its
+   * own KPI. Same definition as makerspace_snapshot's donation snapshots.
    */
   protected function baseContributionQuery(): SelectInterface {
     $query = $this->database->select('civicrm_contribution', 'c');
     $query->condition('c.contribution_status_id', 1);
     $query->condition('c.is_test', 0);
+    $query->condition('c.financial_type_id', $this->donationFinancialTypeId());
     $query->condition('c.total_amount', 0, '>');
     // Exclude event registration payments; civicrm_participant_payment links contributions to event fees.
     $query->leftJoin('civicrm_participant_payment', 'pp', 'pp.contribution_id = c.id');
@@ -1293,6 +1338,10 @@ class DevelopmentDataService {
     $sub->addExpression('MIN(EXTRACT(YEAR FROM fc.receive_date))', 'first_year');
     $sub->condition('fc.contribution_status_id', 1);
     $sub->condition('fc.is_test', 0);
+    $sub->condition('fc.financial_type_id', $this->donationFinancialTypeId());
+    $sub->condition('fc.total_amount', 0, '>');
+    $sub->leftJoin('civicrm_participant_payment', 'fpp', 'fpp.contribution_id = fc.id');
+    $sub->condition('fpp.participant_id', NULL, 'IS NULL');
     $sub->condition('fc.receive_date', NULL, 'IS NOT NULL');
     $sub->groupBy('fc.contact_id');
     return $sub;
@@ -1368,6 +1417,66 @@ class DevelopmentDataService {
     $schema = $this->database->schema();
     $this->donationSnapshotHasFirstTime = $schema->fieldExists('ms_fact_donation_snapshot', 'first_time_donors_count');
     return $this->donationSnapshotHasFirstTime;
+  }
+
+  /**
+   * Returns the ID of the CiviCRM financial type named "Donation".
+   *
+   * Looked up by name; falls back to CiviCRM's stock ID 1.
+   */
+  protected function donationFinancialTypeId(): int {
+    if ($this->donationFinancialTypeId !== NULL) {
+      return $this->donationFinancialTypeId;
+    }
+    $id = NULL;
+    if ($this->database->schema()->tableExists('civicrm_financial_type')) {
+      $id = $this->database->select('civicrm_financial_type', 'ft')
+        ->fields('ft', ['id'])
+        ->condition('ft.name', 'Donation')
+        ->range(0, 1)
+        ->execute()
+        ->fetchField();
+    }
+    $this->donationFinancialTypeId = $id ? (int) $id : 1;
+    return $this->donationFinancialTypeId;
+  }
+
+  /**
+   * Returns one snapshot ID per reported month for a donation definition.
+   *
+   * A month can be recorded twice (a cron run and a manual backfill, or a
+   * backfill dated the month itself beside a cron run dated the month after),
+   * and summing both double-counts it. Keeps the preferred source, then the
+   * newest capture.
+   *
+   * @return int[]
+   *   Snapshot IDs; [0] when there are none, so IN () stays valid.
+   */
+  protected function canonicalDonationSnapshotIds(string $definition): array {
+    $table = $definition === 'donation_range_metrics' ? 'ms_fact_donation_range_snapshot' : 'ms_fact_donation_snapshot';
+    $query = $this->database->select('ms_snapshot', 's');
+    $query->innerJoin($table, 'f', 'f.snapshot_id = s.id');
+    $query->fields('s', ['id', 'source', 'created_at']);
+    $query->fields('f', ['period_year', 'period_month']);
+    $query->condition('s.definition', $definition);
+    $query->condition('s.snapshot_type', 'monthly');
+    $query->distinct();
+
+    $best = [];
+    foreach ($query->execute() as $row) {
+      $key = $row->period_year . '-' . $row->period_month;
+      $rank = array_search((string) $row->source, self::SOURCE_PREFERENCE, TRUE);
+      $candidate = [
+        $rank === FALSE ? count(self::SOURCE_PREFERENCE) : $rank,
+        -(int) $row->created_at,
+        -(int) $row->id,
+      ];
+      if (!isset($best[$key]) || $candidate < $best[$key]['sort']) {
+        $best[$key] = ['sort' => $candidate, 'id' => (int) $row->id];
+      }
+    }
+    $ids = array_column($best, 'id');
+    return $ids ?: [0];
   }
 
 }

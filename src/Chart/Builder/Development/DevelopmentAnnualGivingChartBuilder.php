@@ -78,7 +78,7 @@ class DevelopmentAnnualGivingChartBuilder extends DevelopmentChartBuilderBase {
         ],
       ],
       [
-        (string) $this->t('Source: CiviCRM completed contributions; snapshot facts are used when available and direct contribution totals fill missing years.'),
+        (string) $this->t('Source: CiviCRM completed donations (Donation financial type; event fees, registration payments and sponsorships excluded). Snapshot facts are used when every month of a year is captured; dated contributions fill the rest.'),
         (string) $this->t('The current calendar year is partial and should not be compared with completed years without considering the reporting date.'),
       ],
     );
