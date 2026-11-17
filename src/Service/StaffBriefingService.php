@@ -401,12 +401,12 @@ class StaffBriefingService {
     $focus = $this->focus($weekEnd);
     $overdue = array_filter($focus['actions'] ?? [], static fn ($a) => $a['overdue']);
     if ($overdue) {
-      // Counted only: each one is already listed under "Board and committee
-      // actions due", and the first send printed them twice.
-      $owners = array_count_values(array_map(static fn ($a) => $a['owner'] !== '' ? $a['owner'] : 'no owner', $overdue));
       // 'private': Governance Dance is the board's list, not the staff's
       // to-do list (JR 11-10), so it stays in the director's copy.
-      $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_STUCK, sprintf('%d board/committee %s past due: %s. Listed under "Board and committee actions due".', count($overdue), count($overdue) === 1 ? 'action' : 'actions', implode(', ', array_map(static fn ($o, $n) => "$o $n", array_keys($owners), $owners))));
+      // Names each action and when it was due (JR 11-17: owner counts alone
+      // were hard to understand). Long action text is cut to keep it short.
+      $what = array_map(static fn ($a) => sprintf('%s (%s, was due %s)', mb_strlen($a['text']) > 70 ? rtrim(mb_substr($a['text'], 0, 67)) . '…' : $a['text'], $a['owner'] !== '' ? $a['owner'] : 'no owner', date('M j', strtotime($a['due']))), array_values($overdue));
+      $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_STUCK, sprintf('%d board and committee %s past due: %s.', count($overdue), count($overdue) === 1 ? 'action is' : 'actions are', implode('; ', $what)));
     }
     foreach ($focus['transitions'] as $t) {
       if (($t['to'] ?? '') === 'broken') {
@@ -1110,23 +1110,51 @@ class StaffBriefingService {
         ':e' => $weekEnd->format('Y-m-d'),
       ])->fetchAll();
       $items = [];
-      $names = [];
+      $still = [];
+      $cleared = [];
       foreach ($rows as $row) {
-        $title = class_exists('\Drupal\makerspace_snapshot\EarlyWarning\EarlyWarningMonitor')
-          ? (\Drupal\makerspace_snapshot\EarlyWarning\EarlyWarningMonitor::TRIPWIRES[$row->metric]['title'] ?? $row->metric)
-          : $row->metric;
-        $items[] = sprintf('%s — went off on %d %s from %s', $title, $row->days, $row->days == 1 ? 'day' : 'days', date('D M j', strtotime($row->first_day)));
-        $names[] = $title;
+        $wire = class_exists('\Drupal\makerspace_snapshot\EarlyWarning\EarlyWarningMonitor')
+          ? (\Drupal\makerspace_snapshot\EarlyWarning\EarlyWarningMonitor::TRIPWIRES[$row->metric] ?? [])
+          : [];
+        $title = $wire['title'] ?? $row->metric;
+        // The latest reading says whether it is still happening: the 11-16
+        // send led with a reminder gap that had already ended on the 15th.
+        $latest = $this->database->query("SELECT value, tripped FROM {ms_early_warning_reading} WHERE metric = :m AND reading_date < :e ORDER BY reading_date DESC LIMIT 1", [
+          ':m' => $row->metric,
+          ':e' => $weekEnd->format('Y-m-d'),
+        ])->fetchObject();
+        $peak = $this->database->query("SELECT reading_date, value FROM {ms_early_warning_reading} WHERE metric = :m AND tripped = 1 AND reading_date >= :s AND reading_date < :e ORDER BY reading_date DESC LIMIT 1", [
+          ':m' => $row->metric,
+          ':s' => $weekEnd->modify('-7 days')->format('Y-m-d'),
+          ':e' => $weekEnd->format('Y-m-d'),
+        ])->fetchObject();
+        $isStill = $latest && (int) $latest->tripped === 1;
+        $reading = sprintf('%s was %s on %s%s', $title, self::format((float) ($peak->value ?? 0)), date('D M j', strtotime($peak->reading_date ?? $row->first_day)), !empty($wire['normal']) ? ' (' . $wire['normal'] . ')' : '');
+        $items[] = $reading . ($isStill ? '; still off normal' : '; back to normal now');
+        $text = $reading . '. ' . ($isStill
+          ? 'Still off normal. ' . (!empty($wire['means']) ? 'It usually means ' . rtrim($wire['means'], '.') . '.' : '')
+          : 'It is back to normal now, so nothing to do unless it happens again.');
+        if ($isStill) {
+          $still[] = $text;
+        }
+        else {
+          $cleared[] = $text;
+        }
       }
       $roles['director']['lists'][] = [
         'title' => 'Website health alarms (automatic checks on the site)',
         'items' => $items,
         'empty' => 'None went off this week.',
       ];
-      if ($items) {
-        // 'private': the website's own plumbing, for whoever runs the site.
-        // On the first send it was item 1 of "For Tuesday" for all staff.
-        $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_URGENT, 'Website health alarms went off: ' . implode('; ', $names) . '.');
+      // 'private': the website's own plumbing, for whoever runs the site.
+      // On the first send it was item 1 of "For Tuesday" for all staff.
+      // Headline says what to do; one still going off is urgent, one that
+      // cleared on its own is only notable (it led the 11-16 send).
+      if ($still) {
+        $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_URGENT, (count($still) === 1 ? 'A website check is still off normal, worth a look' : count($still) . ' website checks are still off normal, worth a look') . ': ' . implode(' ', $still));
+      }
+      elseif ($cleared) {
+        $discuss[] = ['private' => TRUE] + $this->item('director', self::RANK_NOTABLE, (count($cleared) === 1 ? 'A website check went off and fixed itself' : count($cleared) . ' website checks went off and fixed themselves') . ': ' . implode(' ', $cleared));
       }
     }
 
@@ -1215,7 +1243,15 @@ class StaffBriefingService {
         'empty' => 'Nothing waiting: every payment request is paid.',
       ];
       if ($stuck) {
-        $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('Payment requests approved but unpaid: %d (%s), the oldest requested %d days ago.', $approved->n, self::format((float) $approved->amount, TRUE), floor(($now - (int) $approved->oldest) / 86400)));
+        // Who is owed, not just a total and an age in days (JR 11-17: "hard
+        // to understand"). Grouped by payee, most owed first.
+        $owed = [];
+        if ($schema->tableExists('payment_request__field_payee')) {
+          $owed = $this->database->query("SELECT p.field_payee_target_id uid, COUNT(*) n, SUM(COALESCE(a.field_amount_value, h.field_hours_value * rt.field_hourly_rate_value, 0)) amount FROM {payment_request_field_data} r JOIN {payment_request__field_status} st ON st.entity_id = r.id JOIN {payment_request__field_payee} p ON p.entity_id = r.id LEFT JOIN {payment_request__field_amount} a ON a.entity_id = r.id LEFT JOIN {payment_request__field_hours} h ON h.entity_id = r.id LEFT JOIN {payment_request__field_hourly_rate} rt ON rt.entity_id = r.id WHERE st.field_status_value = 'approved' AND r.created >= :since GROUP BY p.field_payee_target_id ORDER BY amount DESC", [':since' => $now - 365 * 86400])->fetchAll();
+        }
+        $payees = $this->payeeNames(array_map(static fn ($r) => (int) $r->uid, $owed));
+        $who = implode(', ', array_map(static fn ($r) => sprintf('%s %s%s', $payees[(int) $r->uid] ?? ('user ' . $r->uid), self::format((float) $r->amount, TRUE), $r->n > 1 ? ' (' . $r->n . ' requests)' : ''), $owed));
+        $discuss[] = $this->item('director', self::RANK_STUCK, sprintf('%d approved payment %s (%s) never marked paid: %sOldest from %s. Either pay them, or mark paid any that were paid another way.', $approved->n, $approved->n == 1 ? 'request' : 'requests', self::format((float) $approved->amount, TRUE), $who !== '' ? $who . '. ' : '', date('M j', (int) $approved->oldest)));
       }
     }
 
