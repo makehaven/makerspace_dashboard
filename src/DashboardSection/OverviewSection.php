@@ -59,13 +59,14 @@ class OverviewSection extends DashboardSectionBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): array {
+    // KPI list first; the trend charts follow it (JR 11-18).
     $build = [];
+    $build['stoplight'] = $this->buildStoplightGrid();
     foreach ($this->buildTieredChartContainers($filters) as $tier => $container) {
       $container['#attributes']['class'][] = 'kpi-overview-trends';
       $container['heading']['#markup'] = '<h2>' . $this->t('Four trends') . '</h2>';
       $build['tier_' . $tier] = $container;
     }
-    $build['stoplight'] = $this->buildStoplightGrid();
     return $build;
   }
 

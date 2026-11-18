@@ -37,32 +37,37 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
    * {@inheritdoc}
    */
   public function build(array $filters = []): ?ChartDefinition {
-    $series = $this->snapshotDataService->getMembershipCountSeries('month');
-    if (!$series) {
+    $readings = $this->snapshotDataService->getActiveMemberReadings();
+    if (!$readings) {
       return NULL;
     }
 
-    $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
-    $rangeEnd = new \DateTimeImmutable('first day of this month');
-    $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
-    $startDate = $bounds['start'];
-    $endDate = $bounds['end'];
+    // Offer only the ranges that show something different: the short ones,
+    // plus the first one that already reaches back to the earliest reading.
+    // Readings start in January 2026, so "2 years" and "All" would otherwise
+    // draw exactly the same chart as "1 year".
+    $rangeEnd = (new \DateTimeImmutable('first day of this month'))->setTime(0, 0);
+    $earliest = $readings[0]['captured'];
+    $rangeOptions = [];
+    foreach (self::RANGE_OPTIONS as $option) {
+      $rangeOptions[] = $option;
+      $optionStart = $this->calculateRangeBounds($option, $rangeEnd)['start'];
+      if ($optionStart === NULL || $optionStart <= $earliest) {
+        break;
+      }
+    }
+    $default = in_array(self::RANGE_DEFAULT, $rangeOptions, TRUE) ? self::RANGE_DEFAULT : end($rangeOptions);
+    $requested = $filters['ranges'][$this->getChartId()] ?? ($filters['range'] ?? NULL);
+    if (is_string($requested) && in_array($requested, self::RANGE_OPTIONS, TRUE) && !in_array($requested, $rangeOptions, TRUE)) {
+      // A longer range than the data covers shows all of it.
+      $requested = end($rangeOptions);
+      $filters['ranges'][$this->getChartId()] = $requested;
+    }
+    $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), $default, $rangeOptions);
+    $startDate = $this->calculateRangeBounds($activeRange, $rangeEnd)['start'];
 
-    $filtered = array_filter($series, static function (array $row) use ($startDate, $endDate) {
-      $periodDate = $row['period_date'] ?? NULL;
-      if (!$periodDate instanceof \DateTimeImmutable) {
-        return FALSE;
-      }
-      if ($startDate && $periodDate < $startDate) {
-        return FALSE;
-      }
-      if ($periodDate >= $endDate) {
-        return FALSE;
-      }
-      return TRUE;
-    });
-
-    $recent = array_values($filtered);
+    // No upper bound: the newest reading (taken on the 1st) is complete.
+    $recent = array_values(array_filter($readings, static fn(array $row) => !$startDate || $row['captured'] >= $startDate));
     if (!$recent) {
       return NULL;
     }
@@ -70,7 +75,7 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
     $labels = [];
     $values = [];
     foreach ($recent as $row) {
-      $labels[] = $this->dateFormatter->format($row['period_date']->getTimestamp(), 'custom', 'M Y');
+      $labels[] = $this->dateFormatter->format($row['captured']->getTimestamp(), 'custom', 'M j, Y');
       $values[] = (int) $row['members_active'];
     }
 
@@ -126,15 +131,16 @@ class OverviewActiveMembersChartBuilder extends ChartBuilderBase {
 
     return $this->newDefinition(
       (string) $this->t('Active Members'),
-      (string) $this->t('Members in active status, as recorded each month.'),
+      (string) $this->t('Members with an active (not paused) membership, counted on the date shown, usually the 1st of the month.'),
       $visualization,
       [
-        (string) $this->t('Source: makerspace_snapshot membership_totals snapshots.'),
-        (string) $this->t('Processing: Groups snapshots by calendar month and keeps the most recent capture in each month.'),
+        (string) $this->t('Source: monthly membership snapshots (makerspace_snapshot membership_totals): enabled accounts with the Member role and no payment or manual pause, counted when the snapshot runs.'),
+        (string) $this->t('Processing: Each point is placed on the day the count was taken; the latest count in a calendar month is kept. Hand-run backfills are left out because they copied the roster of the day they ran into past months.'),
+        (string) $this->t('Coverage: Counts start January 2026 (taken January 22). Earlier months were never recorded, so longer ranges are not offered.'),
       ],
       [
         'active' => $activeRange,
-        'options' => $this->getRangePresets(self::RANGE_OPTIONS),
+        'options' => $this->getRangePresets($rangeOptions),
       ],
     );
   }

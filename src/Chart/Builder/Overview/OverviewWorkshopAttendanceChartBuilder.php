@@ -37,7 +37,10 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
    */
   public function build(array $filters = []): ?ChartDefinition {
     $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
-    $rangeEnd = new \DateTimeImmutable('first day of this month');
+    // Midnight boundaries: with the page-load time left on, BETWEEN dropped
+    // workshops later in the day on the range's first and last days, and the
+    // cache key changed every second.
+    $rangeEnd = (new \DateTimeImmutable('first day of this month'))->setTime(0, 0);
     $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
     $startDate = $bounds['start'] ?? $rangeEnd->modify('-20 years');
     if ($activeRange === 'all') {
@@ -46,7 +49,7 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
         $startDate = $minimumStart;
       }
     }
-    $endDate = $bounds['end']->modify('-1 day');
+    $endDate = $bounds['end']->modify('-1 second');
     if ($startDate > $endDate) {
       return NULL;
     }

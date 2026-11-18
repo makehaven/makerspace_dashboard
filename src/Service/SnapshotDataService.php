@@ -184,6 +184,81 @@ class SnapshotDataService {
   }
 
   /**
+   * Returns active-member readings placed on the day each was captured.
+   *
+   * The active count is a roster read at the moment the snapshot runs, so the
+   * capture time is the date it describes. snapshot_date can disagree: the
+   * cron run of 2026-02-02 was filed as 2026-01-01 (before the catch-up run
+   * was anchored to the current month), which put February's reading under
+   * January and left February empty. Hand-run backfills (manual_drush) copied
+   * the roster of the day they ran into past months and are left out.
+   *
+   * @return array
+   *   One row per calendar month of capture, oldest first, each with
+   *   'captured' (DateTimeImmutable, midnight of the capture day) and
+   *   'members_active' (int). The latest capture in a month wins.
+   */
+  public function getActiveMemberReadings(): array {
+    $cacheId = 'makerspace_dashboard:snapshot:membership:active_readings';
+    if ($cache = $this->cache->get($cacheId)) {
+      return $cache->data;
+    }
+
+    $schema = $this->database->schema();
+    if (!$schema->tableExists('ms_snapshot') || !$schema->tableExists('ms_fact_org_snapshot')) {
+      return [];
+    }
+
+    $query = $this->database->select('ms_snapshot', 's');
+    $query->innerJoin('ms_fact_org_snapshot', 'o', 'o.snapshot_id = s.id');
+    $query->fields('s', ['id', 'snapshot_date']);
+    $query->fields('o', ['members_active']);
+    $hasCreatedAt = $schema->fieldExists('ms_snapshot', 'created_at');
+    if ($hasCreatedAt) {
+      $query->addField('s', 'created_at');
+    }
+    $query->condition('s.snapshot_type', ['monthly', 'quarterly', 'annually', 'manual'], 'IN');
+    if ($this->snapshotHasTestFlag()) {
+      $query->condition('s.is_test', 0);
+    }
+    if ($schema->fieldExists('ms_snapshot', 'source')) {
+      $query->condition('s.source', 'manual_drush', '<>');
+    }
+    $query->orderBy('s.id', 'ASC');
+
+    $timezone = new \DateTimeZone(date_default_timezone_get());
+    $byMonth = [];
+    foreach ($query->execute() as $record) {
+      $captured = NULL;
+      if ($hasCreatedAt && !empty($record->created_at)) {
+        $captured = (new DateTimeImmutable('@' . (int) $record->created_at))->setTimezone($timezone)->setTime(0, 0);
+      }
+      if (!$captured) {
+        $captured = DateTimeImmutable::createFromFormat('!Y-m-d', (string) $record->snapshot_date, $timezone) ?: NULL;
+      }
+      if (!$captured) {
+        continue;
+      }
+      $monthKey = $captured->format('Y-m');
+      if (isset($byMonth[$monthKey]) && $byMonth[$monthKey]['captured'] > $captured) {
+        continue;
+      }
+      $byMonth[$monthKey] = [
+        'captured' => $captured,
+        'members_active' => (int) $record->members_active,
+      ];
+    }
+
+    ksort($byMonth, SORT_STRING);
+    $readings = array_values($byMonth);
+
+    $expire = $this->time->getRequestTime() + $this->ttl;
+    $this->cache->set($cacheId, $readings, $expire, ['makerspace_snapshot:membership_totals']);
+
+    return $readings;
+  }
+
+  /**
    * Returns membership type breakdown snapshots grouped by granularity.
    *
    * @param string $granularity

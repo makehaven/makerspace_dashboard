@@ -4844,7 +4844,7 @@ class KpiDataService {
   /**
    * Calculates the average monthly expense from the Income-Statement sheet.
    */
-  private function calculateAverageMonthlyExpense(): ?float {
+  private function calculateAverageMonthlyExpense(?\DateTimeImmutable $asOf = NULL): ?float {
     $table = $this->getIncomeStatementTable();
     if (!$table) {
       return NULL;
@@ -4879,7 +4879,18 @@ class KpiDataService {
     }
 
     ksort($expensesByDate, SORT_STRING);
-    $latestQuarters = array_slice($expensesByDate, -4, NULL, TRUE);
+    // As of a given month, use the four quarters that had closed by then, so
+    // a past month is compared with what the space spent at that time. A
+    // month before the first recorded quarter falls back to the earliest
+    // quarters on the sheet.
+    if ($asOf !== NULL) {
+      $cutoff = $asOf->format('Y-m-d');
+      $closed = array_filter($expensesByDate, static fn($date) => $date <= $cutoff, ARRAY_FILTER_USE_KEY);
+      $latestQuarters = $closed ? array_slice($closed, -4, NULL, TRUE) : array_slice($expensesByDate, 0, 4, TRUE);
+    }
+    else {
+      $latestQuarters = array_slice($expensesByDate, -4, NULL, TRUE);
+    }
     if (!$latestQuarters) {
       return NULL;
     }
@@ -5684,8 +5695,7 @@ class KpiDataService {
       return [];
     }
 
-    $averageMonthlyExpense = $this->calculateAverageMonthlyExpense();
-    if ($averageMonthlyExpense === NULL || $averageMonthlyExpense <= 0) {
+    if ($this->calculateAverageMonthlyExpense() === NULL) {
       return [];
     }
 
@@ -5703,6 +5713,7 @@ class KpiDataService {
     $items = [];
     $monthsValues = [];
     foreach ($entries as $monthKey => $entry) {
+      $averageMonthlyExpense = $this->calculateAverageMonthlyExpense($entry['date']);
       $months = $averageMonthlyExpense > 0 ? ($entry['cash'] / $averageMonthlyExpense) : 0.0;
       $date = $entry['date'];
       $label = $entry['label'];

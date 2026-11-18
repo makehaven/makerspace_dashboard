@@ -42,7 +42,7 @@ class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
     }
 
     $activeRange = $this->resolveSelectedRange($filters, $this->getChartId(), self::RANGE_DEFAULT, self::RANGE_OPTIONS);
-    $rangeEnd = new \DateTimeImmutable('first day of this month');
+    $rangeEnd = (new \DateTimeImmutable('first day of this month'))->setTime(0, 0);
     $bounds = $this->calculateRangeBounds($activeRange, $rangeEnd);
     $startDate = $bounds['start'];
     $endDate = $bounds['end'];
@@ -149,7 +149,7 @@ class OverviewReserveFundsChartBuilder extends ChartBuilderBase {
 
     $notes = [
       (string) $this->t('Source: Balance-Sheet tab row "Cash and Cash Equivalents" and Income-Statement metric "expense_total".'),
-      (string) $this->t('Processing: Converts the latest cash balance into months of runway using the trailing four-quarter average monthly expense.'),
+      (string) $this->t('Processing: Divides each month-end cash balance by the average monthly expense of the four quarters that had closed by that month, so past months are measured against what was being spent then.'),
     ];
     if (!empty($series['last_updated'])) {
       $notes[] = (string) $this->t('Last sheet update: @date', ['@date' => $series['last_updated']]);
