@@ -1370,7 +1370,7 @@ class KpiDataService {
     }
 
     $result = $this->withDemographicSegments(
-      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, 'Counted CiviCRM participant registrations for Ticketed Workshop events, grouped by event month. Counted statuses can include both Registered and Attended; this is not verified attendance or annual unique learners.', 'Last 12 months', 'Trailing 12 months', 1.0),
+      $this->buildKpiResult($kpi_info, $annualOverrides, $trend, $ttm12, $ttm3, $lastUpdated, $current, 'kpi_workshop_attendees', NULL, 'Counted CiviCRM participant registrations for classes (Ticketed Workshop and Ticketed Member Only, which holds Build & Badge), grouped by event month. Counted statuses can include both Registered and Attended; this is not verified attendance or annual unique learners.', 'Last 12 months', 'Trailing 12 months', 1.0),
       'kpi_workshop_attendees'
     );
 
@@ -5810,7 +5810,7 @@ class KpiDataService {
           'base_2025' => 1200,
           'goal_2030' => 2000,
           'description' => 'The total number of registrations for ticketed workshops held during the period.',
-          'source_note' => 'CiviCRM: Sum of monthly registrations for event type "Ticketed Workshop".',
+          'source_note' => 'CiviCRM: Sum of monthly counted registrations for classes (Ticketed Workshop and Ticketed Member Only).',
         ],
         'kpi_reserve_funds_months' => [
           'label' => 'Reserve Funds (as Months of Operating Expense)',
@@ -6147,7 +6147,7 @@ class KpiDataService {
           'base_2025' => 1200,
           'goal_2030' => 2000,
           'description' => 'The total number of registrations for ticketed workshops held during the period.',
-          'source_note' => 'CiviCRM: Sum of monthly registrations for event type "Ticketed Workshop".',
+          'source_note' => 'CiviCRM: Sum of monthly counted registrations for classes (Ticketed Workshop and Ticketed Member Only).',
         ],
         'kpi_workshop_capacity_utilization' => [
           'label' => 'Workshop Capacity Utilization %',

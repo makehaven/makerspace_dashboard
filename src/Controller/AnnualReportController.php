@@ -286,7 +286,7 @@ class AnnualReportController extends ControllerBase {
     }
     
     if ($curr['events_held'] > $prev['events_held']) {
-      $highlights[] = $this->t('We hosted <strong>@count</strong> workshops this year.', ['@count' => number_format($curr['events_held'])]);
+      $highlights[] = $this->t('We hosted <strong>@count</strong> classes this year.', ['@count' => number_format($curr['events_held'])]);
     }
 
     return $highlights;
@@ -318,22 +318,11 @@ class AnnualReportController extends ControllerBase {
     $count_query = $query->countQuery();
     $stats['total_joins'] = (int) $count_query->execute()->fetchField();
 
-    $workshopEventTypeId = (int) ($this->configFactory->get('makerspace_dashboard.settings')->get('events.workshop_event_type_id') ?? 6);
-
-    $query = $this->database->select('civicrm_event', 'e');
-    $query->condition('e.event_type_id', $workshopEventTypeId);
-    $query->condition('e.start_date', $start->format('Y-m-d H:i:s'), '>=');
-    $query->condition('e.start_date', $end->format('Y-m-d H:i:s'), '<');
-    $count_query = $query->countQuery();
-    $stats['events_held'] = (int) $count_query->execute()->fetchField();
-    
-    $query = $this->database->select('civicrm_participant', 'cp');
-    $query->join('civicrm_event', 'ce', 'cp.event_id = ce.id');
-    $query->condition('ce.event_type_id', $workshopEventTypeId);
-    $query->condition('ce.start_date', $start->format('Y-m-d H:i:s'), '>=');
-    $query->condition('ce.start_date', $end->format('Y-m-d H:i:s'), '<');
-    $count_query = $query->countQuery();
-    $stats['event_registrations'] = (int) $count_query->execute()->fetchField();
+    // Classes: Ticketed Workshop and Ticketed Member Only (Build & Badge).
+    // Registrations count only CiviCRM's counted statuses, so waitlist,
+    // cancelled, no-show and abandoned checkouts are left out.
+    $stats['events_held'] = $this->eventsData->getClassesHeldCount($start, $end);
+    $stats['event_registrations'] = $this->eventsData->getWorkshopAttendeeCountInRange($start, $end->modify('-1 second'));
 
     $query = $this->database->select('node__field_member_to_badge', 'mtb');
     $query->innerJoin('node_field_data', 'n', 'n.nid = mtb.entity_id');
@@ -482,8 +471,8 @@ class AnnualReportController extends ControllerBase {
     return [
       'members_active' => ['label' => 'Total Members', 'format' => 'number'],
       'total_joins' => ['label' => 'Total Joins (Year)', 'format' => 'number'],
-      'events_held' => ['label' => 'Workshops Held (Year)', 'format' => 'number'],
-      'event_registrations' => ['label' => 'Workshop Registrations', 'format' => 'number'],
+      'events_held' => ['label' => 'Classes Held', 'format' => 'number'],
+      'event_registrations' => ['label' => 'Class Registrations', 'format' => 'number'],
       'appointments' => ['label' => 'Volunteer Appointments (Last 12 Months)', 'format' => 'number'],
       'lending_loans' => ['label' => 'Tool Loans (Last 12 Months)', 'format' => 'number'],
       'badges_earned' => ['label' => 'Badges Earned (Last 12 Months)', 'format' => 'number'],
@@ -692,7 +681,7 @@ class AnnualReportController extends ControllerBase {
     if (!empty($workshopSeries['counts'])) {
       $groups['education']['workshops'] = [
         '#type' => 'details',
-        '#title' => $this->t('Workshop Registrations (2 Years)'),
+        '#title' => $this->t('Class Registrations (2 Years)'),
         '#open' => TRUE,
         'chart' => [
           '#type' => 'chart',

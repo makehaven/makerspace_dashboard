@@ -33,6 +33,14 @@ class EventsMembershipDataService {
   public const WORKSHOP_CAPACITY_CAP = 25;
 
   /**
+   * Event types that count as classes for registration totals.
+   *
+   * Build & Badge classes are "Ticketed Member Only", and classes move between
+   * the two types, so registration counts include both.
+   */
+  public const CLASS_EVENT_TYPE_LABELS = ['Ticketed Workshop', 'Ticketed Member Only'];
+
+  /**
    * Database connection.
    */
   protected Connection $database;
@@ -297,8 +305,8 @@ class EventsMembershipDataService {
    *   Start of the reporting window.
    * @param \DateTimeImmutable $end_date
    *   End of the reporting window.
-   * @param string $eventTypeLabel
-   *   Event type label to filter by. Defaults to "Ticketed Workshop".
+   * @param string|string[] $eventTypeLabels
+   *   Event type label(s) to sum. Defaults to the class types.
    *
    * @return array
    *   Structured series data with keys:
@@ -310,7 +318,8 @@ class EventsMembershipDataService {
    *   - labels: Month labels mapped from the items.
    *   - counts: Numeric counts aligned with the labels order.
    */
-  public function getMonthlyWorkshopAttendanceSeries(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): array {
+  public function getMonthlyWorkshopAttendanceSeries(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string|array $eventTypeLabels = self::CLASS_EVENT_TYPE_LABELS): array {
+    $eventTypeLabels = (array) $eventTypeLabels;
     $months = $this->buildMonthRange($start_date, $end_date);
     if (empty($months)) {
       return [
@@ -324,14 +333,19 @@ class EventsMembershipDataService {
       'makerspace_dashboard:workshop_attendance:%s:%s:%s',
       $start_date->format('Ymd'),
       $end_date->format('Ymd'),
-      md5($eventTypeLabel)
+      md5(implode('|', $eventTypeLabels))
     );
     if ($cache = $this->cache->get($cacheId)) {
       return $cache->data;
     }
 
     $registrations = $this->getMonthlyRegistrationsByType($start_date, $end_date);
-    $series = $registrations['types'][$eventTypeLabel] ?? [];
+    $series = [];
+    foreach ($eventTypeLabels as $label) {
+      foreach ($registrations['types'][$label] ?? [] as $i => $value) {
+        $series[$i] = ($series[$i] ?? 0) + (int) $value;
+      }
+    }
 
     $items = [];
     $labels = [];
@@ -2305,14 +2319,15 @@ class EventsMembershipDataService {
   }
 
   /**
-   * Returns counted workshop attendees for an event-date range.
+   * Returns counted class registrations for an event-date range.
    */
-  public function getWorkshopAttendeeCountInRange(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string $eventTypeLabel = 'Ticketed Workshop'): int {
+  public function getWorkshopAttendeeCountInRange(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, string|array $eventTypeLabels = self::CLASS_EVENT_TYPE_LABELS): int {
+    $eventTypeLabels = (array) $eventTypeLabels;
     $cacheId = sprintf(
       'makerspace_dashboard:workshop_attendance_count:%s:%s:%s',
       $start_date->format('YmdHis'),
       $end_date->format('YmdHis'),
-      md5($eventTypeLabel)
+      md5(implode('|', $eventTypeLabels))
     );
     if ($cache = $this->cache->get($cacheId)) {
       return (int) ($cache->data ?? 0);
@@ -2332,8 +2347,11 @@ class EventsMembershipDataService {
       $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
       $query->condition('og.name', 'event_type');
     }
-    $query->condition('ov.label', $eventTypeLabel);
+    $query->condition('ov.label', $eventTypeLabels, 'IN');
     $query->condition('pst.is_counted', 1);
+    $query->condition('p.is_test', 0);
+    $query->condition('e.is_active', 1);
+    $query->condition('e.is_template', 0);
     $query->condition('e.start_date', [
       $start_date->format('Y-m-d H:i:s'),
       $end_date->format('Y-m-d H:i:s'),
@@ -2343,6 +2361,32 @@ class EventsMembershipDataService {
     $count = (int) $query->execute()->fetchField();
     $this->cache->set($cacheId, $count, $this->buildTtl(), ['civicrm_event_list', 'civicrm_participant_list']);
     return $count;
+  }
+  /**
+   * Returns the number of live classes with a start date in the range.
+   *
+   * Counts active, non-template events of the class types, end exclusive.
+   */
+  public function getClassesHeldCount(\DateTimeImmutable $start_date, \DateTimeImmutable $end_date, array $eventTypeLabels = self::CLASS_EVENT_TYPE_LABELS): int {
+    $query = $this->database->select('civicrm_event', 'e');
+    $eventTypeGroupId = $this->getEventTypeGroupId();
+    if ($eventTypeGroupId) {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id AND ov.option_group_id = :event_type_group', [
+        ':event_type_group' => $eventTypeGroupId,
+      ]);
+    }
+    else {
+      $query->innerJoin('civicrm_option_value', 'ov', 'ov.value = e.event_type_id');
+      $query->innerJoin('civicrm_option_group', 'og', 'og.id = ov.option_group_id');
+      $query->condition('og.name', 'event_type');
+    }
+    $query->condition('ov.label', $eventTypeLabels, 'IN');
+    $query->condition('e.is_active', 1);
+    $query->condition('e.is_template', 0);
+    $query->condition('e.start_date', $start_date->format('Y-m-d H:i:s'), '>=');
+    $query->condition('e.start_date', $end_date->format('Y-m-d H:i:s'), '<');
+    $query->addExpression('COUNT(DISTINCT e.id)', 'classes');
+    return (int) $query->execute()->fetchField();
   }
 
   /**

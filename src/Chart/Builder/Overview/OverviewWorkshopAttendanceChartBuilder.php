@@ -109,11 +109,11 @@ class OverviewWorkshopAttendanceChartBuilder extends ChartBuilderBase {
     ];
 
     return $this->newDefinition(
-      (string) $this->t('Workshop Registrations (Ticketed Workshops)'),
-      (string) $this->t('Displays the monthly count of participants registered for ticketed workshops across the selected range.'),
+      (string) $this->t('Class Registrations (Workshops and Build & Badge)'),
+      (string) $this->t('Displays the monthly count of participants registered for classes (ticketed workshops and Build & Badge) across the selected range.'),
       $visualization,
       [
-        (string) $this->t('Source: CiviCRM participant records with counted statuses and event type "Ticketed Workshop".'),
+        (string) $this->t('Source: CiviCRM participant records with counted statuses and event type "Ticketed Workshop" or "Ticketed Member Only".'),
         (string) $this->t('Processing: Groups counted registrations by workshop month; months with no registrations render as zero. Registered and Attended statuses can both contribute; these counts do not establish actual attendance.'),
       ],
       [
