@@ -1648,3 +1648,14 @@
 .makerspace-dashboard-map-tile {
   filter: saturate(0.3) brightness(1.04);
 }
+
+/* Plain section tables (Infrastructure "tools needing attention",
+   Entrepreneurship) sized to their content and stopped short of the cards
+   around them: the admin theme sets every table to display: block, so the
+   rows shrink to their content. Stretch them like every other block in a
+   section (#47451); Gin's scroll wrapper still scrolls them on phones. */
+.makerspace-dashboard-section table.makerspace-dashboard-table,
+.makerspace-dashboard-wrapper table.makerspace-dashboard-table {
+  display: table;
+  width: 100%;
+}
